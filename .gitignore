@@ -1,0 +1,43 @@
+# Build and publication artifacts
+[Bb]in/
+[Oo]bj/
+artifacts/
+publish/
+outputs/
+*.exe
+*.dll
+*.pdb
+*.zip
+*.7z
+*.rar
+*.msi
+*.msix
+*.appx
+*.nupkg
+
+# Local inspection fixtures and generated reports
+test-fixtures/
+test-results/
+reports/
+*.pcap
+*.pcapng
+*.etl
+
+# Local settings and secrets
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.pfx
+*.p12
+settings.json
+
+# IDE and operating-system state
+.vs/
+.vscode/
+*.user
+*.suo
+*.userprefs
+Thumbs.db
+Desktop.ini
