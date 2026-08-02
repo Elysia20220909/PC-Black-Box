@@ -1,61 +1,62 @@
 # PC Black Box
 
-PC Black Box is a Windows static-inspection tool for examining downloaded files and folders without executing them.
+PC Black Box is a Windows tool for inspecting downloaded files and folders without running them.
 
-Its compact black, white, and yellow interface carries forward the at-a-glance operating style of Marathon Network Blocker. Administrator privileges are not requested.
+It checks SHA-256, digital signatures, download origin, true file type, scripts, and ZIP contents. The interface supports Japanese and English.
+
+## Setup
+
+You need:
+
+- Windows 10 or Windows 11
+- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
+- Access to this private repository
+- GitHub CLI
+
+Run these commands in PowerShell:
+
+```powershell
+gh auth login
+gh repo clone Elysia20220909/PC-Black-Box
+cd PC-Black-Box
+dotnet restore
+dotnet run --project .\Destiny2BlackBox.csproj
+```
+
+Skip `gh auth login` if GitHub CLI is already signed in.
 
 ## Use
 
-1. Start `PC Black Box.exe`.
-2. Drop a file or folder onto the window, or use a selection button.
-3. Select `INSPECT`.
-4. Review prioritized findings under `OVERVIEW`, file-level evidence under `FILES`, and the sanitized report under `REPORT`.
+- Drop a file or folder onto the window, or use a selection button.
+- Select `INSPECT`.
+- Open `OVERVIEW` for the assessment, `FILES` for details, and `REPORT` for a reusable summary.
+- Use `JA / EN` to change the display language.
 
-Use `JA / EN` to switch languages. Only that language preference is stored in `%LOCALAPPDATA%\PCBlackBox\settings.json`.
+## Understanding the result
 
-## What it inspects
+`CLEAR / LOW / REVIEW / HIGH` is a review priority. It is not a malware verdict or a safety guarantee.
 
-- SHA-256
-- Authenticode status and signer
-- Mark-of-the-Web (Internet Zone) and source host
-- True format inferred from file magic
-- Double extensions, right-to-left override characters, and extension mismatches
-- PE architecture, product/company metadata, and entropy
-- Static capability terms associated with downloads, persistence, Defender changes, process injection, deletion, and related behavior
-- Executable content, macros, path traversal, and extreme compression ratios inside ZIP and Office packages
+For `REVIEW` or `HIGH`, also check the signature, download source, expected purpose, and Windows Defender result.
 
-Safety limits are 2,500 files or 12 GB per folder, 10,000 ZIP entries, and 300 signature checks. Reparse points are not followed.
+## Safety and privacy
 
-## Assessment model
-
-`CLEAR / LOW / REVIEW / HIGH` is a review priority, not a malware verdict or safety guarantee.
-
-Legitimate administration scripts, installers, and compression tools can trigger warnings. Conversely, unknown code may show no static indicator. Combine this result with the expected purpose, download source, signature, and tools such as Windows Defender.
-
-## Privacy and safety boundary
-
-- The target is never launched.
+- The target is not launched.
 - Files are not uploaded.
-- No automatic network request is made.
-- No process injection, game-memory access, or packet capture is performed.
-- Files are not deleted, quarantined, moved, or repaired.
-- Reports omit absolute paths, Windows user names, IP addresses, Steam IDs, and credentials.
-- `OPEN HASH LOOKUP` asks before opening VirusTotal. Only the SHA-256 appears in the URL; the file itself is not uploaded.
+- No automatic network request, memory inspection, or packet capture is performed.
+- Files are not deleted, quarantined, or repaired.
+- Reports omit absolute paths, user names, IP addresses, Steam IDs, and credentials.
 
-## Current limitations
+The VirusTotal hash lookup opens a browser only after confirmation. Its URL contains the SHA-256, not the file itself.
 
-- No dynamic behavior, sandbox execution, or live destination analysis.
-- 7-Zip and RAR are identified but not unpacked.
-- Capability terms inside script comments are still reported and require context.
-- A `CLEAR` result does not guarantee safety.
+## Development commands
 
-## Build
+Build the project:
 
 ```powershell
 dotnet build .\Destiny2BlackBox.csproj -c Release
 ```
 
-The app also supports non-interactive Markdown report generation:
+Create a Markdown report without opening the window:
 
 ```powershell
 dotnet ".\bin\Release\net10.0-windows10.0.17763.0\PC Black Box.dll" --report "C:\path\to\target" ".\report.md"
@@ -63,4 +64,4 @@ dotnet ".\bin\Release\net10.0-windows10.0.17763.0\PC Black Box.dll" --report "C:
 
 ## Repository policy
 
-This is a private, source-only repository. Executables, installers, release archives, signing keys, local settings, packet captures, and generated reports are neither tracked nor distributed. Adding access or changing visibility requires the owner's explicit approval.
+This is a private, source-only repository. Executables, installers, release archives, signing keys, local settings, packet captures, and generated reports are neither tracked nor distributed.
