@@ -8,6 +8,7 @@
     <RootNamespace>DestinyBlackBox</RootNamespace>
     <AssemblyName>PC Black Box</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>assets\pc-black-box.ico</ApplicationIcon>
     <Version>0.4.0</Version>
     <FileVersion>0.4.0.0</FileVersion>
     <AssemblyVersion>0.4.0.0</AssemblyVersion>
@@ -18,4 +19,7 @@
     <AnalysisLevel>latest</AnalysisLevel>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
+  <ItemGroup>
+    <Resource Include="assets\pc-black-box.ico" />
+  </ItemGroup>
 </Project>

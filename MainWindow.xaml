@@ -5,6 +5,7 @@
         Width="980" Height="690"
         MinWidth="900" MinHeight="620"
         WindowStartupLocation="CenterScreen"
+        Icon="assets/pc-black-box.ico"
         WindowStyle="None"
         ResizeMode="CanResizeWithGrip"
         Background="Transparent"

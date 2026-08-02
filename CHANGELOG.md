@@ -7,6 +7,7 @@
 - Required DEP, high-entropy ASLR, Control Flow Guard, and SEHOP before any target can be inspected.
 - Added a safe security-status command and embedded the verified posture in Markdown and JSON reports.
 - Added a written threat model and made strict analyzer, overflow, and deterministic build settings project defaults.
+- Embedded a project-owned multi-resolution Windows icon in the executable and WPF window.
 
 ## 0.1.0 — 2026-07-31
 
