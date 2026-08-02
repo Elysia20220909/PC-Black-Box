@@ -46,11 +46,15 @@ The design follows iOS-inspired security principles: least privilege, a closed d
 
 ## Defense in depth
 
-- Required Windows process mitigations block child-process creation at the OS boundary.
-- Remote and Low-integrity native images are refused and System32 images are preferred. Inspection fails closed if these policies cannot be enabled.
+- Thirteen required controls are applied before application initialization and verified through OS and runtime responses. Inspection fails closed unless every control is verified.
+- The OS blocks child processes, legacy extension points, non-system fonts, and native images from remote or Low-integrity locations.
+- DEP, ASLR, Control Flow Guard, and SEHOP are mandatory, and invalid-handle use is made fatal.
+- P/Invoke and normal DLL discovery are restricted to the application directory and System32; the current directory is excluded.
 - Inspection files are opened through handles that do not follow reparse points and do not share writes or replacement while parsing.
 - Volume identity and a 128-bit file ID are rechecked alongside length and timestamp to detect same-name replacement.
 - Capability matching uses the linear-time regular-expression engine with a time limit to resist crafted denial-of-service inputs.
+
+The UI and reports expose the verified baseline as a count such as `13/13`. The trust boundaries and residual risks are recorded in [`THREAT_MODEL.md`](THREAT_MODEL.md).
 
 These controls translate Apple's code-trust and strict-capability principles into defenses compatible with the current Windows/WPF design. They do not introduce AppContainer packaging or a signed distribution binary.
 
@@ -72,6 +76,12 @@ The app also supports non-interactive Markdown report generation:
 
 ```powershell
 dotnet ".\bin\Release\net10.0-windows10.0.17763.0\PC Black Box.dll" --report "C:\path\to\target" ".\report.md"
+```
+
+The security baseline can be checked without reading a target:
+
+```powershell
+dotnet ".\bin\Release\net10.0-windows10.0.17763.0\PC Black Box.dll" --security-status
 ```
 
 ## Repository policy

@@ -72,6 +72,12 @@ public sealed class FileInspector
 
     private static ScanResult ScanCore(string targetPath, IProgress<ScanProgress>? progress, CancellationToken cancellationToken)
     {
+        SecurityPosture posture = WindowsProcessHardening.Current;
+        if (!posture.IsEnforced)
+        {
+            throw new SecurityException("The required process security baseline is not enforced.");
+        }
+
         string fullTarget = SecurityPolicy.ValidateTargetPath(targetPath);
         bool targetIsFile = File.Exists(fullTarget);
 
@@ -79,6 +85,9 @@ public sealed class FileInspector
         {
             TargetPath = fullTarget,
             TargetName = SecurityPolicy.SanitizeText(targetIsFile ? Path.GetFileName(fullTarget) : new DirectoryInfo(fullTarget).Name, 512),
+            SecurityProfile = SecurityPosture.ProfileId,
+            SecurityControlsEnforced = posture.EnforcedCount,
+            SecurityControlsRequired = posture.RequiredCount,
             TargetWasDirectory = !targetIsFile,
             StartedAt = DateTime.Now
         };
@@ -506,7 +515,7 @@ public sealed class FileInspector
                 if (entryPath.StartsWith('/') || ArchiveDrivePathPattern.IsMatch(entryPath) || segments.Any(segment => segment == "..")) traversal = true;
                 if (segments.Any(segment => segment.Contains(':'))) alternateStream = true;
                 if (SecurityPolicy.ContainsDirectionalOrInvisibleControl(entryPath)) deceptiveName = true;
-                uint unixType = ((uint)entry.ExternalAttributes >> 16) & 0xF000;
+                uint unixType = (unchecked((uint)entry.ExternalAttributes) >> 16) & 0xF000;
                 if (unixType == 0xA000 || (((FileAttributes)entry.ExternalAttributes) & FileAttributes.ReparsePoint) != 0) linkEntry = true;
                 if (IsActiveContentExtension(Path.GetExtension(entryPath))) activeEntries++;
                 if (new[] { ".zip", ".rar", ".7z", ".gz", ".iso" }.Contains(Path.GetExtension(entryPath), StringComparer.OrdinalIgnoreCase)) nestedArchives++;

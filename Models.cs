@@ -50,6 +50,9 @@ public sealed class ScanResult
 {
     public string TargetPath { get; init; } = String.Empty;
     public string TargetName { get; init; } = String.Empty;
+    public string SecurityProfile { get; init; } = String.Empty;
+    public int SecurityControlsEnforced { get; init; }
+    public int SecurityControlsRequired { get; init; }
     public DateTime StartedAt { get; init; }
     public bool TargetWasDirectory { get; init; }
     public TimeSpan Duration { get; set; }

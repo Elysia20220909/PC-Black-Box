@@ -14,6 +14,7 @@ public static class ReportBuilder
         builder.AppendLine($"- {(ja ? "対象" : "Target")}: `{Escape(result.TargetName)}`");
         builder.AppendLine($"- {(ja ? "開始" : "Started")}: {result.StartedAt:yyyy-MM-dd HH:mm:ss}");
         builder.AppendLine($"- {(ja ? "所要時間" : "Duration")}: {result.Duration.TotalSeconds:F1} s");
+        builder.AppendLine($"- {(ja ? "セキュリティ基準" : "Security baseline")}: {Escape(result.SecurityProfile)} — {result.SecurityControlsEnforced}/{result.SecurityControlsRequired} {(ja ? "強制確認済み" : "controls enforced")}");
         builder.AppendLine($"- {(ja ? "判定" : "Assessment")}: **{result.RiskCode} ({result.RiskScore}/100)**");
         builder.AppendLine($"- {(ja ? "ファイル数" : "Files")}: {result.Files.Count}");
         builder.AppendLine($"- {(ja ? "合計サイズ" : "Total size")}: {FileAnalysis.FormatSize(result.TotalBytes)}");
@@ -86,9 +87,16 @@ public static class ReportBuilder
         bool ja = !language.Equals("en", StringComparison.OrdinalIgnoreCase);
         var payload = new
         {
-            schema = "pc-black-box-report-v1",
+            schema = "pc-black-box-report-v2",
             generatedAt = DateTimeOffset.UtcNow,
             target = Clean(result.TargetName),
+            security = new
+            {
+                profile = Clean(result.SecurityProfile),
+                enforced = result.SecurityControlsEnforced == result.SecurityControlsRequired && result.SecurityControlsRequired > 0,
+                controlsEnforced = result.SecurityControlsEnforced,
+                controlsRequired = result.SecurityControlsRequired
+            },
             result = new
             {
                 risk = result.RiskCode,

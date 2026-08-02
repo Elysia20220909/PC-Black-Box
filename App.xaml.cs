@@ -8,17 +8,20 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         bool commandLineReport = e.Args.Length >= 3 && e.Args[0].Equals("--report", StringComparison.OrdinalIgnoreCase);
-        if (!WindowsProcessHardening.ApplyRequiredPolicies())
+        bool commandLineSecurityStatus = e.Args.Length == 1 && e.Args[0].Equals("--security-status", StringComparison.OrdinalIgnoreCase);
+        bool commandLineMode = commandLineReport || commandLineSecurityStatus;
+        SecurityPosture posture = WindowsProcessHardening.Current;
+        if (!posture.IsEnforced)
         {
             base.OnStartup(e);
-            if (commandLineReport)
+            if (commandLineMode)
             {
-                try { Console.Error.WriteLine("Required Windows process protections could not be enabled."); } catch { }
+                try { Console.Error.WriteLine(posture.SafeStatusLine); } catch { }
             }
             else
             {
                 MessageBox.Show(
-                    "Required Windows process protections could not be enabled. PC Black Box will close without inspecting files.",
+                    "The required security baseline could not be verified. PC Black Box will close without inspecting files.",
                     "PC Black Box",
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
@@ -29,6 +32,14 @@ public partial class App : Application
         }
 
         base.OnStartup(e);
+
+        if (commandLineSecurityStatus)
+        {
+            try { Console.Out.WriteLine(posture.SafeStatusLine); } catch { }
+            Environment.ExitCode = 0;
+            Shutdown(0);
+            return;
+        }
 
         if (commandLineReport)
         {
