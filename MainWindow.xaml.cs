@@ -1,5 +1,4 @@
 using Microsoft.Win32;
-using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Windows;
@@ -57,19 +56,59 @@ public partial class MainWindow : Window
 
     private void SelectTarget(string path)
     {
-        if (!File.Exists(path) && !Directory.Exists(path)) return;
-        _selectedPath = Path.GetFullPath(path);
-        TargetHeaderText.Text = File.Exists(path)
+        try
+        {
+            _selectedPath = SecurityPolicy.ValidateTargetPath(path);
+        }
+        catch
+        {
+            _selectedPath = null;
+            ResetResultForNewTarget();
+            InspectButton.IsEnabled = false;
+            AssessmentText.Text = "BLOCKED";
+            AssessmentText.Foreground = (Brush)FindResource("WarnBrush");
+            TargetHeaderText.Text = IsJapanese ? "安全なローカル対象が必要です" : "A SAFE LOCAL TARGET IS REQUIRED";
+            TargetPathText.Text = IsJapanese ? "ネットワーク、リンク、代替ストリームは選べません" : "Network, link, and alternate-stream paths are blocked";
+            TargetPathText.ToolTip = null;
+            ProgressText.Text = IsJapanese ? "安全上の理由で、この場所は調査できません。" : "This location cannot be inspected safely.";
+            return;
+        }
+
+        ResetResultForNewTarget();
+        TargetHeaderText.Text = File.Exists(_selectedPath)
             ? (IsJapanese ? "ファイルを調査します" : "FILE READY FOR INSPECTION")
             : (IsJapanese ? "フォルダーを調査します" : "FOLDER READY FOR INSPECTION");
-        TargetPathText.Text = _selectedPath;
-        TargetPathText.ToolTip = _selectedPath;
+        string targetName = File.Exists(_selectedPath) ? Path.GetFileName(_selectedPath) : new DirectoryInfo(_selectedPath).Name;
+        TargetPathText.Text = SecurityPolicy.SanitizeText(targetName, 512);
+        TargetPathText.ToolTip = null;
         InspectButton.IsEnabled = true;
         ProgressText.Text = IsJapanese ? "準備完了 — 対象は実行しません" : "Ready — the target will not be executed";
         AssessmentText.Text = "READY";
         VerdictText.Text = IsJapanese
             ? "静的な兆候を確認します。調査結果は安全性の保証ではなく、確認順序を示すものです。"
             : "Static indicators will be inspected. The result prioritizes review; it does not guarantee safety.";
+    }
+
+    private void ResetResultForNewTarget()
+    {
+        _result = null;
+        FileGrid.ItemsSource = null;
+        FindingsPanel.Children.Clear();
+        AssessmentText.Text = "IDLE";
+        AssessmentText.Foreground = (Brush)FindResource("MutedBrush");
+        VerdictText.Text = IsJapanese ? "現在の調査結果はありません。" : "No current inspection result.";
+        FileDetailText.Text = IsJapanese ? "ファイルを選択すると詳細を表示します。" : "Select a file to view details.";
+        ReportPreviewText.Text = IsJapanese ? "調査完了後にレポートが表示されます。" : "The report will appear after inspection.";
+        RiskValue.Text = "—";
+        FilesValue.Text = "—";
+        ActiveValue.Text = "—";
+        SignedValue.Text = "—";
+        TimeValue.Text = "—";
+        ScanProgressBar.Value = 0;
+        CopyHashButton.IsEnabled = false;
+        CopyReportButton.IsEnabled = false;
+        SaveMarkdownButton.IsEnabled = false;
+        SaveJsonButton.IsEnabled = false;
     }
 
     private async void Inspect_Click(object sender, RoutedEventArgs e)
@@ -80,6 +119,7 @@ public partial class MainWindow : Window
             return;
         }
 
+        ResetResultForNewTarget();
         _scanCancellation?.Dispose();
         _scanCancellation = new CancellationTokenSource();
         SetBusy(true);
@@ -94,7 +134,7 @@ public partial class MainWindow : Window
             ScanProgressBar.Value = percent;
             ProgressText.Text = value.Total == 0
                 ? (IsJapanese ? "対象を整理しています…" : "Enumerating the target…")
-                : $"{value.Completed}/{value.Total}  {value.CurrentFile}";
+                : $"{value.Completed}/{value.Total}  {SecurityPolicy.SanitizeText(value.CurrentFile, 256)}";
         });
 
         try
@@ -108,12 +148,12 @@ public partial class MainWindow : Window
             AssessmentText.Text = "CANCELLED";
             VerdictText.Text = IsJapanese ? "途中結果は保存していません。" : "Partial results were not retained.";
         }
-        catch (Exception ex)
+        catch (Exception)
         {
             ProgressText.Text = IsJapanese ? "調査を完了できませんでした。" : "Inspection could not be completed.";
             AssessmentText.Text = "ERROR";
             AssessmentText.Foreground = (Brush)FindResource("DangerBrush");
-            VerdictText.Text = ex.Message;
+            VerdictText.Text = IsJapanese ? "入力を変更せず停止しました。対象と保存先を確認してください。" : "Inspection stopped without modifying the input. Check the target and destination.";
         }
         finally
         {
@@ -236,7 +276,6 @@ public partial class MainWindow : Window
         if (FileGrid.SelectedItem is not FileAnalysis file)
         {
             CopyHashButton.IsEnabled = false;
-            HashLookupButton.IsEnabled = false;
             return;
         }
 
@@ -260,7 +299,6 @@ public partial class MainWindow : Window
         }
         FileDetailText.Text = details.ToString();
         CopyHashButton.IsEnabled = !String.IsNullOrWhiteSpace(file.Sha256);
-        HashLookupButton.IsEnabled = !String.IsNullOrWhiteSpace(file.Sha256);
     }
 
     private void CopyHash_Click(object sender, RoutedEventArgs e)
@@ -270,16 +308,6 @@ public partial class MainWindow : Window
             Clipboard.SetText(file.Sha256);
             ProgressText.Text = IsJapanese ? "SHA-256をコピーしました" : "SHA-256 copied";
         }
-    }
-
-    private void HashLookup_Click(object sender, RoutedEventArgs e)
-    {
-        if (FileGrid.SelectedItem is not FileAnalysis file || String.IsNullOrWhiteSpace(file.Sha256)) return;
-        string prompt = IsJapanese
-            ? "VirusTotalをブラウザーで開きます。ファイル本体は送信せず、SHA-256ハッシュだけをURLで照会します。続けますか？"
-            : "Open VirusTotal in your browser? The file will not be uploaded; only its SHA-256 hash is included in the URL.";
-        if (MessageBox.Show(this, prompt, "PC Black Box", MessageBoxButton.YesNo, MessageBoxImage.Information) != MessageBoxResult.Yes) return;
-        Process.Start(new ProcessStartInfo($"https://www.virustotal.com/gui/file/{file.Sha256}") { UseShellExecute = true });
     }
 
     private void CopyReport_Click(object sender, RoutedEventArgs e)
@@ -301,8 +329,15 @@ public partial class MainWindow : Window
         };
         if (dialog.ShowDialog(this) == true)
         {
-            File.WriteAllText(dialog.FileName, ReportBuilder.Build(_result, _language), new UTF8Encoding(false));
-            ProgressText.Text = IsJapanese ? "Markdownレポートを保存しました" : "Markdown report saved";
+            try
+            {
+                SafeReportWriter.Write(dialog.FileName, ReportBuilder.Build(_result, _language), _result, ".md", allowOverwrite: true);
+                ProgressText.Text = IsJapanese ? "Markdownレポートを保存しました" : "Markdown report saved";
+            }
+            catch
+            {
+                ProgressText.Text = IsJapanese ? "安全上の理由で保存できませんでした" : "The report could not be saved safely";
+            }
         }
     }
 
@@ -318,8 +353,15 @@ public partial class MainWindow : Window
         };
         if (dialog.ShowDialog(this) == true)
         {
-            File.WriteAllText(dialog.FileName, ReportBuilder.BuildJson(_result, _language), new UTF8Encoding(false));
-            ProgressText.Text = IsJapanese ? "JSONレポートを保存しました" : "JSON report saved";
+            try
+            {
+                SafeReportWriter.Write(dialog.FileName, ReportBuilder.BuildJson(_result, _language), _result, ".json", allowOverwrite: true);
+                ProgressText.Text = IsJapanese ? "JSONレポートを保存しました" : "JSON report saved";
+            }
+            catch
+            {
+                ProgressText.Text = IsJapanese ? "安全上の理由で保存できませんでした" : "The report could not be saved safely";
+            }
         }
     }
 
@@ -331,9 +373,13 @@ public partial class MainWindow : Window
 
     private void Window_Drop(object sender, DragEventArgs e)
     {
-        if (e.Data.GetData(DataFormats.FileDrop) is string[] paths && paths.Length > 0)
+        if (e.Data.GetData(DataFormats.FileDrop) is string[] paths && paths.Length == 1)
         {
             SelectTarget(paths[0]);
+        }
+        else
+        {
+            ProgressText.Text = IsJapanese ? "一度に選べる対象は1つだけです。" : "Select exactly one target at a time.";
         }
     }
 
@@ -380,16 +426,15 @@ public partial class MainWindow : Window
         FindingsTitleText.Text = ja ? "主な所見" : "KEY FINDINGS";
         ScopeTitleText.Text = ja ? "調査するもの" : "INSPECTION SCOPE";
         ScopeBodyText.Text = ja
-            ? "SHA-256 / Authenticode署名 / Internet Zone / 入手元ホスト / 実ファイル形式 / 拡張子偽装 / エントロピー / スクリプト能力 / ZIP内部構造\n\n実行・アップロード・パケット取得・メモリ読取は行いません。"
-            : "SHA-256 / Authenticode / Internet Zone / source host / true file format / extension mismatch / entropy / script capabilities / ZIP structure\n\nNo execution, upload, packet capture, or memory read.";
+            ? "SHA-256 / オフライン署名確認 / Internet Zone / 入手元ホスト / 実ファイル形式 / 拡張子偽装 / エントロピー / スクリプト能力 / ZIP内部構造\n\n実行・アップロード・外部照会・パケット取得・メモリ読取は行いません。"
+            : "SHA-256 / offline signature verification / Internet Zone / source host / true file format / extension mismatch / entropy / script capabilities / ZIP structure\n\nNo execution, upload, external lookup, packet capture, or memory read.";
         CopyHashButton.Content = ja ? "SHA-256をコピー" : "COPY SHA-256";
-        HashLookupButton.Content = ja ? "ハッシュ照会を開く" : "OPEN HASH LOOKUP";
         ReportTitleText.Text = ja ? "匿名化された調査レポート" : "SANITIZED INSPECTION REPORT";
         CopyReportButton.Content = ja ? "コピー" : "COPY";
         SaveMarkdownButton.Content = ja ? "Markdown保存" : "SAVE MARKDOWN";
         SaveJsonButton.Content = ja ? "JSON保存" : "SAVE JSON";
-        PrivacyFooterText.Text = ja ? "ローカルのみ • 実行なし • アップロードなし" : "LOCAL ONLY • NO EXECUTION • NO UPLOAD";
-        VersionText.Text = ja ? "v0.1 • 静的観測" : "v0.1 • STATIC OBSERVATION";
+        PrivacyFooterText.Text = ja ? "完全オフライン • 実行なし • アップロードなし" : "FULLY OFFLINE • NO EXECUTION • NO UPLOAD";
+        VersionText.Text = ja ? "v0.2 • 強化静的観測" : "v0.2 • HARDENED STATIC OBSERVATION";
 
         if (_selectedPath is null)
         {
@@ -402,7 +447,22 @@ public partial class MainWindow : Window
         }
         else
         {
-            SelectTarget(_selectedPath);
+            bool isFile = File.Exists(_selectedPath);
+            bool isDirectory = Directory.Exists(_selectedPath);
+            if (!isFile && !isDirectory)
+            {
+                TargetHeaderText.Text = ja ? "対象が見つかりません" : "TARGET NOT FOUND";
+                TargetPathText.Text = ja ? "選び直してください" : "Select the target again";
+            }
+            else
+            {
+                TargetHeaderText.Text = isFile
+                    ? (ja ? "ファイルを調査します" : "FILE READY FOR INSPECTION")
+                    : (ja ? "フォルダーを調査します" : "FOLDER READY FOR INSPECTION");
+                string targetName = isFile ? Path.GetFileName(_selectedPath) : new DirectoryInfo(_selectedPath).Name;
+                TargetPathText.Text = SecurityPolicy.SanitizeText(targetName, 512);
+            }
+            TargetPathText.ToolTip = null;
         }
     }
 

@@ -185,7 +185,6 @@
                             </ScrollViewer>
                             <StackPanel Grid.Column="1" Margin="16,0,0,0">
                                 <Button x:Name="CopyHashButton" Content="SHA-256をコピー" Style="{StaticResource GhostButton}" IsEnabled="False" Click="CopyHash_Click" />
-                                <Button x:Name="HashLookupButton" Content="ハッシュ照会を開く" Style="{StaticResource GhostButton}" IsEnabled="False" Margin="0,8,0,0" Click="HashLookup_Click" />
                             </StackPanel>
                         </Grid>
                     </Border>

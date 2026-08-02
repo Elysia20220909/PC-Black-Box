@@ -12,8 +12,14 @@ public static class SettingsStore
     {
         try
         {
+            string settingsDirectory = SecurityPolicy.ValidateLocalDirectory(SettingsDirectory, mustExist: false);
+            if (!Directory.Exists(settingsDirectory)) return "ja";
+            SecurityPolicy.ValidateLocalDirectory(settingsDirectory, mustExist: true);
             if (!File.Exists(SettingsPath)) return "ja";
-            using JsonDocument document = JsonDocument.Parse(File.ReadAllText(SettingsPath));
+            var info = new FileInfo(SettingsPath);
+            if ((info.Attributes & FileAttributes.ReparsePoint) != 0 || info.Length > 4096) return "ja";
+            using var stream = new FileStream(SettingsPath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.SequentialScan);
+            using JsonDocument document = JsonDocument.Parse(stream, new JsonDocumentOptions { MaxDepth = 4 });
             return document.RootElement.TryGetProperty("language", out JsonElement value) && value.GetString() == "en" ? "en" : "ja";
         }
         catch
@@ -24,11 +30,32 @@ public static class SettingsStore
 
     public static void SaveLanguage(string language)
     {
+        string? temporaryPath = null;
         try
         {
-            Directory.CreateDirectory(SettingsDirectory);
-            File.WriteAllText(SettingsPath, JsonSerializer.Serialize(new { language }, new JsonSerializerOptions { WriteIndented = true }));
+            language = language == "en" ? "en" : "ja";
+            string settingsDirectory = SecurityPolicy.ValidateLocalDirectory(SettingsDirectory, mustExist: false);
+            Directory.CreateDirectory(settingsDirectory);
+            SecurityPolicy.ValidateLocalDirectory(settingsDirectory, mustExist: true);
+            if (File.Exists(SettingsPath) && (File.GetAttributes(SettingsPath) & FileAttributes.ReparsePoint) != 0) return;
+
+            temporaryPath = Path.Combine(settingsDirectory, $"settings-{Guid.NewGuid():N}.tmp");
+            byte[] data = JsonSerializer.SerializeToUtf8Bytes(new { language }, new JsonSerializerOptions { WriteIndented = true });
+            using (var stream = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough))
+            {
+                stream.Write(data);
+                stream.Flush(flushToDisk: true);
+            }
+            File.Move(temporaryPath, SettingsPath, overwrite: true);
+            temporaryPath = null;
         }
         catch { }
+        finally
+        {
+            if (temporaryPath is not null)
+            {
+                try { File.Delete(temporaryPath); } catch { }
+            }
+        }
     }
 }

@@ -16,7 +16,7 @@ Use `JA / EN` to switch languages. Only that language preference is stored in `%
 ## What it inspects
 
 - SHA-256
-- Authenticode status and signer
+- Authenticode status and signer using only the local Windows trust cache, without online revocation requests
 - Mark-of-the-Web (Internet Zone) and source host
 - True format inferred from file magic
 - Double extensions, right-to-left override characters, and extension mismatches
@@ -40,7 +40,9 @@ Legitimate administration scripts, installers, and compression tools can trigger
 - No process injection, game-memory access, or packet capture is performed.
 - Files are not deleted, quarantined, moved, or repaired.
 - Reports omit absolute paths, Windows user names, IP addresses, Steam IDs, and credentials.
-- `OPEN HASH LOOKUP` asks before opening VirusTotal. Only the SHA-256 appears in the URL; the file itself is not uploaded.
+- No external hash lookup or browser launch is available; inspection remains fully offline.
+
+The design follows iOS-inspired security principles: least privilege, a closed data flow, explicit user actions, and fixed trust boundaries. It remains a conventional Windows desktop app and does not claim isolation equivalent to the iOS App Sandbox.
 
 ## Current limitations
 
