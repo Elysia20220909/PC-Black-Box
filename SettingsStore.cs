@@ -18,7 +18,7 @@ public static class SettingsStore
             if (!File.Exists(SettingsPath)) return "ja";
             var info = new FileInfo(SettingsPath);
             if ((info.Attributes & FileAttributes.ReparsePoint) != 0 || info.Length > 4096) return "ja";
-            using var stream = new FileStream(SettingsPath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.SequentialScan);
+            using FileStream stream = SecureFileReader.OpenRead(SettingsPath, 4096);
             using JsonDocument document = JsonDocument.Parse(stream, new JsonDocumentOptions { MaxDepth = 4 });
             return document.RootElement.TryGetProperty("language", out JsonElement value) && value.GetString() == "en" ? "en" : "ja";
         }

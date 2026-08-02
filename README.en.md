@@ -44,9 +44,20 @@ Legitimate administration scripts, installers, and compression tools can trigger
 
 The design follows iOS-inspired security principles: least privilege, a closed data flow, explicit user actions, and fixed trust boundaries. It remains a conventional Windows desktop app and does not claim isolation equivalent to the iOS App Sandbox.
 
+## Defense in depth
+
+- Required Windows process mitigations block child-process creation at the OS boundary.
+- Remote and Low-integrity native images are refused and System32 images are preferred. Inspection fails closed if these policies cannot be enabled.
+- Inspection files are opened through handles that do not follow reparse points and do not share writes or replacement while parsing.
+- Volume identity and a 128-bit file ID are rechecked alongside length and timestamp to detect same-name replacement.
+- Capability matching uses the linear-time regular-expression engine with a time limit to resist crafted denial-of-service inputs.
+
+These controls translate Apple's code-trust and strict-capability principles into defenses compatible with the current Windows/WPF design. They do not introduce AppContainer packaging or a signed distribution binary.
+
 ## Current limitations
 
 - No dynamic behavior, sandbox execution, or live destination analysis.
+- The WPF process is not an AppContainer and does not provide the same OS isolation as the iOS App Sandbox.
 - 7-Zip and RAR are identified but not unpacked.
 - Capability terms inside script comments are still reported and require context.
 - A `CLEAR` result does not guarantee safety.

@@ -426,15 +426,15 @@ public partial class MainWindow : Window
         FindingsTitleText.Text = ja ? "主な所見" : "KEY FINDINGS";
         ScopeTitleText.Text = ja ? "調査するもの" : "INSPECTION SCOPE";
         ScopeBodyText.Text = ja
-            ? "SHA-256 / オフライン署名確認 / Internet Zone / 入手元ホスト / 実ファイル形式 / 拡張子偽装 / エントロピー / スクリプト能力 / ZIP内部構造\n\n実行・アップロード・外部照会・パケット取得・メモリ読取は行いません。"
-            : "SHA-256 / offline signature verification / Internet Zone / source host / true file format / extension mismatch / entropy / script capabilities / ZIP structure\n\nNo execution, upload, external lookup, packet capture, or memory read.";
+            ? "SHA-256 / オフライン署名確認 / 安定ファイルID / Internet Zone / 実ファイル形式 / 拡張子偽装 / エントロピー / スクリプト能力 / ZIP内部構造\n\nOSで子プロセスと遠隔DLLを封鎖。実行・アップロード・外部照会・パケット取得・メモリ読取は行いません。"
+            : "SHA-256 / offline signature verification / stable file identity / Internet Zone / true file format / extension mismatch / entropy / script capabilities / ZIP structure\n\nThe OS blocks child processes and remote DLLs. No execution, upload, external lookup, packet capture, or memory read.";
         CopyHashButton.Content = ja ? "SHA-256をコピー" : "COPY SHA-256";
         ReportTitleText.Text = ja ? "匿名化された調査レポート" : "SANITIZED INSPECTION REPORT";
         CopyReportButton.Content = ja ? "コピー" : "COPY";
         SaveMarkdownButton.Content = ja ? "Markdown保存" : "SAVE MARKDOWN";
         SaveJsonButton.Content = ja ? "JSON保存" : "SAVE JSON";
-        PrivacyFooterText.Text = ja ? "完全オフライン • 実行なし • アップロードなし" : "FULLY OFFLINE • NO EXECUTION • NO UPLOAD";
-        VersionText.Text = ja ? "v0.2 • 強化静的観測" : "v0.2 • HARDENED STATIC OBSERVATION";
+        PrivacyFooterText.Text = ja ? "完全オフライン • 子プロセス封鎖 • アップロードなし" : "FULLY OFFLINE • CHILD PROCESS BLOCKED • NO UPLOAD";
+        VersionText.Text = ja ? "v0.3 • OS強制防御" : "v0.3 • OS-ENFORCED DEFENSE";
 
         if (_selectedPath is null)
         {

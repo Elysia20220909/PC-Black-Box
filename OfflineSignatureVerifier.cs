@@ -1,4 +1,5 @@
 using System.IO;
+using Microsoft.Win32.SafeHandles;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography.X509Certificates;
 
@@ -20,14 +21,15 @@ public static class OfflineSignatureVerifier
     {
         try
         {
-            int embeddedResult = VerifyEmbeddedSignature(path);
+            using FileStream stableFile = SecureFileReader.OpenRead(path);
+            int embeddedResult = VerifyEmbeddedSignature(path, stableFile.SafeFileHandle);
             if (embeddedResult != unchecked((int)0x800B0100))
             {
                 string status = MapStatus(embeddedResult);
                 return new SignatureResult(status, status == "NotSigned" ? "—" : ReadSignerSubject(path));
             }
 
-            SignatureResult? catalogResult = VerifyCatalogSignature(path);
+            SignatureResult? catalogResult = VerifyCatalogSignature(path, stableFile);
             return catalogResult ?? new SignatureResult("NotSigned", "—");
         }
         catch
@@ -36,7 +38,7 @@ public static class OfflineSignatureVerifier
         }
     }
 
-    private static int VerifyEmbeddedSignature(string path)
+    private static int VerifyEmbeddedSignature(string path, SafeFileHandle stableHandle)
     {
         IntPtr pathPointer = IntPtr.Zero;
         IntPtr fileInfoPointer = IntPtr.Zero;
@@ -46,7 +48,8 @@ public static class OfflineSignatureVerifier
             var fileInfo = new WinTrustFileInfo
             {
                 StructSize = (uint)Marshal.SizeOf<WinTrustFileInfo>(),
-                FilePath = pathPointer
+                FilePath = pathPointer,
+                FileHandle = stableHandle.DangerousGetHandle()
             };
             fileInfoPointer = Marshal.AllocCoTaskMem(Marshal.SizeOf<WinTrustFileInfo>());
             Marshal.StructureToPtr(fileInfo, fileInfoPointer, false);
@@ -62,18 +65,18 @@ public static class OfflineSignatureVerifier
         }
     }
 
-    private static SignatureResult? VerifyCatalogSignature(string path)
+    private static SignatureResult? VerifyCatalogSignature(string path, FileStream stableFile)
     {
         foreach (string? algorithm in new string?[] { null, "SHA256", "SHA1" })
         {
-            SignatureResult? result = VerifyCatalogSignature(path, algorithm);
+            SignatureResult? result = VerifyCatalogSignature(path, stableFile, algorithm);
             if (result is not null) return result;
         }
 
         return null;
     }
 
-    private static SignatureResult? VerifyCatalogSignature(string path, string? algorithm)
+    private static SignatureResult? VerifyCatalogSignature(string path, FileStream stableFile, string? algorithm)
     {
         IntPtr catalogAdmin = IntPtr.Zero;
         IntPtr catalogContext = IntPtr.Zero;
@@ -81,16 +84,15 @@ public static class OfflineSignatureVerifier
         {
             if (!CryptCATAdminAcquireContext2(out catalogAdmin, IntPtr.Zero, algorithm, IntPtr.Zero, 0)) return null;
 
-            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
             uint hashSize = 0;
-            if (!CryptCATAdminCalcHashFromFileHandle2(catalogAdmin, stream.SafeFileHandle.DangerousGetHandle(), ref hashSize, null, 0) ||
+            if (!CryptCATAdminCalcHashFromFileHandle2(catalogAdmin, stableFile.SafeFileHandle.DangerousGetHandle(), ref hashSize, null, 0) ||
                 hashSize is 0 or > 128)
             {
                 return null;
             }
 
             byte[] hash = new byte[hashSize];
-            if (!CryptCATAdminCalcHashFromFileHandle2(catalogAdmin, stream.SafeFileHandle.DangerousGetHandle(), ref hashSize, hash, 0))
+            if (!CryptCATAdminCalcHashFromFileHandle2(catalogAdmin, stableFile.SafeFileHandle.DangerousGetHandle(), ref hashSize, hash, 0))
             {
                 return null;
             }
@@ -108,7 +110,7 @@ public static class OfflineSignatureVerifier
                 return null;
             }
 
-            int trustResult = VerifyCatalogMember(path, stream.SafeFileHandle.DangerousGetHandle(), catalogInfo.CatalogFile, hash, catalogAdmin);
+            int trustResult = VerifyCatalogMember(path, stableFile.SafeFileHandle.DangerousGetHandle(), catalogInfo.CatalogFile, hash, catalogAdmin);
             string status = MapStatus(trustResult);
             return new SignatureResult(status, status == "NotSigned" ? "—" : ReadSignerSubject(catalogInfo.CatalogFile));
         }

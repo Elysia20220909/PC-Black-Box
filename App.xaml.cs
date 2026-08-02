@@ -7,9 +7,30 @@ public partial class App : Application
 {
     protected override void OnStartup(StartupEventArgs e)
     {
+        bool commandLineReport = e.Args.Length >= 3 && e.Args[0].Equals("--report", StringComparison.OrdinalIgnoreCase);
+        if (!WindowsProcessHardening.ApplyRequiredPolicies())
+        {
+            base.OnStartup(e);
+            if (commandLineReport)
+            {
+                try { Console.Error.WriteLine("Required Windows process protections could not be enabled."); } catch { }
+            }
+            else
+            {
+                MessageBox.Show(
+                    "Required Windows process protections could not be enabled. PC Black Box will close without inspecting files.",
+                    "PC Black Box",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+            Environment.ExitCode = 1;
+            Shutdown(1);
+            return;
+        }
+
         base.OnStartup(e);
 
-        if (e.Args.Length >= 3 && e.Args[0].Equals("--report", StringComparison.OrdinalIgnoreCase))
+        if (commandLineReport)
         {
             try
             {

@@ -15,7 +15,14 @@ public sealed class FileInspector
     private const long MaxTotalBytes = SecurityPolicy.MaxTargetBytes;
     private const int MaxArchiveEntries = 10000;
     private const int MaxArchiveEntryNameChars = 2048;
+    private const int MaxSignatureChecks = 300;
     private const int SampleBytes = 8 * 1024 * 1024;
+    private static readonly TimeSpan RegexMatchTimeout = TimeSpan.FromSeconds(1);
+    private static readonly Regex ZoneIdPattern = CreatePattern(@"^ZoneId=(?<value>\d+)", RegexOptions.IgnoreCase | RegexOptions.Multiline);
+    private static readonly Regex HostUrlPattern = CreatePattern(@"^HostUrl=(?<value>.+)$", RegexOptions.IgnoreCase | RegexOptions.Multiline);
+    private static readonly Regex DoubleExtensionPattern = CreatePattern(@"\.(pdf|png|jpe?g|gif|docx?|xlsx?|pptx?|txt)\.(exe|scr|com|bat|cmd|ps1|vbs|js|hta)$", RegexOptions.IgnoreCase);
+    private static readonly Regex PdfActivePattern = CreatePattern(@"/(JavaScript|JS|OpenAction|Launch)\b", RegexOptions.IgnoreCase);
+    private static readonly Regex ArchiveDrivePathPattern = CreatePattern(@"^[A-Za-z]:/", RegexOptions.None);
 
     private static readonly HashSet<string> ActiveExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -35,16 +42,26 @@ public sealed class FileInspector
 
     private static readonly (string Code, Regex Pattern, int Score, string Ja, string En)[] CapabilityPatterns =
     [
-        ("defender-change", new Regex(@"(?i)(Add-MpPreference|Set-MpPreference|DisableRealtimeMonitoring|DisableBehaviorMonitoring|ExclusionPath|ExclusionProcess)"), 40, "Microsoft Defenderの設定変更能力", "Microsoft Defender configuration capability"),
-        ("process-injection", new Regex(@"(?i)(WriteProcessMemory|CreateRemoteThread|VirtualAllocEx|QueueUserAPC|NtCreateThreadEx)"), 35, "他プロセスへの注入に関連するAPI", "APIs associated with process injection"),
-        ("credential-access", new Regex(@"(?i)(Get-Credential|ConvertTo-SecureString|CredentialManager|mimikatz|lsass|Login Data|Cookies\\b)"), 25, "資格情報アクセスに関連する語句", "Terms associated with credential access"),
-        ("persistence", new Regex(@"(?i)(Register-ScheduledTask|New-ScheduledTask|schtasks(?:\.exe)?|New-Service|sc(?:\.exe)?\s+create|CurrentVersion\\Run|Startup\\)"), 22, "永続化に利用できる処理", "Capability that can establish persistence"),
-        ("remote-download", new Regex(@"(?i)(Invoke-WebRequest|Invoke-RestMethod|DownloadString|DownloadFile|Start-BitsTransfer|System\.Net\.WebClient|curl(?:\.exe)?\s+https?://|wget\s+https?://)"), 18, "外部からファイルやデータを取得する処理", "Capability to download files or data"),
-        ("obfuscation", new Regex(@"(?i)(FromBase64String|-EncodedCommand|\bIEX\b|Invoke-Expression|GZipStream|DeflateStream)"), 17, "難読化または動的実行に使われる処理", "Capability associated with obfuscation or dynamic execution"),
-        ("shell-launch", new Regex(@"(?i)(Start-Process|ProcessStartInfo|cmd(?:\.exe)?\s+/c|powershell(?:\.exe)?\s+-)"), 10, "別プロセスやシェルを起動する処理", "Capability to launch another process or shell"),
-        ("destructive-file", new Regex(@"(?i)(Remove-Item|DeleteFile|rmdir\s+/s|del\s+/[fq])"), 9, "ファイル削除能力", "File-deletion capability"),
-        ("force-stop", new Regex(@"(?i)(Stop-Process|TerminateProcess|taskkill(?:\.exe)?)"), 6, "プロセスを強制停止する能力", "Capability to terminate processes")
+        ("defender-change", CreateCapabilityPattern(@"(Add-MpPreference|Set-MpPreference|DisableRealtimeMonitoring|DisableBehaviorMonitoring|ExclusionPath|ExclusionProcess)"), 40, "Microsoft Defenderの設定変更能力", "Microsoft Defender configuration capability"),
+        ("process-injection", CreateCapabilityPattern(@"(WriteProcessMemory|CreateRemoteThread|VirtualAllocEx|QueueUserAPC|NtCreateThreadEx)"), 35, "他プロセスへの注入に関連するAPI", "APIs associated with process injection"),
+        ("credential-access", CreateCapabilityPattern(@"(Get-Credential|ConvertTo-SecureString|CredentialManager|mimikatz|lsass|Login Data|Cookies\\b)"), 25, "資格情報アクセスに関連する語句", "Terms associated with credential access"),
+        ("persistence", CreateCapabilityPattern(@"(Register-ScheduledTask|New-ScheduledTask|schtasks(?:\.exe)?|New-Service|sc(?:\.exe)?\s+create|CurrentVersion\\Run|Startup\\)"), 22, "永続化に利用できる処理", "Capability that can establish persistence"),
+        ("remote-download", CreateCapabilityPattern(@"(Invoke-WebRequest|Invoke-RestMethod|DownloadString|DownloadFile|Start-BitsTransfer|System\.Net\.WebClient|curl(?:\.exe)?\s+https?://|wget\s+https?://)"), 18, "外部からファイルやデータを取得する処理", "Capability to download files or data"),
+        ("obfuscation", CreateCapabilityPattern(@"(FromBase64String|-EncodedCommand|\bIEX\b|Invoke-Expression|GZipStream|DeflateStream)"), 17, "難読化または動的実行に使われる処理", "Capability associated with obfuscation or dynamic execution"),
+        ("shell-launch", CreateCapabilityPattern(@"(Start-Process|ProcessStartInfo|cmd(?:\.exe)?\s+/c|powershell(?:\.exe)?\s+-)"), 10, "別プロセスやシェルを起動する処理", "Capability to launch another process or shell"),
+        ("destructive-file", CreateCapabilityPattern(@"(Remove-Item|DeleteFile|rmdir\s+/s|del\s+/[fq])"), 9, "ファイル削除能力", "File-deletion capability"),
+        ("force-stop", CreateCapabilityPattern(@"(Stop-Process|TerminateProcess|taskkill(?:\.exe)?)"), 6, "プロセスを強制停止する能力", "Capability to terminate processes")
     ];
+
+    private static Regex CreateCapabilityPattern(string pattern) => new(
+        pattern,
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking,
+        RegexMatchTimeout);
+
+    private static Regex CreatePattern(string pattern, RegexOptions options) => new(
+        pattern,
+        options | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking,
+        RegexMatchTimeout);
 
     public static bool IsActiveContentExtension(string? extension) => extension is not null && ActiveExtensions.Contains(extension);
 
@@ -69,6 +86,7 @@ public sealed class FileInspector
         Stopwatch stopwatch = Stopwatch.StartNew();
         List<string> files = CollectFiles(fullTarget, result, cancellationToken);
         string root = targetIsFile ? Path.GetDirectoryName(fullTarget) ?? fullTarget : fullTarget;
+        int signatureChecks = 0;
 
         for (int index = 0; index < files.Count; index++)
         {
@@ -77,7 +95,7 @@ public sealed class FileInspector
             progress?.Report(new ScanProgress(index, files.Count, Path.GetFileName(file)));
             try
             {
-                result.Files.Add(AnalyzeFile(file, root, targetIsFile, cancellationToken));
+                result.Files.Add(AnalyzeFile(file, root, targetIsFile, ref signatureChecks, cancellationToken));
             }
             catch (Exception exception) when (IsExpectedFileFailure(exception))
             {
@@ -86,7 +104,6 @@ public sealed class FileInspector
             }
         }
 
-        ApplySignatures(result.Files, cancellationToken);
         ValidateFilesUnchanged(result.Files);
         foreach (FileAnalysis file in result.Files)
         {
@@ -195,37 +212,50 @@ public sealed class FileInspector
         return files.OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    private static FileAnalysis AnalyzeFile(string path, string root, bool singleFile, CancellationToken cancellationToken)
+    private static FileAnalysis AnalyzeFile(string path, string root, bool singleFile, ref int signatureChecks, CancellationToken cancellationToken)
     {
-        var info = new FileInfo(path);
-        info.Refresh();
-        if (!info.Exists) throw new FileNotFoundException("The file disappeared during inspection.");
-        if ((info.Attributes & FileAttributes.ReparsePoint) != 0) throw new IOException("A reparse point appeared during inspection.");
-        if (info.Length > MaxTotalBytes) throw new IOException("The file exceeds the inspection safety limit.");
+        using FileStream secureStream = SecureFileReader.OpenRead(path);
+        SecureFileSnapshot originalSnapshot = SecureFileReader.GetSnapshot(secureStream.SafeFileHandle);
+        if (originalSnapshot.Length > MaxTotalBytes) throw new IOException("The file exceeds the inspection safety limit.");
 
-        DateTime originalWrite = info.LastWriteTimeUtc;
-        long originalLength = info.Length;
-        string rawRelativePath = singleFile ? info.Name : Path.GetRelativePath(root, path);
+        string rawRelativePath = singleFile ? Path.GetFileName(path) : Path.GetRelativePath(root, path);
         var analysis = new FileAnalysis
         {
             FullPath = path,
             RelativePath = SecurityPolicy.SanitizeText(rawRelativePath, 1024),
-            Size = originalLength,
-            ObservedLength = originalLength,
-            ObservedLastWriteUtc = originalWrite
+            Size = originalSnapshot.Length,
+            ObservedLength = originalSnapshot.Length,
+            ObservedLastWriteUtc = originalSnapshot.LastWriteUtc,
+            ObservedIdentity = originalSnapshot.Identity
         };
 
-        byte[] sample = ReadSampleAndHash(path, analysis, cancellationToken);
+        byte[] sample = ReadSampleAndHash(secureStream, analysis, cancellationToken);
         analysis.FileType = DetectFileType(sample, Path.GetExtension(path));
         analysis.Entropy = CalculateEntropy(sample);
-        ReadVersionAndPeMetadata(path, analysis);
+        ReadVersionAndPeMetadata(path, secureStream, analysis);
         ReadInternetZone(path, analysis);
         DetectNameAndTypeMismatch(analysis, sample, rawRelativePath);
         DetectCapabilities(analysis, sample);
-        InspectStructuredFormats(path, analysis, cancellationToken);
+        InspectStructuredFormats(secureStream, analysis, cancellationToken);
 
-        info.Refresh();
-        if (!info.Exists || info.Length != originalLength || info.LastWriteTimeUtc != originalWrite)
+        if (ShouldCheckSignature(analysis))
+        {
+            if (signatureChecks < MaxSignatureChecks)
+            {
+                signatureChecks++;
+                SignatureResult signature = OfflineSignatureVerifier.Verify(path);
+                analysis.SignatureStatus = signature.Status;
+                analysis.Signer = SecurityPolicy.SanitizeText(signature.Signer, 512);
+            }
+            else
+            {
+                analysis.InspectionLimited = true;
+                AddIndicator(analysis, new("info", "signature-limit", "署名確認の安全上限を超えたため未確認です", "Signature verification was skipped after the safety limit", 2));
+            }
+        }
+
+        SecureFileSnapshot finalSnapshot = SecureFileReader.GetSnapshot(secureStream.SafeFileHandle);
+        if (finalSnapshot != originalSnapshot)
         {
             MarkChangedDuringScan(analysis);
         }
@@ -233,9 +263,9 @@ public sealed class FileInspector
         return analysis;
     }
 
-    private static byte[] ReadSampleAndHash(string path, FileAnalysis analysis, CancellationToken cancellationToken)
+    private static byte[] ReadSampleAndHash(FileStream stream, FileAnalysis analysis, CancellationToken cancellationToken)
     {
-        using FileStream stream = new(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1024 * 1024, FileOptions.SequentialScan);
+        stream.Position = 0;
         using IncrementalHash hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         byte[] buffer = new byte[1024 * 1024];
         using var sample = new MemoryStream(capacity: (int)Math.Min(SampleBytes, Math.Max(0, stream.Length)));
@@ -300,7 +330,7 @@ public sealed class FileInspector
         return entropy;
     }
 
-    private static void ReadVersionAndPeMetadata(string path, FileAnalysis analysis)
+    private static void ReadVersionAndPeMetadata(string path, FileStream stream, FileAnalysis analysis)
     {
         if (analysis.FileType != "Windows PE") return;
         try
@@ -313,7 +343,7 @@ public sealed class FileInspector
 
         try
         {
-            using FileStream stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            stream.Position = 0;
             using var pe = new PEReader(stream, PEStreamOptions.LeaveOpen);
             analysis.Architecture = pe.PEHeaders.CoffHeader.Machine.ToString() + (pe.HasMetadata ? " / .NET" : " / native");
         }
@@ -325,7 +355,7 @@ public sealed class FileInspector
         try
         {
             string zoneText = ReadBoundedText(path + ":Zone.Identifier", SecurityPolicy.MaxZoneIdentifierBytes);
-            Match zone = Regex.Match(zoneText, @"(?im)^ZoneId=(?<value>\d+)");
+            Match zone = ZoneIdPattern.Match(zoneText);
             if (zone.Success && Int32.TryParse(zone.Groups["value"].Value, out int zoneId))
             {
                 analysis.InternetZone = zoneId;
@@ -335,7 +365,7 @@ public sealed class FileInspector
                 }
             }
 
-            Match host = Regex.Match(zoneText, @"(?im)^HostUrl=(?<value>.+)$");
+            Match host = HostUrlPattern.Match(zoneText);
             if (host.Success && Uri.TryCreate(host.Groups["value"].Value.Trim(), UriKind.Absolute, out Uri? uri) &&
                 uri.Scheme is "http" or "https" && !String.IsNullOrWhiteSpace(uri.IdnHost))
             {
@@ -347,7 +377,7 @@ public sealed class FileInspector
 
     private static string ReadBoundedText(string path, int maxBytes)
     {
-        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.SequentialScan);
+        using FileStream stream = SecureFileReader.OpenRead(path, 4096);
         if (stream.Length > maxBytes) throw new IOException("Metadata stream exceeds the safety limit.");
         using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, 4096, leaveOpen: false);
         char[] buffer = new char[maxBytes];
@@ -364,7 +394,7 @@ public sealed class FileInspector
             AddIndicator(analysis, new("danger", "unicode-control", "ファイル名に表示を偽装できる不可視制御文字があります", "The file name contains an invisible control character that can spoof its display", 45));
         }
 
-        if (Regex.IsMatch(name, @"(?i)\.(pdf|png|jpe?g|gif|docx?|xlsx?|pptx?|txt)\.(exe|scr|com|bat|cmd|ps1|vbs|js|hta)$"))
+        if (DoubleExtensionPattern.IsMatch(name))
         {
             AddIndicator(analysis, new("danger", "double-extension", "文書や画像に見せる二重拡張子です", "A double extension makes active content look like a document or image", 40));
         }
@@ -397,21 +427,40 @@ public sealed class FileInspector
 
         foreach (var capability in CapabilityPatterns)
         {
-            if (!capability.Pattern.IsMatch(searchable)) continue;
+            bool matched;
+            try
+            {
+                matched = capability.Pattern.IsMatch(searchable);
+            }
+            catch (RegexMatchTimeoutException)
+            {
+                analysis.InspectionLimited = true;
+                AddIndicator(analysis, new("watch", "regex-time-limit", "能力語の照合が時間上限に達しました", "Capability matching reached its time limit", 8));
+                break;
+            }
+            if (!matched) continue;
             int score = script ? capability.Score : Math.Max(4, capability.Score / 2);
             AddIndicator(analysis, new(score >= 30 ? "danger" : "watch", capability.Code, capability.Ja, capability.En, score));
         }
 
         if (analysis.FileType == "PDF")
         {
-            if (Regex.IsMatch(ascii, @"(?i)/(JavaScript|JS|OpenAction|Launch)\b"))
+            try
             {
-                AddIndicator(analysis, new("watch", "pdf-active-action", "PDFにJavaScriptまたは自動起動アクションの兆候があります", "The PDF contains an indicator of JavaScript or an automatic launch action", 28));
+                if (PdfActivePattern.IsMatch(ascii))
+                {
+                    AddIndicator(analysis, new("watch", "pdf-active-action", "PDFにJavaScriptまたは自動起動アクションの兆候があります", "The PDF contains an indicator of JavaScript or an automatic launch action", 28));
+                }
+            }
+            catch (RegexMatchTimeoutException)
+            {
+                analysis.InspectionLimited = true;
+                AddIndicator(analysis, new("watch", "regex-time-limit", "PDF能力語の照合が時間上限に達しました", "PDF capability matching reached its time limit", 8));
             }
         }
     }
 
-    private static void InspectStructuredFormats(string path, FileAnalysis analysis, CancellationToken cancellationToken)
+    private static void InspectStructuredFormats(FileStream stream, FileAnalysis analysis, CancellationToken cancellationToken)
     {
         if (analysis.FileType != "ZIP / package") return;
         if (analysis.Size > SecurityPolicy.MaxArchiveInspectionBytes)
@@ -423,7 +472,8 @@ public sealed class FileInspector
 
         try
         {
-            using ZipArchive archive = ZipFile.OpenRead(path);
+            stream.Position = 0;
+            using var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true);
             int activeEntries = 0;
             int nestedArchives = 0;
             bool traversal = false;
@@ -453,7 +503,7 @@ public sealed class FileInspector
                     continue;
                 }
                 string[] segments = entryPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
-                if (entryPath.StartsWith('/') || Regex.IsMatch(entryPath, @"^[A-Za-z]:/") || segments.Any(segment => segment == "..")) traversal = true;
+                if (entryPath.StartsWith('/') || ArchiveDrivePathPattern.IsMatch(entryPath) || segments.Any(segment => segment == "..")) traversal = true;
                 if (segments.Any(segment => segment.Contains(':'))) alternateStream = true;
                 if (SecurityPolicy.ContainsDirectionalOrInvisibleControl(entryPath)) deceptiveName = true;
                 uint unixType = ((uint)entry.ExternalAttributes >> 16) & 0xF000;
@@ -494,29 +544,6 @@ public sealed class FileInspector
         }
     }
 
-    private static void ApplySignatures(List<FileAnalysis> files, CancellationToken cancellationToken)
-    {
-        List<FileAnalysis> candidates = files.Where(ShouldCheckSignature).Take(300).ToList();
-        if (candidates.Count == 0) return;
-
-        foreach (FileAnalysis candidate in candidates)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            SignatureResult signature = OfflineSignatureVerifier.Verify(candidate.FullPath);
-            candidate.SignatureStatus = signature.Status;
-            candidate.Signer = SecurityPolicy.SanitizeText(signature.Signer, 512);
-        }
-
-        if (files.Count(ShouldCheckSignature) > candidates.Count)
-        {
-            foreach (FileAnalysis skipped in files.Where(ShouldCheckSignature).Skip(candidates.Count))
-            {
-                skipped.InspectionLimited = true;
-                AddIndicator(skipped, new("info", "signature-limit", "署名確認の安全上限を超えたため未確認です", "Signature verification was skipped after the safety limit", 2));
-            }
-        }
-    }
-
     private static void ValidateFilesUnchanged(IEnumerable<FileAnalysis> files)
     {
         foreach (FileAnalysis analysis in files)
@@ -524,10 +551,11 @@ public sealed class FileInspector
             if (analysis.ObservedLength < 0) continue;
             try
             {
-                var info = new FileInfo(analysis.FullPath);
-                info.Refresh();
-                if (!info.Exists || (info.Attributes & FileAttributes.ReparsePoint) != 0 ||
-                    info.Length != analysis.ObservedLength || info.LastWriteTimeUtc != analysis.ObservedLastWriteUtc)
+                using FileStream stream = SecureFileReader.OpenRead(analysis.FullPath);
+                SecureFileSnapshot snapshot = SecureFileReader.GetSnapshot(stream.SafeFileHandle);
+                if (snapshot.Length != analysis.ObservedLength ||
+                    snapshot.LastWriteUtc != analysis.ObservedLastWriteUtc ||
+                    snapshot.Identity != analysis.ObservedIdentity)
                 {
                     MarkChangedDuringScan(analysis);
                 }
