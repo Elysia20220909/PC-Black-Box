@@ -59,6 +59,7 @@ PC Black Box gives the owner prioritized evidence about an untrusted local downl
 
 - Strict Release rebuild with current .NET analyzers and warnings treated as errors.
 - Runtime `--security-status` result must be `enforced=true` with every required control present.
+- Target-free `--self-test` must pass the product query, sanitization, report, and baseline checks.
 - Live process mitigation flags must match the required policy bits.
 - Regression fixtures must preserve signature, capability, hostile-archive, privacy, and path-boundary behavior.
 - Secret scanning and tracked-artifact inspection must pass before a signed commit is pushed.

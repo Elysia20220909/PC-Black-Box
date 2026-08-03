@@ -9,7 +9,8 @@ public partial class App : Application
     {
         bool commandLineReport = e.Args.Length >= 3 && e.Args[0].Equals("--report", StringComparison.OrdinalIgnoreCase);
         bool commandLineSecurityStatus = e.Args.Length == 1 && e.Args[0].Equals("--security-status", StringComparison.OrdinalIgnoreCase);
-        bool commandLineMode = commandLineReport || commandLineSecurityStatus;
+        bool commandLineSelfTest = e.Args.Length == 1 && e.Args[0].Equals("--self-test", StringComparison.OrdinalIgnoreCase);
+        bool commandLineMode = commandLineReport || commandLineSecurityStatus || commandLineSelfTest;
         SecurityPosture posture = WindowsProcessHardening.Current;
         if (!posture.IsEnforced)
         {
@@ -38,6 +39,15 @@ public partial class App : Application
             try { Console.Out.WriteLine(posture.SafeStatusLine); } catch { }
             Environment.ExitCode = 0;
             Shutdown(0);
+            return;
+        }
+
+        if (commandLineSelfTest)
+        {
+            ProductSelfTestResult result = ProductSelfTest.Run();
+            try { Console.Out.WriteLine(result.SafeStatusLine); } catch { }
+            Environment.ExitCode = result.Passed ? 0 : 1;
+            Shutdown(Environment.ExitCode);
             return;
         }
 

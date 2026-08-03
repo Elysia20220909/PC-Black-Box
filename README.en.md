@@ -13,6 +13,14 @@ Its compact black, white, and yellow interface carries forward the at-a-glance o
 
 Use `JA / EN` to switch languages. Only that language preference is stored in `%LOCALAPPDATA%\PCBlackBox\settings.json`.
 
+## Productive review
+
+- Search file names, types, signatures, signers, sources, and findings instantly from the `FILES` page.
+- Filter by `HIGH`, `REVIEW`, `LOW`, or `CLEAR` while keeping the visible and total counts in view.
+- Select a finding card on `OVERVIEW`, or focus it with Tab and press Enter / Space, to open the matching file evidence directly.
+- Use `Ctrl+O` for a file, `Ctrl+Shift+O` for a folder, `Ctrl+F` to search, and `F5` or `Ctrl+Enter` to inspect.
+- Use `Ctrl+1 / 2 / 3` for Overview, Files, and Report; press `Esc` to cancel an active inspection.
+
 ## What it inspects
 
 - SHA-256
@@ -82,6 +90,12 @@ The security baseline can be checked without reading a target:
 
 ```powershell
 dotnet ".\bin\Release\net10.0-windows10.0.17763.0\PC Black Box.dll" --security-status
+```
+
+Search, filtering, sanitization, and the security baseline can be tested without a target file:
+
+```powershell
+dotnet ".\bin\Release\net10.0-windows10.0.17763.0\PC Black Box.dll" --self-test
 ```
 
 ## Repository policy

@@ -13,6 +13,14 @@ Marathon Network Blockerの一画面で状態を読み取れる操作感を受�
 
 `JA / EN`で日本語と英語を切り替えられます。選択した言語だけが `%LOCALAPPDATA%\PCBlackBox\settings.json` に保存されます。
 
+## 使いやすさ
+
+- `ファイル`画面では、ファイル名、形式、署名、署名者、入手元、所見をすぐに検索できます。
+- `高 / 確認 / 低 / 所見なし`でリスク帯を絞り込み、表示件数と全件数を並べて確認できます。
+- `概要`の所見カードをクリックするか、Tabで選んでEnter / Spaceを押すと、根拠となったファイル詳細へ移動します。
+- `Ctrl+O`でファイル選択、`Ctrl+Shift+O`でフォルダー選択、`Ctrl+F`で検索、`F5`または`Ctrl+Enter`で調査を開始できます。
+- `Ctrl+1 / 2 / 3`で概要・ファイル・レポートを切り替え、調査中の`Esc`で停止できます。
+
 ## 調べるもの
 
 - SHA-256
@@ -82,6 +90,12 @@ dotnet ".\bin\Release\net10.0-windows10.0.17763.0\PC Black Box.dll" --report "C:
 
 ```powershell
 dotnet ".\bin\Release\net10.0-windows10.0.17763.0\PC Black Box.dll" --security-status
+```
+
+検索・絞込み・匿名化・セキュリティ基準を、対象ファイルなしで自己診断できます。
+
+```powershell
+dotnet ".\bin\Release\net10.0-windows10.0.17763.0\PC Black Box.dll" --self-test
 ```
 
 ## リポジトリ方針

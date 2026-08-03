@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.0 — 2026-08-03
+
+- Added instant file search across names, types, signatures, signers, sources, and findings.
+- Added `HIGH`, `REVIEW`, `LOW`, and `CLEAR` filters with visible result counts.
+- Made finding cards open the matching file evidence directly by pointer or keyboard.
+- Added discoverable keyboard shortcuts and visible keyboard-focus states.
+- Localized file-detail labels and made clipboard failures non-fatal.
+- Improved pixel alignment and empty-filter states without changing the offline security boundary.
+- Added a target-free product self-test for query, sanitization, reporting, and enforced security controls.
+
 ## 0.4.0 — 2026-08-02
 
 - Added a fail-closed 13-control process security baseline with OS and runtime verification.
