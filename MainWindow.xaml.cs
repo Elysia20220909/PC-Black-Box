@@ -631,7 +631,7 @@ public partial class MainWindow : Window
         SaveJsonButton.Content = ja ? "JSON保存" : "SAVE JSON";
         PrivacyFooterText.Text = ja ? $"完全オフライン • 防御 {postureCount} • アップロードなし" : $"FULLY OFFLINE • BASELINE {postureCount} • NO UPLOAD";
         ShortcutFooterText.Text = ja ? "CTRL+O ファイル • CTRL+F 検索 • F5 調査" : "CTRL+O FILE • CTRL+F FIND • F5 INSPECT";
-        VersionText.Text = ja ? "v0.5 • 製品品質" : "v0.5 • PRODUCT QUALITY";
+        VersionText.Text = ja ? "v0.5.1 • 安全境界" : "v0.5.1 • TRUST BOUNDARY";
 
         if (FileGrid.SelectedItem is FileAnalysis selectedFile)
         {

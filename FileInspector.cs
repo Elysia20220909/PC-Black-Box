@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
+using Microsoft.Win32.SafeHandles;
 using System.Reflection.PortableExecutable;
 using System.Security;
 using System.Security.Cryptography;
@@ -96,6 +97,7 @@ public sealed class FileInspector
         List<string> files = CollectFiles(fullTarget, result, cancellationToken);
         string root = targetIsFile ? Path.GetDirectoryName(fullTarget) ?? fullTarget : fullTarget;
         int signatureChecks = 0;
+        long inspectedBytes = 0;
 
         for (int index = 0; index < files.Count; index++)
         {
@@ -104,7 +106,14 @@ public sealed class FileInspector
             progress?.Report(new ScanProgress(index, files.Count, Path.GetFileName(file)));
             try
             {
-                result.Files.Add(AnalyzeFile(file, root, targetIsFile, ref signatureChecks, cancellationToken));
+                FileAnalysis analysis = AnalyzeFile(file, root, targetIsFile, inspectedBytes, ref signatureChecks, cancellationToken);
+                result.Files.Add(analysis);
+                inspectedBytes += analysis.Size;
+            }
+            catch (InspectionSafetyLimitException)
+            {
+                MarkPartial(result, $"Safety limit reached ({MaxFiles} files or {FileAnalysis.FormatSize(MaxTotalBytes)}).");
+                break;
             }
             catch (Exception exception) when (IsExpectedFileFailure(exception))
             {
@@ -155,10 +164,10 @@ public sealed class FileInspector
                 continue;
             }
 
-            IEnumerator<FileSystemInfo>? enumerator = null;
             try
             {
-                enumerator = new DirectoryInfo(directory).EnumerateFileSystemInfos().GetEnumerator();
+                using SafeFileHandle directoryGuard = SecureFileReader.OpenDirectoryGuard(directory);
+                using IEnumerator<FileSystemInfo> enumerator = new DirectoryInfo(directory).EnumerateFileSystemInfos().GetEnumerator();
                 while (enumerator.MoveNext())
                 {
                     cancellationToken.ThrowIfCancellationRequested();
@@ -212,20 +221,19 @@ public sealed class FileInspector
                 MarkPartial(result, "One or more directories could not be read.");
                 continue;
             }
-            finally
-            {
-                enumerator?.Dispose();
-            }
         }
 
         return files.OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    private static FileAnalysis AnalyzeFile(string path, string root, bool singleFile, ref int signatureChecks, CancellationToken cancellationToken)
+    private static FileAnalysis AnalyzeFile(string path, string root, bool singleFile, long inspectedBytes, ref int signatureChecks, CancellationToken cancellationToken)
     {
         using FileStream secureStream = SecureFileReader.OpenRead(path);
         SecureFileSnapshot originalSnapshot = SecureFileReader.GetSnapshot(secureStream.SafeFileHandle);
-        if (originalSnapshot.Length > MaxTotalBytes) throw new IOException("The file exceeds the inspection safety limit.");
+        if (SecurityPolicy.WouldExceedCumulativeLimit(inspectedBytes, originalSnapshot.Length, MaxTotalBytes))
+        {
+            throw new InspectionSafetyLimitException();
+        }
 
         string rawRelativePath = singleFile ? Path.GetFileName(path) : Path.GetRelativePath(root, path);
         var analysis = new FileAnalysis
@@ -652,5 +660,9 @@ public sealed class FileInspector
         {
             analysis.Indicators.Add(indicator);
         }
+    }
+
+    private sealed class InspectionSafetyLimitException : IOException
+    {
     }
 }

@@ -114,6 +114,10 @@ public static class SecurityPolicy
 
     public static bool ContainsDirectionalOrInvisibleControl(string value) => value.Any(IsDirectionalOrInvisibleControl);
 
+    internal static bool WouldExceedCumulativeLimit(long consumedBytes, long nextBytes, long limitBytes) =>
+        consumedBytes < 0 || nextBytes < 0 || limitBytes < 0 ||
+        consumedBytes > limitBytes || nextBytes > limitBytes - consumedBytes;
+
     private static string ValidateLocalPath(string path)
     {
         if (String.IsNullOrWhiteSpace(path)) throw new ArgumentException("A path is required.", nameof(path));

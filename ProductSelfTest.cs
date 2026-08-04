@@ -1,3 +1,5 @@
+using System.IO;
+
 namespace DestinyBlackBox;
 
 internal sealed record ProductSelfTestResult(bool Passed, int Checks)
@@ -31,6 +33,8 @@ internal static class ProductSelfTest
             Require(FileViewQuery.Apply(files, "ALL", "injection").SequenceEqual([high]), ref checks);
             Require(FileViewQuery.Apply(files, "ALL", "example.invalid").SequenceEqual([high]), ref checks);
             Require(!SecurityPolicy.SanitizeText("safe\u202Etxt").Contains('\u202E'), ref checks);
+            Require(!SecurityPolicy.WouldExceedCumulativeLimit(SecurityPolicy.MaxTargetBytes - 1, 1, SecurityPolicy.MaxTargetBytes), ref checks);
+            Require(SecurityPolicy.WouldExceedCumulativeLimit(SecurityPolicy.MaxTargetBytes - 1, 2, SecurityPolicy.MaxTargetBytes), ref checks);
             Require(WindowsProcessHardening.Current.IsEnforced, ref checks);
 
             var result = new ScanResult
@@ -45,6 +49,7 @@ internal static class ProductSelfTest
             string report = ReportBuilder.Build(result, "en");
             Require(report.Contains("13/13 controls enforced", StringComparison.Ordinal), ref checks);
             Require(!report.Contains("C:\\Users\\", StringComparison.OrdinalIgnoreCase), ref checks);
+            Require(TestGuardedReportReplacement(result), ref checks);
             return new ProductSelfTestResult(true, checks);
         }
         catch
@@ -71,6 +76,41 @@ internal static class ProductSelfTest
         };
         if (indicator is not null) file.Indicators.Add(indicator);
         return file;
+    }
+
+    private static bool TestGuardedReportReplacement(ScanResult result)
+    {
+        string temporaryRoot = SecurityPolicy.ValidateLocalDirectory(Path.GetTempPath(), mustExist: true);
+        string directory = Path.Combine(temporaryRoot, $"PCBlackBox-SelfTest-{Guid.NewGuid():N}");
+        string reportPath = Path.Combine(directory, "report.md");
+        bool replacementVerified = false;
+        try
+        {
+            Directory.CreateDirectory(directory);
+            SafeReportWriter.Write(reportPath, "first", result, ".md", allowOverwrite: false);
+            SafeReportWriter.Write(reportPath, "second", result, ".md", allowOverwrite: true);
+            using FileStream stream = SecureFileReader.OpenRead(reportPath, 4096);
+            using var reader = new StreamReader(stream);
+            replacementVerified = reader.ReadToEnd().Equals("second", StringComparison.Ordinal);
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(reportPath) && (File.GetAttributes(reportPath) & FileAttributes.ReparsePoint) == 0)
+                {
+                    File.Delete(reportPath);
+                }
+                if (Directory.Exists(directory) && (File.GetAttributes(directory) & FileAttributes.ReparsePoint) == 0)
+                {
+                    Directory.Delete(directory, recursive: false);
+                }
+            }
+            catch { }
+        }
+        return replacementVerified &&
+               !File.Exists(reportPath) && !Directory.Exists(reportPath) &&
+               !File.Exists(directory) && !Directory.Exists(directory);
     }
 
     private static void Require(bool condition, ref int checks)

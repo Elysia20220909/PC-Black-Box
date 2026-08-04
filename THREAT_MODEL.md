@@ -45,6 +45,8 @@ PC Black Box gives the owner prioritized evidence about an untrusted local downl
 
 - A malicious download crafted to exploit format parsing, regular expressions, archive enumeration, Unicode display, signature handling, or integer boundaries.
 - A local race that attempts to replace or rewrite a file during inspection.
+- A local race that replaces an intermediate directory with a junction between validation and access.
+- A local race that grows files after enumeration to exceed the cumulative read limit.
 - A local low-integrity or network location attempting to inject a native image.
 - A malicious working directory attempting DLL preloading.
 - An accidental operator action that selects a network, device, alternate-stream, or linked path.
@@ -62,4 +64,5 @@ PC Black Box gives the owner prioritized evidence about an untrusted local downl
 - Target-free `--self-test` must pass the product query, sanitization, report, and baseline checks.
 - Live process mitigation flags must match the required policy bits.
 - Regression fixtures must preserve signature, capability, hostile-archive, privacy, and path-boundary behavior.
+- Regression checks must preserve final-handle path matching, guarded directory writes, and cumulative observed-size limits.
 - Secret scanning and tracked-artifact inspection must pass before a signed commit is pushed.

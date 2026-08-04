@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using Microsoft.Win32.SafeHandles;
 
 namespace DestinyBlackBox;
 
@@ -37,6 +38,7 @@ public static class SettingsStore
             string settingsDirectory = SecurityPolicy.ValidateLocalDirectory(SettingsDirectory, mustExist: false);
             Directory.CreateDirectory(settingsDirectory);
             SecurityPolicy.ValidateLocalDirectory(settingsDirectory, mustExist: true);
+            using SafeFileHandle settingsGuard = SecureFileReader.OpenDirectoryGuard(settingsDirectory);
             if (File.Exists(SettingsPath) && (File.GetAttributes(SettingsPath) & FileAttributes.ReparsePoint) != 0) return;
 
             temporaryPath = Path.Combine(settingsDirectory, $"settings-{Guid.NewGuid():N}.tmp");

@@ -1,6 +1,7 @@
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.Win32.SafeHandles;
 
 namespace DestinyBlackBox;
 
@@ -22,13 +23,15 @@ public static class SafeReportWriter
             throw new IOException("Reports cannot be written over or inside the inspection target.");
         }
 
+        string parent = Path.GetDirectoryName(fullPath)!;
+        using SafeFileHandle parentGuard = SecureFileReader.OpenDirectoryGuard(parent);
+
         if (!allowOverwrite)
         {
             WriteNew(fullPath, content);
             return;
         }
 
-        string parent = Path.GetDirectoryName(fullPath)!;
         string temporaryPath = Path.Combine(parent, $".{Path.GetFileName(fullPath)}.{RandomNumberGenerator.GetHexString(16)}.tmp");
         try
         {

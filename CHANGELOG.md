@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.1 — 2026-08-04
+
+- Verify that every opened file and directory handle resolves to the exact requested local path.
+- Hold no-delete directory guards while enumerating targets and writing settings or reports.
+- Enforce the 12 GB folder limit against stable, handle-observed file sizes instead of relying only on enumeration metadata.
+- Extend the target-free self-test with cumulative-size boundaries and guarded report-replacement checks.
+
 ## 0.5.0 — 2026-08-03
 
 - Added instant file search across names, types, signatures, signers, sources, and findings.

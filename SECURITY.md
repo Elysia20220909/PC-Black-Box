@@ -28,6 +28,9 @@ Include only the minimum evidence needed to reproduce the issue. Never attach cr
 - Strict handle checks are permanent; DLL discovery excludes the current directory and is restricted to the application directory and System32.
 - Serious operating-system errors are returned to the app instead of opening modal error dialogs that could stall unattended inspection.
 - Inspection uses no-follow file handles and rechecks the volume plus 128-bit file identity after parsing.
+- Opened file and directory handles must resolve to the exact requested DOS path.
+- Directory guards deny delete sharing during enumeration and settings or report writes.
+- Folder byte limits are rechecked against cumulative stable-handle sizes before hashing each file.
 - Untrusted capability text is evaluated with the non-backtracking regular-expression engine and a finite timeout.
 
 These controls apply iOS-inspired least-privilege and closed-data-flow principles. They do not make a WPF process equivalent to the iOS App Sandbox and are not an absolute security guarantee.

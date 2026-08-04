@@ -59,7 +59,10 @@ The design follows iOS-inspired security principles: least privilege, a closed d
 - DEP, ASLR, Control Flow Guard, and SEHOP are mandatory, and invalid-handle use is made fatal.
 - P/Invoke and normal DLL discovery are restricted to the application directory and System32; the current directory is excluded.
 - Inspection files are opened through handles that do not follow reparse points and do not share writes or replacement while parsing.
+- Every opened file and directory handle must resolve to the exact requested local path, blocking intermediate junction replacement.
 - Volume identity and a 128-bit file ID are rechecked alongside length and timestamp to detect same-name replacement.
+- The 12 GB folder limit is enforced again against cumulative stable-handle sizes, not only enumeration metadata.
+- Parent directories deny delete sharing during enumeration and settings or report writes to block destination replacement.
 - Capability matching uses the linear-time regular-expression engine with a time limit to resist crafted denial-of-service inputs.
 
 The UI and reports expose the verified baseline as a count such as `13/13`. The trust boundaries and residual risks are recorded in [`THREAT_MODEL.md`](THREAT_MODEL.md).
@@ -92,7 +95,7 @@ The security baseline can be checked without reading a target:
 dotnet ".\bin\Release\net10.0-windows10.0.17763.0\PC Black Box.dll" --security-status
 ```
 
-Search, filtering, sanitization, and the security baseline can be tested without a target file:
+Search, filtering, sanitization, and the security baseline can be tested without a target file. The check also creates, safely replaces, and removes an isolated temporary report:
 
 ```powershell
 dotnet ".\bin\Release\net10.0-windows10.0.17763.0\PC Black Box.dll" --self-test
