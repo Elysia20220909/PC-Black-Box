@@ -4,6 +4,27 @@ PC Black Box is a Windows static-inspection tool for examining downloaded files 
 
 Its compact black, white, and yellow interface carries forward the at-a-glance operating style of Marathon Network Blocker. Administrator privileges are not requested.
 
+## Setup
+
+You need:
+
+- Windows 10 or Windows 11
+- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
+- Access to this private repository
+- [GitHub CLI](https://cli.github.com/)
+
+Run the following commands in PowerShell:
+
+```powershell
+gh auth login
+gh repo clone Elysia20220909/PC-Black-Box
+cd PC-Black-Box
+dotnet restore
+dotnet run --project .\Destiny2BlackBox.csproj
+```
+
+Skip `gh auth login` if GitHub CLI is already authenticated.
+
 ## Use
 
 1. Start `PC Black Box.exe`.

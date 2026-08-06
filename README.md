@@ -4,6 +4,27 @@
 
 Marathon Network Blockerの一画面で状態を読み取れる操作感を受け継ぎ、黒・白・黄を基調にしています。管理者権限は要求しません。
 
+## セットアップ
+
+必要なものは次のとおりです。
+
+- Windows 10またはWindows 11
+- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
+- この非公開リポジトリへのアクセス権
+- [GitHub CLI](https://cli.github.com/)
+
+PowerShellで次のコマンドを実行します。
+
+```powershell
+gh auth login
+gh repo clone Elysia20220909/PC-Black-Box
+cd PC-Black-Box
+dotnet restore
+dotnet run --project .\Destiny2BlackBox.csproj
+```
+
+すでにGitHubへログインしている場合、`gh auth login`は不要です。
+
 ## 使い方
 
 1. `PC Black Box.exe`を起動します。
