@@ -14,6 +14,7 @@ public static class ReportBuilder
         builder.AppendLine($"- {(ja ? "対象" : "Target")}: `{Escape(result.TargetName)}`");
         builder.AppendLine($"- {(ja ? "開始" : "Started")}: {result.StartedAt:yyyy-MM-dd HH:mm:ss}");
         builder.AppendLine($"- {(ja ? "所要時間" : "Duration")}: {result.Duration.TotalSeconds:F1} s");
+        builder.AppendLine($"- {(ja ? "セキュリティ基準" : "Security baseline")}: {Escape(result.SecurityProfile)} — {result.SecurityControlsEnforced}/{result.SecurityControlsRequired} {(ja ? "強制確認済み" : "controls enforced")}");
         builder.AppendLine($"- {(ja ? "判定" : "Assessment")}: **{result.RiskCode} ({result.RiskScore}/100)**");
         builder.AppendLine($"- {(ja ? "ファイル数" : "Files")}: {result.Files.Count}");
         builder.AppendLine($"- {(ja ? "合計サイズ" : "Total size")}: {FileAnalysis.FormatSize(result.TotalBytes)}");
@@ -76,8 +77,8 @@ public static class ReportBuilder
         builder.AppendLine(ja ? "## プライバシーと制約" : "## Privacy and limitations");
         builder.AppendLine();
         builder.AppendLine(ja
-            ? "対象は実行していません。ファイルのアップロード、ネットワーク通信、プロセス注入、メモリ読み取りは行いません。レポートには絶対パス、Windowsユーザー名、IPアドレス、Steam ID、認証情報を含めません。ハッシュ照会は利用者が明示的に外部サイトを開いた場合だけ行われます。"
-            : "The target was not executed. No file upload, network request, process injection, or memory read is performed. The report omits absolute paths, Windows user names, IP addresses, Steam IDs, and credentials. Hash reputation lookup occurs only when the user explicitly opens an external site.");
+            ? "対象は実行していません。ファイルのアップロード、外部サイト照会、ネットワーク通信、プロセス注入、メモリ読み取りは行いません。レポートには絶対パス、Windowsユーザー名、IPアドレス、Steam ID、認証情報を含めません。"
+            : "The target was not executed. No file upload, external lookup, network request, process injection, or memory read is performed. The report omits absolute paths, Windows user names, IP addresses, Steam IDs, and credentials.");
         return builder.ToString();
     }
 
@@ -86,9 +87,16 @@ public static class ReportBuilder
         bool ja = !language.Equals("en", StringComparison.OrdinalIgnoreCase);
         var payload = new
         {
-            schema = "pc-black-box-report-v1",
-            generatedAt = DateTimeOffset.Now,
-            target = result.TargetName,
+            schema = "pc-black-box-report-v2",
+            generatedAt = DateTimeOffset.UtcNow,
+            target = Clean(result.TargetName),
+            security = new
+            {
+                profile = Clean(result.SecurityProfile),
+                enforced = result.SecurityControlsEnforced == result.SecurityControlsRequired && result.SecurityControlsRequired > 0,
+                controlsEnforced = result.SecurityControlsEnforced,
+                controlsRequired = result.SecurityControlsRequired
+            },
             result = new
             {
                 risk = result.RiskCode,
@@ -100,36 +108,38 @@ public static class ReportBuilder
                 result.SignedCount,
                 result.ActiveContentCount,
                 result.IsPartial,
-                result.PartialReason,
+                partialReason = Clean(result.PartialReason),
                 durationSeconds = Math.Round(result.Duration.TotalSeconds, 3)
             },
             files = result.Files.Select(file => new
             {
-                path = file.RelativePath,
+                path = Clean(file.RelativePath),
                 file.Size,
-                file.FileType,
-                file.Architecture,
+                fileType = Clean(file.FileType),
+                architecture = Clean(file.Architecture),
                 file.Sha256,
                 file.Entropy,
-                file.SignatureStatus,
-                file.Signer,
+                signatureStatus = Clean(file.SignatureStatus),
+                signer = Clean(file.Signer),
                 file.InternetZone,
-                sourceHost = file.SourceHost == "—" ? null : file.SourceHost,
+                sourceHost = file.SourceHost == "—" ? null : Clean(file.SourceHost),
                 file.ArchiveEntries,
                 file.InspectionLimited,
                 riskScore = file.RiskScore,
                 risk = file.RiskCode,
                 indicators = file.Indicators.Select(indicator => new
                 {
-                    indicator.Severity,
-                    indicator.Code,
+                    severity = Clean(indicator.Severity),
+                    code = Clean(indicator.Code),
                     score = indicator.Score,
-                    message = ja ? indicator.Japanese : indicator.English
+                    message = Clean(ja ? indicator.Japanese : indicator.English)
                 })
             })
         };
         return JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
     }
 
-    private static string Escape(string value) => value.Replace("|", "/").Replace("\r", " ").Replace("\n", " ").Replace("`", "'").Trim();
+    private static string Clean(string value) => SecurityPolicy.SanitizeText(value, 2048).Trim();
+
+    private static string Escape(string value) => Clean(value).Replace("|", "/").Replace("`", "'");
 }

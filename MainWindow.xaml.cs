@@ -1,8 +1,9 @@
 using Microsoft.Win32;
-using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -15,6 +16,9 @@ public partial class MainWindow : Window
     private string? _selectedPath;
     private ScanResult? _result;
     private CancellationTokenSource? _scanCancellation;
+    private List<FileAnalysis> _fileRows = [];
+    private string _fileRiskFilter = "ALL";
+    private bool _isBusy;
     private string _language;
 
     private bool IsJapanese => _language == "ja";
@@ -57,19 +61,60 @@ public partial class MainWindow : Window
 
     private void SelectTarget(string path)
     {
-        if (!File.Exists(path) && !Directory.Exists(path)) return;
-        _selectedPath = Path.GetFullPath(path);
-        TargetHeaderText.Text = File.Exists(path)
+        try
+        {
+            _selectedPath = SecurityPolicy.ValidateTargetPath(path);
+        }
+        catch
+        {
+            _selectedPath = null;
+            ResetResultForNewTarget();
+            InspectButton.IsEnabled = false;
+            AssessmentText.Text = "BLOCKED";
+            AssessmentText.Foreground = (Brush)FindResource("WarnBrush");
+            TargetHeaderText.Text = IsJapanese ? "安全なローカル対象が必要です" : "A SAFE LOCAL TARGET IS REQUIRED";
+            TargetPathText.Text = IsJapanese ? "ネットワーク、リンク、代替ストリームは選べません" : "Network, link, and alternate-stream paths are blocked";
+            TargetPathText.ToolTip = null;
+            ProgressText.Text = IsJapanese ? "安全上の理由で、この場所は調査できません。" : "This location cannot be inspected safely.";
+            return;
+        }
+
+        ResetResultForNewTarget();
+        TargetHeaderText.Text = File.Exists(_selectedPath)
             ? (IsJapanese ? "ファイルを調査します" : "FILE READY FOR INSPECTION")
             : (IsJapanese ? "フォルダーを調査します" : "FOLDER READY FOR INSPECTION");
-        TargetPathText.Text = _selectedPath;
-        TargetPathText.ToolTip = _selectedPath;
+        string targetName = File.Exists(_selectedPath) ? Path.GetFileName(_selectedPath) : new DirectoryInfo(_selectedPath).Name;
+        TargetPathText.Text = SecurityPolicy.SanitizeText(targetName, 512);
+        TargetPathText.ToolTip = null;
         InspectButton.IsEnabled = true;
         ProgressText.Text = IsJapanese ? "準備完了 — 対象は実行しません" : "Ready — the target will not be executed";
         AssessmentText.Text = "READY";
         VerdictText.Text = IsJapanese
             ? "静的な兆候を確認します。調査結果は安全性の保証ではなく、確認順序を示すものです。"
             : "Static indicators will be inspected. The result prioritizes review; it does not guarantee safety.";
+    }
+
+    private void ResetResultForNewTarget()
+    {
+        _result = null;
+        _fileRows = [];
+        ResetFileFilters();
+        FindingsPanel.Children.Clear();
+        AssessmentText.Text = "IDLE";
+        AssessmentText.Foreground = (Brush)FindResource("MutedBrush");
+        VerdictText.Text = IsJapanese ? "現在の調査結果はありません。" : "No current inspection result.";
+        FileDetailText.Text = IsJapanese ? "ファイルを選択すると詳細を表示します。" : "Select a file to view details.";
+        ReportPreviewText.Text = IsJapanese ? "調査完了後にレポートが表示されます。" : "The report will appear after inspection.";
+        RiskValue.Text = "—";
+        FilesValue.Text = "—";
+        ActiveValue.Text = "—";
+        SignedValue.Text = "—";
+        TimeValue.Text = "—";
+        ScanProgressBar.Value = 0;
+        CopyHashButton.IsEnabled = false;
+        CopyReportButton.IsEnabled = false;
+        SaveMarkdownButton.IsEnabled = false;
+        SaveJsonButton.IsEnabled = false;
     }
 
     private async void Inspect_Click(object sender, RoutedEventArgs e)
@@ -80,6 +125,7 @@ public partial class MainWindow : Window
             return;
         }
 
+        ResetResultForNewTarget();
         _scanCancellation?.Dispose();
         _scanCancellation = new CancellationTokenSource();
         SetBusy(true);
@@ -94,7 +140,7 @@ public partial class MainWindow : Window
             ScanProgressBar.Value = percent;
             ProgressText.Text = value.Total == 0
                 ? (IsJapanese ? "対象を整理しています…" : "Enumerating the target…")
-                : $"{value.Completed}/{value.Total}  {value.CurrentFile}";
+                : $"{value.Completed}/{value.Total}  {SecurityPolicy.SanitizeText(value.CurrentFile, 256)}";
         });
 
         try
@@ -108,12 +154,12 @@ public partial class MainWindow : Window
             AssessmentText.Text = "CANCELLED";
             VerdictText.Text = IsJapanese ? "途中結果は保存していません。" : "Partial results were not retained.";
         }
-        catch (Exception ex)
+        catch (Exception)
         {
             ProgressText.Text = IsJapanese ? "調査を完了できませんでした。" : "Inspection could not be completed.";
             AssessmentText.Text = "ERROR";
             AssessmentText.Foreground = (Brush)FindResource("DangerBrush");
-            VerdictText.Text = ex.Message;
+            VerdictText.Text = IsJapanese ? "入力を変更せず停止しました。対象と保存先を確認してください。" : "Inspection stopped without modifying the input. Check the target and destination.";
         }
         finally
         {
@@ -125,6 +171,7 @@ public partial class MainWindow : Window
 
     private void SetBusy(bool busy)
     {
+        _isBusy = busy;
         InspectButton.IsEnabled = !busy && _selectedPath is not null;
         SelectFileButton.IsEnabled = !busy;
         SelectFolderButton.IsEnabled = !busy;
@@ -156,8 +203,8 @@ public partial class MainWindow : Window
             .ToList();
         PopulateFindings(findings);
 
-        FileGrid.ItemsSource = result.Files.OrderByDescending(file => file.RiskScore).ThenBy(file => file.RelativePath, StringComparer.OrdinalIgnoreCase).ToList();
-        if (FileGrid.Items.Count > 0) FileGrid.SelectedIndex = 0;
+        _fileRows = result.Files.OrderByDescending(file => file.RiskScore).ThenBy(file => file.RelativePath, StringComparer.OrdinalIgnoreCase).ToList();
+        ResetFileFilters();
 
         ReportPreviewText.Text = ReportBuilder.Build(result, _language);
         CopyReportButton.IsEnabled = true;
@@ -196,11 +243,11 @@ public partial class MainWindow : Window
         foreach ((FileAnalysis file, Indicator indicator) in findings)
         {
             string message = IsJapanese ? indicator.Japanese : indicator.English;
-            FindingsPanel.Children.Add(CreateFindingCard(indicator.Severity, file.RelativePath, $"{message}  +{indicator.Score}"));
+            FindingsPanel.Children.Add(CreateFindingCard(indicator.Severity, file.RelativePath, $"{message}  +{indicator.Score}", file));
         }
     }
 
-    private UIElement CreateFindingCard(string severity, string title, string detail)
+    private UIElement CreateFindingCard(string severity, string title, string detail, FileAnalysis? file = null)
     {
         Brush color = severity switch
         {
@@ -218,6 +265,18 @@ public partial class MainWindow : Window
             Margin = new Thickness(0, 0, 0, 8),
             CornerRadius = new CornerRadius(2)
         };
+        if (file is not null)
+        {
+            card.Tag = file;
+            card.Cursor = Cursors.Hand;
+            card.Focusable = true;
+            card.ToolTip = IsJapanese ? "クリックして該当ファイルを表示" : "Open the matching file";
+            card.MouseLeftButtonUp += FindingCard_MouseLeftButtonUp;
+            card.KeyDown += FindingCard_KeyDown;
+            card.GotKeyboardFocus += FindingCard_GotKeyboardFocus;
+            card.LostKeyboardFocus += FindingCard_LostKeyboardFocus;
+            AutomationProperties.SetName(card, $"{title}: {detail}");
+        }
         var grid = new Grid();
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(4) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -231,25 +290,130 @@ public partial class MainWindow : Window
         return card;
     }
 
+    private void FindingCard_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is Border card) OpenFindingFile(card);
+    }
+
+    private void FindingCard_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (sender is not Border card || e.Key is not (Key.Enter or Key.Space)) return;
+        OpenFindingFile(card);
+        e.Handled = true;
+    }
+
+    private void FindingCard_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        if (sender is Border card) card.BorderBrush = (Brush)FindResource("AccentBrush");
+    }
+
+    private static void FindingCard_LostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        if (sender is Border card) card.BorderBrush = new SolidColorBrush(Color.FromArgb(50, 255, 255, 255));
+    }
+
+    private void OpenFindingFile(Border card)
+    {
+        if (card.Tag is not FileAnalysis file) return;
+        _fileRiskFilter = "ALL";
+        UpdateFilterButtons();
+        FileSearchBox.Clear();
+        ApplyFileFilter();
+        ShowPage(FilesPage, FilesNav);
+        FileGrid.SelectedItem = file;
+        FileGrid.ScrollIntoView(file);
+        FileGrid.Focus();
+    }
+
+    private void FileSearchBox_TextChanged(object sender, TextChangedEventArgs e) => ApplyFileFilter();
+
+    private void ClearSearch_Click(object sender, RoutedEventArgs e)
+    {
+        FileSearchBox.Clear();
+        FileSearchBox.Focus();
+    }
+
+    private void FileFilter_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { CommandParameter: string filter }) return;
+        _fileRiskFilter = filter;
+        UpdateFilterButtons();
+        ApplyFileFilter();
+    }
+
+    private void ResetFileFilters()
+    {
+        _fileRiskFilter = "ALL";
+        UpdateFilterButtons();
+        if (!String.IsNullOrEmpty(FileSearchBox.Text))
+        {
+            FileSearchBox.Clear();
+        }
+        else
+        {
+            ApplyFileFilter();
+        }
+    }
+
+    private void UpdateFilterButtons()
+    {
+        foreach (Button button in new[] { AllFilterButton, HighFilterButton, ReviewFilterButton, LowFilterButton, ClearFilterButton })
+        {
+            button.Tag = Equals(button.CommandParameter, _fileRiskFilter) ? "active" : null;
+        }
+    }
+
+    private void ApplyFileFilter()
+    {
+        if (FileSearchBox is null || FileGrid is null || FileFilterCountText is null ||
+            FileSearchHintText is null || ClearSearchButton is null) return;
+
+        FileAnalysis? selected = FileGrid.SelectedItem as FileAnalysis;
+        List<FileAnalysis> visibleRows = FileViewQuery.Apply(_fileRows, _fileRiskFilter, FileSearchBox.Text);
+        FileGrid.ItemsSource = visibleRows;
+        FileFilterCountText.Text = $"{visibleRows.Count} / {_fileRows.Count}";
+        FileSearchHintText.Visibility = String.IsNullOrEmpty(FileSearchBox.Text) ? Visibility.Visible : Visibility.Collapsed;
+        ClearSearchButton.IsEnabled = !String.IsNullOrEmpty(FileSearchBox.Text);
+
+        if (selected is not null && visibleRows.Contains(selected))
+        {
+            FileGrid.SelectedItem = selected;
+        }
+        else if (visibleRows.Count > 0)
+        {
+            FileGrid.SelectedIndex = 0;
+        }
+        else
+        {
+            FileDetailText.Text = IsJapanese ? "条件に一致するファイルはありません。" : "No file matches the current filters.";
+            CopyHashButton.IsEnabled = false;
+        }
+    }
+
     private void FileGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (FileGrid.SelectedItem is not FileAnalysis file)
         {
             CopyHashButton.IsEnabled = false;
-            HashLookupButton.IsEnabled = false;
             return;
         }
 
+        UpdateFileDetail(file);
+        CopyHashButton.IsEnabled = !String.IsNullOrWhiteSpace(file.Sha256);
+    }
+
+    private void UpdateFileDetail(FileAnalysis file)
+    {
         var details = new StringBuilder();
         details.AppendLine(file.RelativePath);
-        details.AppendLine($"TYPE       {file.FileType}  |  {file.Architecture}");
-        details.AppendLine($"SIZE       {file.SizeText}");
+        details.AppendLine($"{(IsJapanese ? "種類" : "TYPE"),-10} {file.FileType}  |  {file.Architecture}");
+        details.AppendLine($"{(IsJapanese ? "サイズ" : "SIZE"),-10} {file.SizeText}");
         details.AppendLine($"SHA-256    {file.Sha256}");
-        details.AppendLine($"SIGNATURE  {file.SignatureStatus}");
-        if (file.Signer != "—") details.AppendLine($"SIGNER     {file.Signer}");
-        details.AppendLine($"ENTROPY    {file.EntropyText}");
-        details.AppendLine($"ZONE       {(file.InternetZone?.ToString() ?? "—")}  |  SOURCE {file.SourceHost}");
-        if (file.ArchiveEntries > 0) details.AppendLine($"ARCHIVE    {file.ArchiveEntries} entries");
+        details.AppendLine($"{(IsJapanese ? "署名" : "SIGNATURE"),-10} {file.SignatureStatus}");
+        if (file.Signer != "—") details.AppendLine($"{(IsJapanese ? "署名者" : "SIGNER"),-10} {file.Signer}");
+        details.AppendLine($"{(IsJapanese ? "エントロピー" : "ENTROPY"),-10} {file.EntropyText}");
+        details.AppendLine($"ZONE       {(file.InternetZone?.ToString() ?? "—")}  |  {(IsJapanese ? "入手元" : "SOURCE")} {file.SourceHost}");
+        if (file.ArchiveEntries > 0) details.AppendLine($"{(IsJapanese ? "書庫" : "ARCHIVE"),-10} {file.ArchiveEntries} {(IsJapanese ? "項目" : "entries")}");
         if (file.Indicators.Count > 0)
         {
             details.AppendLine();
@@ -259,34 +423,33 @@ public partial class MainWindow : Window
             }
         }
         FileDetailText.Text = details.ToString();
-        CopyHashButton.IsEnabled = !String.IsNullOrWhiteSpace(file.Sha256);
-        HashLookupButton.IsEnabled = !String.IsNullOrWhiteSpace(file.Sha256);
     }
 
     private void CopyHash_Click(object sender, RoutedEventArgs e)
     {
         if (FileGrid.SelectedItem is FileAnalysis file && !String.IsNullOrWhiteSpace(file.Sha256))
         {
-            Clipboard.SetText(file.Sha256);
-            ProgressText.Text = IsJapanese ? "SHA-256をコピーしました" : "SHA-256 copied";
+            CopyTextSafely(file.Sha256, IsJapanese ? "SHA-256をコピーしました" : "SHA-256 copied");
         }
-    }
-
-    private void HashLookup_Click(object sender, RoutedEventArgs e)
-    {
-        if (FileGrid.SelectedItem is not FileAnalysis file || String.IsNullOrWhiteSpace(file.Sha256)) return;
-        string prompt = IsJapanese
-            ? "VirusTotalをブラウザーで開きます。ファイル本体は送信せず、SHA-256ハッシュだけをURLで照会します。続けますか？"
-            : "Open VirusTotal in your browser? The file will not be uploaded; only its SHA-256 hash is included in the URL.";
-        if (MessageBox.Show(this, prompt, "PC Black Box", MessageBoxButton.YesNo, MessageBoxImage.Information) != MessageBoxResult.Yes) return;
-        Process.Start(new ProcessStartInfo($"https://www.virustotal.com/gui/file/{file.Sha256}") { UseShellExecute = true });
     }
 
     private void CopyReport_Click(object sender, RoutedEventArgs e)
     {
         if (_result is null) return;
-        Clipboard.SetText(ReportBuilder.Build(_result, _language));
-        ProgressText.Text = IsJapanese ? "レポートをコピーしました" : "Report copied";
+        CopyTextSafely(ReportBuilder.Build(_result, _language), IsJapanese ? "レポートをコピーしました" : "Report copied");
+    }
+
+    private void CopyTextSafely(string value, string successMessage)
+    {
+        try
+        {
+            Clipboard.SetText(value);
+            ProgressText.Text = successMessage;
+        }
+        catch (ExternalException)
+        {
+            ProgressText.Text = IsJapanese ? "クリップボードを使用できませんでした" : "The clipboard is currently unavailable";
+        }
     }
 
     private void SaveMarkdown_Click(object sender, RoutedEventArgs e)
@@ -301,8 +464,15 @@ public partial class MainWindow : Window
         };
         if (dialog.ShowDialog(this) == true)
         {
-            File.WriteAllText(dialog.FileName, ReportBuilder.Build(_result, _language), new UTF8Encoding(false));
-            ProgressText.Text = IsJapanese ? "Markdownレポートを保存しました" : "Markdown report saved";
+            try
+            {
+                SafeReportWriter.Write(dialog.FileName, ReportBuilder.Build(_result, _language), _result, ".md", allowOverwrite: true);
+                ProgressText.Text = IsJapanese ? "Markdownレポートを保存しました" : "Markdown report saved";
+            }
+            catch
+            {
+                ProgressText.Text = IsJapanese ? "安全上の理由で保存できませんでした" : "The report could not be saved safely";
+            }
         }
     }
 
@@ -318,8 +488,15 @@ public partial class MainWindow : Window
         };
         if (dialog.ShowDialog(this) == true)
         {
-            File.WriteAllText(dialog.FileName, ReportBuilder.BuildJson(_result, _language), new UTF8Encoding(false));
-            ProgressText.Text = IsJapanese ? "JSONレポートを保存しました" : "JSON report saved";
+            try
+            {
+                SafeReportWriter.Write(dialog.FileName, ReportBuilder.BuildJson(_result, _language), _result, ".json", allowOverwrite: true);
+                ProgressText.Text = IsJapanese ? "JSONレポートを保存しました" : "JSON report saved";
+            }
+            catch
+            {
+                ProgressText.Text = IsJapanese ? "安全上の理由で保存できませんでした" : "The report could not be saved safely";
+            }
         }
     }
 
@@ -331,15 +508,70 @@ public partial class MainWindow : Window
 
     private void Window_Drop(object sender, DragEventArgs e)
     {
-        if (e.Data.GetData(DataFormats.FileDrop) is string[] paths && paths.Length > 0)
+        if (e.Data.GetData(DataFormats.FileDrop) is string[] paths && paths.Length == 1)
         {
             SelectTarget(paths[0]);
+        }
+        else
+        {
+            ProgressText.Text = IsJapanese ? "一度に選べる対象は1つだけです。" : "Select exactly one target at a time.";
         }
     }
 
     private void OverviewNav_Click(object sender, RoutedEventArgs e) => ShowPage(OverviewPage, OverviewNav);
     private void FilesNav_Click(object sender, RoutedEventArgs e) => ShowPage(FilesPage, FilesNav);
     private void ReportNav_Click(object sender, RoutedEventArgs e) => ShowPage(ReportPage, ReportNav);
+
+    private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        ModifierKeys modifiers = Keyboard.Modifiers;
+        bool control = (modifiers & ModifierKeys.Control) != 0;
+        bool shift = (modifiers & ModifierKeys.Shift) != 0;
+
+        if (control && e.Key == Key.O && !_isBusy)
+        {
+            if (shift) SelectFolder_Click(this, new RoutedEventArgs());
+            else SelectFile_Click(this, new RoutedEventArgs());
+            e.Handled = true;
+        }
+        else if (control && e.Key == Key.F)
+        {
+            ShowPage(FilesPage, FilesNav);
+            FileSearchBox.Focus();
+            FileSearchBox.SelectAll();
+            e.Handled = true;
+        }
+        else if ((e.Key == Key.F5 || (control && e.Key == Key.Enter)) && InspectButton.IsEnabled)
+        {
+            Inspect_Click(this, new RoutedEventArgs());
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Escape && _isBusy)
+        {
+            _scanCancellation?.Cancel();
+            e.Handled = true;
+        }
+        else if (control && (e.Key == Key.D1 || e.Key == Key.NumPad1))
+        {
+            ShowPage(OverviewPage, OverviewNav);
+            e.Handled = true;
+        }
+        else if (control && (e.Key == Key.D2 || e.Key == Key.NumPad2))
+        {
+            ShowPage(FilesPage, FilesNav);
+            e.Handled = true;
+        }
+        else if (control && (e.Key == Key.D3 || e.Key == Key.NumPad3))
+        {
+            ShowPage(ReportPage, ReportNav);
+            e.Handled = true;
+        }
+        else if ((modifiers & ModifierKeys.Alt) != 0 && e.Key == Key.L)
+        {
+            Language_Click(this, new RoutedEventArgs());
+            e.Handled = true;
+        }
+    }
 
     private void ShowPage(UIElement page, Button nav)
     {
@@ -364,10 +596,20 @@ public partial class MainWindow : Window
     private void ApplyLanguage()
     {
         bool ja = IsJapanese;
+        SecurityPosture posture = WindowsProcessHardening.Current;
+        string postureCount = $"{posture.EnforcedCount}/{posture.RequiredCount}";
         ReadOnlyBadgeText.Text = ja ? "読み取り専用" : "READ ONLY";
         OverviewNav.Content = ja ? "概要" : "OVERVIEW";
         FilesNav.Content = ja ? "ファイル" : "FILES";
         ReportNav.Content = ja ? "レポート" : "REPORT";
+        AllFilterButton.Content = ja ? "すべて" : "ALL";
+        HighFilterButton.Content = ja ? "高" : "HIGH";
+        ReviewFilterButton.Content = ja ? "確認" : "REVIEW";
+        LowFilterButton.Content = ja ? "低" : "LOW";
+        ClearFilterButton.Content = ja ? "所見なし" : "CLEAR";
+        FileSearchHintText.Text = ja ? "ファイル名・種類・署名を検索" : "Search file, type, signature, or finding";
+        FileSearchBox.ToolTip = ja ? "ファイル名、種類、署名、署名者、所見を検索" : "Search file name, type, signature, signer, or finding";
+        ClearSearchButton.ToolTip = ja ? "検索をクリア" : "Clear search";
         SelectFileButton.Content = ja ? "ファイルを選ぶ" : "SELECT FILE";
         SelectFolderButton.Content = ja ? "フォルダーを選ぶ" : "SELECT FOLDER";
         InspectButton.Content = ja ? "調査開始" : "INSPECT";
@@ -380,16 +622,21 @@ public partial class MainWindow : Window
         FindingsTitleText.Text = ja ? "主な所見" : "KEY FINDINGS";
         ScopeTitleText.Text = ja ? "調査するもの" : "INSPECTION SCOPE";
         ScopeBodyText.Text = ja
-            ? "SHA-256 / Authenticode署名 / Internet Zone / 入手元ホスト / 実ファイル形式 / 拡張子偽装 / エントロピー / スクリプト能力 / ZIP内部構造\n\n実行・アップロード・パケット取得・メモリ読取は行いません。"
-            : "SHA-256 / Authenticode / Internet Zone / source host / true file format / extension mismatch / entropy / script capabilities / ZIP structure\n\nNo execution, upload, packet capture, or memory read.";
+            ? $"SHA-256 / オフライン署名確認 / 安定ファイルID / Internet Zone / 実ファイル形式 / 拡張子偽装 / エントロピー / スクリプト能力 / ZIP内部構造\n\nセキュリティ基準 {postureCount} をOSとランタイムから確認済み。実行・アップロード・外部照会・パケット取得・メモリ読取は行いません。"
+            : $"SHA-256 / offline signature verification / stable file identity / Internet Zone / true file format / extension mismatch / entropy / script capabilities / ZIP structure\n\nSecurity baseline {postureCount} is verified through OS and runtime checks. No execution, upload, external lookup, packet capture, or memory read.";
         CopyHashButton.Content = ja ? "SHA-256をコピー" : "COPY SHA-256";
-        HashLookupButton.Content = ja ? "ハッシュ照会を開く" : "OPEN HASH LOOKUP";
         ReportTitleText.Text = ja ? "匿名化された調査レポート" : "SANITIZED INSPECTION REPORT";
         CopyReportButton.Content = ja ? "コピー" : "COPY";
         SaveMarkdownButton.Content = ja ? "Markdown保存" : "SAVE MARKDOWN";
         SaveJsonButton.Content = ja ? "JSON保存" : "SAVE JSON";
-        PrivacyFooterText.Text = ja ? "ローカルのみ • 実行なし • アップロードなし" : "LOCAL ONLY • NO EXECUTION • NO UPLOAD";
-        VersionText.Text = ja ? "v0.1 • 静的観測" : "v0.1 • STATIC OBSERVATION";
+        PrivacyFooterText.Text = ja ? $"完全オフライン • 防御 {postureCount} • アップロードなし" : $"FULLY OFFLINE • BASELINE {postureCount} • NO UPLOAD";
+        ShortcutFooterText.Text = ja ? "CTRL+O ファイル • CTRL+F 検索 • F5 調査" : "CTRL+O FILE • CTRL+F FIND • F5 INSPECT";
+        VersionText.Text = ja ? "v0.5.1 • 安全境界" : "v0.5.1 • TRUST BOUNDARY";
+
+        if (FileGrid.SelectedItem is FileAnalysis selectedFile)
+        {
+            UpdateFileDetail(selectedFile);
+        }
 
         if (_selectedPath is null)
         {
@@ -402,7 +649,22 @@ public partial class MainWindow : Window
         }
         else
         {
-            SelectTarget(_selectedPath);
+            bool isFile = File.Exists(_selectedPath);
+            bool isDirectory = Directory.Exists(_selectedPath);
+            if (!isFile && !isDirectory)
+            {
+                TargetHeaderText.Text = ja ? "対象が見つかりません" : "TARGET NOT FOUND";
+                TargetPathText.Text = ja ? "選び直してください" : "Select the target again";
+            }
+            else
+            {
+                TargetHeaderText.Text = isFile
+                    ? (ja ? "ファイルを調査します" : "FILE READY FOR INSPECTION")
+                    : (ja ? "フォルダーを調査します" : "FOLDER READY FOR INSPECTION");
+                string targetName = isFile ? Path.GetFileName(_selectedPath) : new DirectoryInfo(_selectedPath).Name;
+                TargetPathText.Text = SecurityPolicy.SanitizeText(targetName, 512);
+            }
+            TargetPathText.ToolTip = null;
         }
     }
 

@@ -5,13 +5,17 @@
         Width="980" Height="690"
         MinWidth="900" MinHeight="620"
         WindowStartupLocation="CenterScreen"
+        Icon="assets/pc-black-box.ico"
         WindowStyle="None"
         ResizeMode="CanResizeWithGrip"
         Background="Transparent"
         AllowsTransparency="True"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
         AllowDrop="True"
         Drop="Window_Drop"
-        DragOver="Window_DragOver">
+        DragOver="Window_DragOver"
+        PreviewKeyDown="Window_PreviewKeyDown">
     <Border Background="{StaticResource WindowBrush}" BorderBrush="#3C444F" BorderThickness="1" CornerRadius="4">
         <Grid>
             <Grid.RowDefinitions>
@@ -150,8 +154,29 @@
                 </Grid>
 
                 <Grid x:Name="FilesPage" Visibility="Collapsed">
-                    <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="170"/></Grid.RowDefinitions>
-                    <DataGrid x:Name="FileGrid" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" CanUserDeleteRows="False"
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="170"/></Grid.RowDefinitions>
+                    <Border Grid.Row="0" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3" Padding="10" Margin="0,0,0,10">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="260"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <Grid>
+                                <TextBox x:Name="FileSearchBox" Style="{StaticResource FilterTextBox}" TextChanged="FileSearchBox_TextChanged"
+                                         AutomationProperties.Name="File search" ToolTip="Search file name, type, signature, signer, or finding" />
+                                <TextBlock x:Name="FileSearchHintText" Text="ファイル名・種類・署名を検索" Foreground="#69727E" FontSize="10.5"
+                                           VerticalAlignment="Center" Margin="11,0,0,0" IsHitTestVisible="False" />
+                            </Grid>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="10,0,0,0">
+                                <Button x:Name="AllFilterButton" Content="すべて" CommandParameter="ALL" Tag="active" Style="{StaticResource FilterButton}" Click="FileFilter_Click" />
+                                <Button x:Name="HighFilterButton" Content="高" CommandParameter="HIGH" Style="{StaticResource FilterButton}" Margin="5,0,0,0" Click="FileFilter_Click" />
+                                <Button x:Name="ReviewFilterButton" Content="確認" CommandParameter="REVIEW" Style="{StaticResource FilterButton}" Margin="5,0,0,0" Click="FileFilter_Click" />
+                                <Button x:Name="LowFilterButton" Content="低" CommandParameter="LOW" Style="{StaticResource FilterButton}" Margin="5,0,0,0" Click="FileFilter_Click" />
+                                <Button x:Name="ClearFilterButton" Content="所見なし" CommandParameter="CLEAR" Style="{StaticResource FilterButton}" Margin="5,0,0,0" Click="FileFilter_Click" />
+                            </StackPanel>
+                            <Button x:Name="ClearSearchButton" Grid.Column="2" Content="×" Width="31" Height="31" HorizontalAlignment="Left" Margin="8,0,0,0"
+                                    Style="{StaticResource GhostButton}" Padding="0" ToolTip="Clear search" Click="ClearSearch_Click" />
+                            <TextBlock x:Name="FileFilterCountText" Grid.Column="3" Text="0 / 0" Foreground="{StaticResource MutedBrush}" FontFamily="Consolas" FontSize="10.5" VerticalAlignment="Center" Margin="12,0,2,0" />
+                        </Grid>
+                    </Border>
+                    <DataGrid x:Name="FileGrid" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" CanUserDeleteRows="False"
                               Background="{StaticResource PanelBrush}" Foreground="{StaticResource TextBrush}" BorderBrush="{StaticResource BorderBrush}"
                               HeadersVisibility="Column" GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#293039"
                               RowBackground="#171B21" AlternatingRowBackground="#1B2027" SelectionMode="Single"
@@ -177,7 +202,7 @@
                             <DataGridTextColumn Header="SHA-256" Binding="{Binding Sha256Short}" Width="145" />
                         </DataGrid.Columns>
                     </DataGrid>
-                    <Border Grid.Row="1" Background="{StaticResource PanelAltBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3" Padding="14" Margin="0,12,0,0">
+                    <Border Grid.Row="2" Background="{StaticResource PanelAltBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3" Padding="14" Margin="0,12,0,0">
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                             <ScrollViewer VerticalScrollBarVisibility="Auto">
@@ -185,7 +210,6 @@
                             </ScrollViewer>
                             <StackPanel Grid.Column="1" Margin="16,0,0,0">
                                 <Button x:Name="CopyHashButton" Content="SHA-256をコピー" Style="{StaticResource GhostButton}" IsEnabled="False" Click="CopyHash_Click" />
-                                <Button x:Name="HashLookupButton" Content="ハッシュ照会を開く" Style="{StaticResource GhostButton}" IsEnabled="False" Margin="0,8,0,0" Click="HashLookup_Click" />
                             </StackPanel>
                         </Grid>
                     </Border>
@@ -209,9 +233,10 @@
             </Grid>
 
             <Grid Grid.Row="3" Background="#13171C">
-                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                 <TextBlock x:Name="PrivacyFooterText" Text="LOCAL ONLY • NO EXECUTION • NO UPLOAD" Foreground="#6F7985" FontSize="9" VerticalAlignment="Center" Margin="17,0,0,0" />
-                <TextBlock x:Name="VersionText" Grid.Column="1" Text="v0.1 • STATIC OBSERVATION" Foreground="#6F7985" FontSize="9" VerticalAlignment="Center" Margin="0,0,17,0" />
+                <TextBlock x:Name="ShortcutFooterText" Grid.Column="1" Text="CTRL+O FILE • CTRL+F FIND • F5 INSPECT" Foreground="#606A76" FontSize="9" VerticalAlignment="Center" HorizontalAlignment="Center" />
+                <TextBlock x:Name="VersionText" Grid.Column="2" Text="v0.1 • STATIC OBSERVATION" Foreground="#6F7985" FontSize="9" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,17,0" />
             </Grid>
         </Grid>
     </Border>

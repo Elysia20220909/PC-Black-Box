@@ -24,6 +24,9 @@ public sealed class FileAnalysis
     public string SourceHost { get; set; } = "—";
     public int ArchiveEntries { get; set; }
     public bool InspectionLimited { get; set; }
+    internal long ObservedLength { get; set; }
+    internal DateTime ObservedLastWriteUtc { get; set; }
+    internal SecureFileIdentity ObservedIdentity { get; set; }
     public List<Indicator> Indicators { get; } = [];
     public int RiskScore => Math.Clamp(Indicators.Sum(x => x.Score), 0, 100);
     public string RiskCode => RiskScore >= 60 ? "HIGH" : RiskScore >= 25 ? "REVIEW" : Indicators.Count > 0 ? "LOW" : "CLEAR";
@@ -47,7 +50,11 @@ public sealed class ScanResult
 {
     public string TargetPath { get; init; } = String.Empty;
     public string TargetName { get; init; } = String.Empty;
+    public string SecurityProfile { get; init; } = String.Empty;
+    public int SecurityControlsEnforced { get; init; }
+    public int SecurityControlsRequired { get; init; }
     public DateTime StartedAt { get; init; }
+    public bool TargetWasDirectory { get; init; }
     public TimeSpan Duration { get; set; }
     public bool IsPartial { get; set; }
     public string PartialReason { get; set; } = String.Empty;
