@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
@@ -13,9 +14,21 @@ namespace DestinyBlackBox;
 public sealed class FileInspector
 {
     private const int MaxFiles = 2500;
+    private const int MaxDirectories = 10000;
+    private const int MaxDirectoryDepth = 128;
+    private const int MaxEnumeratedEntries = 20000;
+    private const long MaxRetainedPathCharacters = 8L * 1024 * 1024;
     private const long MaxTotalBytes = SecurityPolicy.MaxTargetBytes;
     private const int MaxArchiveEntries = 10000;
     private const int MaxArchiveEntryNameChars = 2048;
+    private const int MaxArchiveEntryNameBytes = 4096;
+    private const long MaxArchiveCentralDirectoryBytes = 64L * 1024 * 1024;
+    private const int EndOfCentralDirectoryLength = 22;
+    private const uint CentralDirectoryHeaderSignature = 0x02014B50;
+    private const uint CentralDirectoryDigitalSignature = 0x05054B50;
+    private const uint Zip64EndOfCentralDirectorySignature = 0x06064B50;
+    private const uint Zip64EndOfCentralDirectoryLocatorSignature = 0x07064B50;
+    private const uint EndOfCentralDirectorySignature = 0x06054B50;
     private const int MaxSignatureChecks = 300;
     private const int SampleBytes = 8 * 1024 * 1024;
     private static readonly TimeSpan RegexMatchTimeout = TimeSpan.FromSeconds(1);
@@ -94,7 +107,8 @@ public sealed class FileInspector
         };
 
         Stopwatch stopwatch = Stopwatch.StartNew();
-        List<string> files = CollectFiles(fullTarget, result, cancellationToken);
+        CollectedTargets collected = CollectFiles(fullTarget, result, cancellationToken);
+        List<string> files = collected.Files;
         string root = targetIsFile ? Path.GetDirectoryName(fullTarget) ?? fullTarget : fullTarget;
         int signatureChecks = 0;
         long inspectedBytes = 0;
@@ -123,6 +137,7 @@ public sealed class FileInspector
         }
 
         ValidateFilesUnchanged(result.Files);
+        ValidateDirectoriesUnchanged(collected.Directories, result);
         foreach (FileAnalysis file in result.Files)
         {
             ApplySignatureRisk(file);
@@ -134,22 +149,27 @@ public sealed class FileInspector
         return result;
     }
 
-    private static List<string> CollectFiles(string target, ScanResult result, CancellationToken cancellationToken)
+    private static CollectedTargets CollectFiles(string target, ScanResult result, CancellationToken cancellationToken)
     {
         if (File.Exists(target))
         {
-            return [target];
+            return new CollectedTargets([target], []);
         }
 
         var files = new List<string>();
-        var directories = new Stack<string>();
-        directories.Push(target);
+        var observations = new List<DirectoryObservation>();
+        var directories = new Stack<PendingDirectory>();
+        directories.Push(new PendingDirectory(target, 0));
+        int discoveredDirectories = 1;
+        int enumeratedEntries = 0;
+        long retainedPathCharacters = target.Length;
         long totalBytes = 0;
 
         while (directories.Count > 0)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            string directory = directories.Pop();
+            PendingDirectory pending = directories.Pop();
+            string directory = pending.Path;
             try
             {
                 if ((File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0)
@@ -167,10 +187,17 @@ public sealed class FileInspector
             try
             {
                 using SafeFileHandle directoryGuard = SecureFileReader.OpenDirectoryGuard(directory);
+                SecureFileSnapshot originalDirectorySnapshot = SecureFileReader.GetSnapshot(directoryGuard);
                 using IEnumerator<FileSystemInfo> enumerator = new DirectoryInfo(directory).EnumerateFileSystemInfos().GetEnumerator();
                 while (enumerator.MoveNext())
                 {
                     cancellationToken.ThrowIfCancellationRequested();
+                    if (WouldExceedEnumerationLimit(enumeratedEntries))
+                    {
+                        MarkPartial(result, $"Directory entry safety limit reached ({MaxEnumeratedEntries} entries).");
+                        return BuildCollectedTargets(files, observations);
+                    }
+                    enumeratedEntries++;
                     FileSystemInfo entry = enumerator.Current;
                     FileAttributes attributes;
                     try { attributes = entry.Attributes; }
@@ -188,7 +215,26 @@ public sealed class FileInspector
 
                     if (entry is DirectoryInfo childDirectory)
                     {
-                        directories.Push(childDirectory.FullName);
+                        int childDepth = checked(pending.Depth + 1);
+                        if (WouldExceedDirectoryLimits(discoveredDirectories, childDepth))
+                        {
+                            MarkPartial(result, $"Directory safety limit reached ({MaxDirectories} directories or depth {MaxDirectoryDepth}).");
+                            if (discoveredDirectories >= MaxDirectories)
+                            {
+                                return BuildCollectedTargets(files, observations);
+                            }
+                            continue;
+                        }
+
+                        if (WouldExceedRetainedPathLimit(retainedPathCharacters, childDirectory.FullName.Length))
+                        {
+                            MarkPartial(result, "The retained path-metadata safety limit was reached.");
+                            return BuildCollectedTargets(files, observations);
+                        }
+
+                        directories.Push(new PendingDirectory(childDirectory.FullName, childDepth));
+                        discoveredDirectories++;
+                        retainedPathCharacters += childDirectory.FullName.Length;
                         continue;
                     }
 
@@ -209,12 +255,25 @@ public sealed class FileInspector
                     if (files.Count >= MaxFiles || length > MaxTotalBytes - totalBytes)
                     {
                         MarkPartial(result, $"Safety limit reached ({MaxFiles} files or {FileAnalysis.FormatSize(MaxTotalBytes)}).");
-                        return files;
+                        return BuildCollectedTargets(files, observations);
+                    }
+                    if (WouldExceedRetainedPathLimit(retainedPathCharacters, file.FullName.Length))
+                    {
+                        MarkPartial(result, "The retained path-metadata safety limit was reached.");
+                        return BuildCollectedTargets(files, observations);
                     }
 
                     files.Add(file.FullName);
                     totalBytes += length;
+                    retainedPathCharacters += file.FullName.Length;
                 }
+
+                SecureFileSnapshot finalDirectorySnapshot = SecureFileReader.GetSnapshot(directoryGuard);
+                if (finalDirectorySnapshot != originalDirectorySnapshot)
+                {
+                    MarkPartial(result, "A directory changed while it was being enumerated.");
+                }
+                observations.Add(new DirectoryObservation(directory, finalDirectorySnapshot));
             }
             catch (Exception exception) when (IsExpectedFileFailure(exception))
             {
@@ -223,8 +282,20 @@ public sealed class FileInspector
             }
         }
 
-        return files.OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToList();
+        return BuildCollectedTargets(files, observations);
     }
+
+    private static CollectedTargets BuildCollectedTargets(List<string> files, List<DirectoryObservation> observations) =>
+        new(files.OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToList(), observations);
+
+    internal static bool WouldExceedDirectoryLimits(int discoveredDirectories, int childDepth) =>
+        discoveredDirectories >= MaxDirectories || childDepth > MaxDirectoryDepth;
+
+    internal static bool WouldExceedEnumerationLimit(int enumeratedEntries) =>
+        enumeratedEntries >= MaxEnumeratedEntries;
+
+    internal static bool WouldExceedRetainedPathLimit(long retainedCharacters, int nextPathCharacters) =>
+        SecurityPolicy.WouldExceedCumulativeLimit(retainedCharacters, nextPathCharacters, MaxRetainedPathCharacters);
 
     private static FileAnalysis AnalyzeFile(string path, string root, bool singleFile, long inspectedBytes, ref int signatureChecks, CancellationToken cancellationToken)
     {
@@ -490,6 +561,8 @@ public sealed class FileInspector
         try
         {
             stream.Position = 0;
+            ValidateArchiveCentralDirectory(stream, cancellationToken);
+            stream.Position = 0;
             using var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true);
             int activeEntries = 0;
             int nestedArchives = 0;
@@ -551,13 +624,266 @@ public sealed class FileInspector
             if (nestedArchives > 0) AddIndicator(analysis, new("info", "nested-archive", $"内部に別の圧縮ファイルが{nestedArchives}件あります", $"The archive contains {nestedArchives} nested archive(s)", 3));
             if (analysis.InspectionLimited) AddIndicator(analysis, new("watch", "archive-limit", $"内部一覧は{MaxArchiveEntries}件で打ち切りました", $"Archive inspection stopped at {MaxArchiveEntries} entries", 10));
         }
+        catch (ArchiveSafetyLimitException)
+        {
+            analysis.InspectionLimited = true;
+            AddIndicator(analysis, new("watch", "archive-directory-limit", "ZIP中央ディレクトリが安全上限を超えたため、標準解析へ渡さず停止しました", "The ZIP central directory exceeded the safety boundary and was rejected before standard parsing", 25));
+        }
         catch (InvalidDataException)
         {
+            analysis.InspectionLimited = true;
             AddIndicator(analysis, new("watch", "invalid-archive", "ZIP形式として正常に読み取れませんでした", "The package could not be read as a valid ZIP archive", 20));
+        }
+        catch (OverflowException)
+        {
+            analysis.InspectionLimited = true;
+            AddIndicator(analysis, new("watch", "invalid-archive", "ZIP形式の数値境界が不正です", "The package contains invalid ZIP numeric boundaries", 20));
         }
         catch (IOException)
         {
+            analysis.InspectionLimited = true;
             AddIndicator(analysis, new("watch", "archive-read-error", "圧縮ファイルの内部確認を完了できませんでした", "Archive content inspection could not be completed", 12));
+        }
+    }
+
+    private static void ValidateArchiveCentralDirectory(Stream stream, CancellationToken cancellationToken)
+    {
+        if (!stream.CanRead || !stream.CanSeek)
+        {
+            throw new InvalidDataException("ZIP preflight requires a readable, seekable stream.");
+        }
+
+        long originalPosition = stream.Position;
+        try
+        {
+            long length = stream.Length;
+            if (length < EndOfCentralDirectoryLength)
+            {
+                throw new InvalidDataException("The ZIP end record is missing.");
+            }
+
+            int tailLength = checked((int)Math.Min(length, EndOfCentralDirectoryLength + UInt16.MaxValue));
+            byte[] tail = new byte[tailLength];
+            stream.Position = length - tailLength;
+            stream.ReadExactly(tail);
+
+            int endIndex = FindUnambiguousEndOfCentralDirectory(tail);
+            if (endIndex < 0)
+            {
+                throw new InvalidDataException("The ZIP end record is invalid.");
+            }
+
+            ReadOnlySpan<byte> endRecord = tail.AsSpan(endIndex, EndOfCentralDirectoryLength);
+            long endOffset = checked(length - tailLength + endIndex);
+            ushort diskNumber = BinaryPrimitives.ReadUInt16LittleEndian(endRecord[4..]);
+            ushort centralDirectoryDisk = BinaryPrimitives.ReadUInt16LittleEndian(endRecord[6..]);
+            ushort entriesOnDisk16 = BinaryPrimitives.ReadUInt16LittleEndian(endRecord[8..]);
+            ushort totalEntries16 = BinaryPrimitives.ReadUInt16LittleEndian(endRecord[10..]);
+            uint centralDirectorySize32 = BinaryPrimitives.ReadUInt32LittleEndian(endRecord[12..]);
+            uint centralDirectoryOffset32 = BinaryPrimitives.ReadUInt32LittleEndian(endRecord[16..]);
+
+            bool requiresZip64 =
+                diskNumber == UInt16.MaxValue || centralDirectoryDisk == UInt16.MaxValue ||
+                entriesOnDisk16 == UInt16.MaxValue || totalEntries16 == UInt16.MaxValue ||
+                centralDirectorySize32 == UInt32.MaxValue || centralDirectoryOffset32 == UInt32.MaxValue;
+
+            ulong entryCount;
+            ulong centralDirectorySize;
+            ulong centralDirectoryOffset;
+            long directoryTerminalOffset = endOffset;
+            if (requiresZip64)
+            {
+                ReadZip64DirectoryMetadata(
+                    stream,
+                    endOffset,
+                    out entryCount,
+                    out centralDirectorySize,
+                    out centralDirectoryOffset,
+                    out directoryTerminalOffset);
+            }
+            else
+            {
+                if (diskNumber != 0 || centralDirectoryDisk != 0 || entriesOnDisk16 != totalEntries16)
+                {
+                    throw new InvalidDataException("Split ZIP archives are not accepted.");
+                }
+                entryCount = totalEntries16;
+                centralDirectorySize = centralDirectorySize32;
+                centralDirectoryOffset = centralDirectoryOffset32;
+            }
+
+            if (entryCount > MaxArchiveEntries || centralDirectorySize > MaxArchiveCentralDirectoryBytes)
+            {
+                throw new ArchiveSafetyLimitException();
+            }
+            if (centralDirectoryOffset > Int64.MaxValue || centralDirectorySize > Int64.MaxValue)
+            {
+                throw new InvalidDataException("The ZIP central directory exceeds supported offsets.");
+            }
+
+            long centralStart = checked((long)centralDirectoryOffset);
+            long centralEnd = checked(centralStart + (long)centralDirectorySize);
+            if (centralStart < 0 || centralEnd != directoryTerminalOffset || (entryCount == 0 && centralStart != 0))
+            {
+                throw new InvalidDataException("The ZIP central-directory boundary is ambiguous or inconsistent.");
+            }
+
+            ValidateCentralDirectoryRecords(stream, centralStart, centralEnd, checked((int)entryCount), cancellationToken);
+        }
+        finally
+        {
+            stream.Position = originalPosition;
+        }
+    }
+
+    private static int FindUnambiguousEndOfCentralDirectory(ReadOnlySpan<byte> tail)
+    {
+        int match = -1;
+        for (int index = tail.Length - EndOfCentralDirectoryLength; index >= 0; index--)
+        {
+            ReadOnlySpan<byte> candidate = tail[index..];
+            if (BinaryPrimitives.ReadUInt32LittleEndian(candidate) != EndOfCentralDirectorySignature) continue;
+            if (match >= 0) return -1;
+            ushort commentLength = BinaryPrimitives.ReadUInt16LittleEndian(candidate[20..]);
+            if (index + EndOfCentralDirectoryLength + commentLength != tail.Length) return -1;
+            match = index;
+        }
+        return match;
+    }
+
+    private static void ReadZip64DirectoryMetadata(
+        Stream stream,
+        long endOffset,
+        out ulong entryCount,
+        out ulong centralDirectorySize,
+        out ulong centralDirectoryOffset,
+        out long zip64EndOffset)
+    {
+        const int locatorLength = 20;
+        const int fixedZip64EndLength = 56;
+        if (endOffset < locatorLength)
+        {
+            throw new InvalidDataException("The ZIP64 locator is missing.");
+        }
+
+        Span<byte> locator = stackalloc byte[locatorLength];
+        stream.Position = endOffset - locatorLength;
+        stream.ReadExactly(locator);
+        if (BinaryPrimitives.ReadUInt32LittleEndian(locator) != Zip64EndOfCentralDirectoryLocatorSignature ||
+            BinaryPrimitives.ReadUInt32LittleEndian(locator[4..]) != 0 ||
+            BinaryPrimitives.ReadUInt32LittleEndian(locator[16..]) != 1)
+        {
+            throw new InvalidDataException("Split or malformed ZIP64 archives are not accepted.");
+        }
+
+        ulong zip64OffsetValue = BinaryPrimitives.ReadUInt64LittleEndian(locator[8..]);
+        if (zip64OffsetValue > Int64.MaxValue)
+        {
+            throw new InvalidDataException("The ZIP64 end record offset is unsupported.");
+        }
+        zip64EndOffset = checked((long)zip64OffsetValue);
+        if (zip64EndOffset < 0 || zip64EndOffset > endOffset - locatorLength - fixedZip64EndLength)
+        {
+            throw new InvalidDataException("The ZIP64 end record points outside the archive.");
+        }
+
+        Span<byte> zip64End = stackalloc byte[fixedZip64EndLength];
+        stream.Position = zip64EndOffset;
+        stream.ReadExactly(zip64End);
+        ulong zip64RecordSize = BinaryPrimitives.ReadUInt64LittleEndian(zip64End[4..]);
+        if (BinaryPrimitives.ReadUInt32LittleEndian(zip64End) != Zip64EndOfCentralDirectorySignature ||
+            zip64RecordSize < 44 || zip64RecordSize > MaxArchiveCentralDirectoryBytes ||
+            checked(zip64EndOffset + 12 + (long)zip64RecordSize) != endOffset - locatorLength ||
+            BinaryPrimitives.ReadUInt32LittleEndian(zip64End[16..]) != 0 ||
+            BinaryPrimitives.ReadUInt32LittleEndian(zip64End[20..]) != 0)
+        {
+            throw new InvalidDataException("The ZIP64 end record is malformed or unsupported.");
+        }
+
+        ulong entriesOnDisk = BinaryPrimitives.ReadUInt64LittleEndian(zip64End[24..]);
+        entryCount = BinaryPrimitives.ReadUInt64LittleEndian(zip64End[32..]);
+        if (entriesOnDisk != entryCount)
+        {
+            throw new InvalidDataException("Split ZIP64 archives are not accepted.");
+        }
+        centralDirectorySize = BinaryPrimitives.ReadUInt64LittleEndian(zip64End[40..]);
+        centralDirectoryOffset = BinaryPrimitives.ReadUInt64LittleEndian(zip64End[48..]);
+    }
+
+    private static void ValidateCentralDirectoryRecords(
+        Stream stream,
+        long centralStart,
+        long centralEnd,
+        int expectedEntries,
+        CancellationToken cancellationToken)
+    {
+        const int fixedHeaderLength = 46;
+        stream.Position = centralStart;
+        Span<byte> header = stackalloc byte[fixedHeaderLength];
+        for (int entryIndex = 0; entryIndex < expectedEntries; entryIndex++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (centralEnd - stream.Position < fixedHeaderLength)
+            {
+                throw new InvalidDataException("A ZIP central-directory header is truncated.");
+            }
+
+            stream.ReadExactly(header);
+            if (BinaryPrimitives.ReadUInt32LittleEndian(header) != CentralDirectoryHeaderSignature)
+            {
+                throw new InvalidDataException("A ZIP central-directory header signature is invalid.");
+            }
+
+            ushort nameLength = BinaryPrimitives.ReadUInt16LittleEndian(header[28..]);
+            ushort extraLength = BinaryPrimitives.ReadUInt16LittleEndian(header[30..]);
+            ushort commentLength = BinaryPrimitives.ReadUInt16LittleEndian(header[32..]);
+            if (nameLength > MaxArchiveEntryNameBytes)
+            {
+                throw new ArchiveSafetyLimitException();
+            }
+
+            long variableLength = checked((long)nameLength + extraLength + commentLength);
+            if (variableLength > centralEnd - stream.Position)
+            {
+                throw new InvalidDataException("A ZIP central-directory entry exceeds its declared boundary.");
+            }
+            stream.Position = checked(stream.Position + variableLength);
+        }
+
+        if (stream.Position < centralEnd)
+        {
+            const int digitalSignatureHeaderLength = 6;
+            if (centralEnd - stream.Position < digitalSignatureHeaderLength)
+            {
+                throw new InvalidDataException("The ZIP central-directory trailer is invalid.");
+            }
+            Span<byte> signatureHeader = stackalloc byte[digitalSignatureHeaderLength];
+            stream.ReadExactly(signatureHeader);
+            ushort signatureLength = BinaryPrimitives.ReadUInt16LittleEndian(signatureHeader[4..]);
+            if (BinaryPrimitives.ReadUInt32LittleEndian(signatureHeader) != CentralDirectoryDigitalSignature ||
+                signatureLength != centralEnd - stream.Position)
+            {
+                throw new InvalidDataException("The ZIP central-directory trailer is unsupported.");
+            }
+            stream.Position = centralEnd;
+        }
+
+        if (stream.Position != centralEnd)
+        {
+            throw new InvalidDataException("The ZIP central-directory size is inconsistent.");
+        }
+    }
+
+    internal static bool IsArchiveStructureWithinLimits(Stream stream)
+    {
+        try
+        {
+            ValidateArchiveCentralDirectory(stream, CancellationToken.None);
+            return true;
+        }
+        catch (Exception exception) when (exception is InvalidDataException or ArchiveSafetyLimitException or OverflowException)
+        {
+            return false;
         }
     }
 
@@ -580,6 +906,25 @@ public sealed class FileInspector
             catch (Exception exception) when (IsExpectedFileFailure(exception))
             {
                 MarkChangedDuringScan(analysis);
+            }
+        }
+    }
+
+    private static void ValidateDirectoriesUnchanged(IEnumerable<DirectoryObservation> directories, ScanResult result)
+    {
+        foreach (DirectoryObservation observation in directories)
+        {
+            try
+            {
+                using SafeFileHandle handle = SecureFileReader.OpenDirectoryGuard(observation.Path);
+                if (SecureFileReader.GetSnapshot(handle) != observation.Snapshot)
+                {
+                    MarkPartial(result, "A directory changed after enumeration, so the folder result is incomplete.");
+                }
+            }
+            catch (Exception exception) when (IsExpectedFileFailure(exception))
+            {
+                MarkPartial(result, "A directory could not be revalidated after enumeration.");
             }
         }
     }
@@ -665,4 +1010,12 @@ public sealed class FileInspector
     private sealed class InspectionSafetyLimitException : IOException
     {
     }
+
+    private sealed class ArchiveSafetyLimitException : IOException
+    {
+    }
+
+    private readonly record struct PendingDirectory(string Path, int Depth);
+    private readonly record struct DirectoryObservation(string Path, SecureFileSnapshot Snapshot);
+    private sealed record CollectedTargets(List<string> Files, List<DirectoryObservation> Directories);
 }

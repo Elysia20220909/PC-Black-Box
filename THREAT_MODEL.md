@@ -19,7 +19,9 @@ PC Black Box gives the owner prioritized evidence about an untrusted local downl
 - Inspection does not continue unless every control in `SECURITY-BASELINE-1` is enforced.
 - Parsing uses a stable no-follow handle with no write or delete sharing.
 - File identity is checked again after parsing and before a result is trusted.
-- All loops, input sizes, archive entry counts, signature checks, text lengths, and regular-expression evaluation are bounded.
+- Directory identity and write time are checked after enumeration and again after file inspection.
+- All loops, input sizes, filesystem entries, directory depth, retained paths, archive metadata, signature checks, text lengths, and regular-expression evaluation are bounded.
+- ZIP central-directory structure must pass bounded preflight before the standard archive parser can allocate entry objects.
 - Reports exclude absolute paths and personal identifiers and are never written inside the inspected target.
 - No administrator privilege, UIAccess, external lookup, or child process is required.
 
@@ -47,6 +49,8 @@ PC Black Box gives the owner prioritized evidence about an untrusted local downl
 - A local race that attempts to replace or rewrite a file during inspection.
 - A local race that replaces an intermediate directory with a junction between validation and access.
 - A local race that grows files after enumeration to exceed the cumulative read limit.
+- A folder that uses empty, unreadable, or linked entries and extreme path depth to exhaust traversal resources.
+- A ZIP that declares excessive entries or metadata, underreports central records, or embeds a fake EOCD to desynchronize parsers.
 - A local low-integrity or network location attempting to inject a native image.
 - A malicious working directory attempting DLL preloading.
 - An accidental operator action that selects a network, device, alternate-stream, or linked path.
@@ -61,8 +65,8 @@ PC Black Box gives the owner prioritized evidence about an untrusted local downl
 
 - Strict Release rebuild with current .NET analyzers and warnings treated as errors.
 - Runtime `--security-status` result must be `enforced=true` with every required control present.
-- Target-free `--self-test` must pass the product query, sanitization, report, and baseline checks.
+- Target-free `--self-test` must pass product query, sanitization, report, baseline, directory-budget, ZIP, ZIP64, and ambiguous-record checks.
 - Live process mitigation flags must match the required policy bits.
 - Regression fixtures must preserve signature, capability, hostile-archive, privacy, and path-boundary behavior.
-- Regression checks must preserve final-handle path matching, guarded directory writes, and cumulative observed-size limits.
+- Regression checks must preserve final-handle path matching, guarded directory writes, directory mutation detection, archive preflight, and cumulative observed-size limits.
 - Secret scanning and tracked-artifact inspection must pass before a signed commit is pushed.
