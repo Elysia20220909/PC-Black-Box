@@ -15,6 +15,7 @@ public static class ReportBuilder
         builder.AppendLine($"- {(ja ? "開始" : "Started")}: {result.StartedAt:yyyy-MM-dd HH:mm:ss}");
         builder.AppendLine($"- {(ja ? "所要時間" : "Duration")}: {result.Duration.TotalSeconds:F1} s");
         builder.AppendLine($"- {(ja ? "セキュリティ基準" : "Security baseline")}: {Escape(result.SecurityProfile)} — {result.SecurityControlsEnforced}/{result.SecurityControlsRequired} {(ja ? "強制確認済み" : "controls enforced")}");
+        builder.AppendLine($"- {(ja ? "追加防御" : "Platform reinforcements")}: {result.SecurityReinforcementsEnforced}/{result.SecurityReinforcementsAvailable} {(ja ? "この環境で有効" : "active on this system")}");
         builder.AppendLine($"- {(ja ? "判定" : "Assessment")}: **{result.RiskCode} ({result.RiskScore}/100)**");
         builder.AppendLine($"- {(ja ? "ファイル数" : "Files")}: {result.Files.Count}");
         builder.AppendLine($"- {(ja ? "合計サイズ" : "Total size")}: {FileAnalysis.FormatSize(result.TotalBytes)}");
@@ -95,7 +96,9 @@ public static class ReportBuilder
                 profile = Clean(result.SecurityProfile),
                 enforced = result.SecurityControlsEnforced == result.SecurityControlsRequired && result.SecurityControlsRequired > 0,
                 controlsEnforced = result.SecurityControlsEnforced,
-                controlsRequired = result.SecurityControlsRequired
+                controlsRequired = result.SecurityControlsRequired,
+                reinforcementsEnforced = result.SecurityReinforcementsEnforced,
+                reinforcementsAvailable = result.SecurityReinforcementsAvailable
             },
             result = new
             {

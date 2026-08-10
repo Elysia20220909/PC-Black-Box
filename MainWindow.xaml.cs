@@ -598,6 +598,7 @@ public partial class MainWindow : Window
         bool ja = IsJapanese;
         SecurityPosture posture = WindowsProcessHardening.Current;
         string postureCount = $"{posture.EnforcedCount}/{posture.RequiredCount}";
+        string reinforcementCount = $"{posture.ReinforcementEnforcedCount}/{posture.ReinforcementCount}";
         ReadOnlyBadgeText.Text = ja ? "読み取り専用" : "READ ONLY";
         OverviewNav.Content = ja ? "概要" : "OVERVIEW";
         FilesNav.Content = ja ? "ファイル" : "FILES";
@@ -622,16 +623,18 @@ public partial class MainWindow : Window
         FindingsTitleText.Text = ja ? "主な所見" : "KEY FINDINGS";
         ScopeTitleText.Text = ja ? "調査するもの" : "INSPECTION SCOPE";
         ScopeBodyText.Text = ja
-            ? $"SHA-256 / オフライン署名確認 / 安定ファイルID / Internet Zone / 実ファイル形式 / 拡張子偽装 / エントロピー / スクリプト能力 / ZIP内部構造\n\nセキュリティ基準 {postureCount} をOSとランタイムから確認済み。実行・アップロード・外部照会・パケット取得・メモリ読取は行いません。"
-            : $"SHA-256 / offline signature verification / stable file identity / Internet Zone / true file format / extension mismatch / entropy / script capabilities / ZIP structure\n\nSecurity baseline {postureCount} is verified through OS and runtime checks. No execution, upload, external lookup, packet capture, or memory read.";
+            ? $"SHA-256 / オフライン署名確認 / 安定ファイルID / Internet Zone / 実ファイル形式 / 拡張子偽装 / エントロピー / スクリプト能力 / ZIP内部構造\n\nセキュリティ基準 {postureCount} をOSとランタイムから確認済み。この環境で有効な追加防御は {reinforcementCount} 件です。実行・アップロード・外部照会・パケット取得・メモリ読取は行いません。"
+            : $"SHA-256 / offline signature verification / stable file identity / Internet Zone / true file format / extension mismatch / entropy / script capabilities / ZIP structure\n\nSecurity baseline {postureCount} is verified through OS and runtime checks. {reinforcementCount} platform reinforcements are active on this system. No execution, upload, external lookup, packet capture, or memory read.";
         CopyHashButton.Content = ja ? "SHA-256をコピー" : "COPY SHA-256";
         ReportTitleText.Text = ja ? "匿名化された調査レポート" : "SANITIZED INSPECTION REPORT";
         CopyReportButton.Content = ja ? "コピー" : "COPY";
         SaveMarkdownButton.Content = ja ? "Markdown保存" : "SAVE MARKDOWN";
         SaveJsonButton.Content = ja ? "JSON保存" : "SAVE JSON";
-        PrivacyFooterText.Text = ja ? $"完全オフライン • 防御 {postureCount} • アップロードなし" : $"FULLY OFFLINE • BASELINE {postureCount} • NO UPLOAD";
+        PrivacyFooterText.Text = ja
+            ? $"完全オフライン • 防御 {postureCount} +{posture.ReinforcementEnforcedCount} • アップロードなし"
+            : $"FULLY OFFLINE • BASELINE {postureCount} +{posture.ReinforcementEnforcedCount} • NO UPLOAD";
         ShortcutFooterText.Text = ja ? "CTRL+O ファイル • CTRL+F 検索 • F5 調査" : "CTRL+O FILE • CTRL+F FIND • F5 INSPECT";
-        VersionText.Text = ja ? "v0.5.1 • 安全境界" : "v0.5.1 • TRUST BOUNDARY";
+        VersionText.Text = ja ? "v0.7.0 • 安全境界" : "v0.7.0 • TRUST BOUNDARY";
 
         if (FileGrid.SelectedItem is FileAnalysis selectedFile)
         {

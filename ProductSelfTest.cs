@@ -50,19 +50,29 @@ internal static class ProductSelfTest
             Require(TestArchiveEntryFloodPreflight(), ref checks);
             Require(TestUnderreportedArchivePreflight(), ref checks);
             Require(TestAmbiguousEndRecordPreflight(), ref checks);
-            Require(WindowsProcessHardening.Current.IsEnforced, ref checks);
+            SecurityPosture posture = WindowsProcessHardening.Current;
+            Require(posture.IsEnforced, ref checks);
+            Require(posture.Controls.Select(control => control.Code).Distinct(StringComparer.Ordinal).Count() == posture.Controls.Count, ref checks);
+            Require(posture.Controls.All(control =>
+                control.Tier != SecurityControlTier.Required || control.State == SecurityControlState.Enforced), ref checks);
+            Require(posture.RequiredCount + posture.ReinforcementCount == posture.Controls.Count, ref checks);
+            Require(posture.ReinforcementEnforcedCount <= posture.ReinforcementCount, ref checks);
+            Require(TestNetworkIsolationNames(), ref checks);
 
             var result = new ScanResult
             {
                 TargetName = "self-test.txt",
                 SecurityProfile = SecurityPosture.ProfileId,
-                SecurityControlsEnforced = WindowsProcessHardening.Current.EnforcedCount,
-                SecurityControlsRequired = WindowsProcessHardening.Current.RequiredCount,
+                SecurityControlsEnforced = posture.EnforcedCount,
+                SecurityControlsRequired = posture.RequiredCount,
+                SecurityReinforcementsEnforced = posture.ReinforcementEnforcedCount,
+                SecurityReinforcementsAvailable = posture.ReinforcementCount,
                 StartedAt = DateTime.Now
             };
             result.Files.Add(clear);
             string report = ReportBuilder.Build(result, "en");
-            Require(report.Contains("13/13 controls enforced", StringComparison.Ordinal), ref checks);
+            Require(report.Contains($"{posture.EnforcedCount}/{posture.RequiredCount} controls enforced", StringComparison.Ordinal), ref checks);
+            Require(report.Contains($"{posture.ReinforcementEnforcedCount}/{posture.ReinforcementCount} active on this system", StringComparison.Ordinal), ref checks);
             Require(!report.Contains("C:\\Users\\", StringComparison.OrdinalIgnoreCase), ref checks);
             Require(TestGuardedReportReplacement(result), ref checks);
             return new ProductSelfTestResult(true, checks);
@@ -72,6 +82,20 @@ internal static class ProductSelfTest
             return new ProductSelfTestResult(false, checks);
         }
     }
+
+    /// <summary>
+    /// Locks the transport list in both directions: the socket-level assemblies stay blocked, and the
+    /// request-level assemblies that System.Configuration loads for local file access stay allowed.
+    /// </summary>
+    private static bool TestNetworkIsolationNames() =>
+        NetworkIsolationGuard.IsBlockedAssemblyName("System.Net.Sockets") &&
+        NetworkIsolationGuard.IsBlockedAssemblyName("System.Net.Http") &&
+        NetworkIsolationGuard.IsBlockedAssemblyName("system.net.quic") &&
+        NetworkIsolationGuard.IsBlockedAssemblyName("System.Net.NameResolution") &&
+        !NetworkIsolationGuard.IsBlockedAssemblyName("System.Net.Primitives") &&
+        !NetworkIsolationGuard.IsBlockedAssemblyName("System.Net.Requests") &&
+        !NetworkIsolationGuard.IsBlockedAssemblyName(null) &&
+        !NetworkIsolationGuard.IsBlockedAssemblyName("PresentationCore");
 
     private static FileAnalysis CreateFile(
         string relativePath,

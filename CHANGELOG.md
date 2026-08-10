@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.0 — 2026-08-11
+
+- Replaced the 13-control baseline with `SECURITY-BASELINE-2`: sixteen required controls that gate inspection and four platform reinforcements that are applied where the OS and CPU allow and reported as unavailable where they do not.
+- Locked down the process object so no same-user program can read its memory, write to it, create a thread in it, or duplicate its handles; an `OWNER RIGHTS` entry removes the implicit owner rights that could rewrite the DACL back.
+- Made offline operation a checked property: no network-transport assembly may be loaded, and a later load terminates the process before it can send.
+- Enabled heap termination on corruption, redirection trust, security-domain isolation, page-combining disable, and speculative-store-bypass disable, and reported hardware shadow-stack state.
+- Disabled the hot reload metadata-update path and the EventSource tracing surface in the shipped runtime configuration.
+- Enabled all .NET security analyzer rules as build errors and made any dependency advisory, at any severity, fail the build.
+- Extended `--security-status` to print one `control=… tier=… state=…` line per control, and the self-test to verify baseline structure and the network-transport list in both directions.
+- Documented the mitigations that were considered and deliberately rejected, with the reason each would break the running product.
+
 ## 0.6.0 — 2026-08-08
 
 - Reject oversized, malformed, split, or ambiguous ZIP central directories before constructing the standard archive parser.

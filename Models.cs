@@ -53,6 +53,8 @@ public sealed class ScanResult
     public string SecurityProfile { get; init; } = String.Empty;
     public int SecurityControlsEnforced { get; init; }
     public int SecurityControlsRequired { get; init; }
+    public int SecurityReinforcementsEnforced { get; init; }
+    public int SecurityReinforcementsAvailable { get; init; }
     public DateTime StartedAt { get; init; }
     public bool TargetWasDirectory { get; init; }
     public TimeSpan Duration { get; set; }

@@ -75,10 +75,14 @@ The design follows iOS-inspired security principles: least privilege, a closed d
 
 ## Defense in depth
 
-- Thirteen required controls are applied before application initialization and verified through OS and runtime responses. Inspection fails closed unless every control is verified.
+- Sixteen required controls are applied before application initialization and verified through OS and runtime responses. Inspection fails closed unless every one of them is verified.
+- No same-user program can read this process's memory, write to it, start a thread inside it, or duplicate its handles. The process DACL is rewritten at startup and includes an `OWNER RIGHTS` entry, so even the owning account cannot put those rights back. Task Manager can still see and end the process.
+- Fully offline operation is a checked property of the running process, not a promise in a document: no assembly that can open a socket, resolve a name, or issue an HTTP request may be loaded, and a later attempt to load one terminates the process before it can send.
 - The OS blocks child processes, legacy extension points, non-system fonts, and native images from remote or Low-integrity locations.
 - DEP, ASLR, Control Flow Guard, and SEHOP are mandatory, and invalid-handle use is made fatal.
+- Heap corruption terminates the process instead of continuing in an allocator state an attacker can steer.
 - P/Invoke and normal DLL discovery are restricted to the application directory and System32; the current directory is excluded.
+- The hot reload metadata-update path and the EventSource tracing surface are disabled in the shipped runtime configuration.
 - Inspection files are opened through handles that do not follow reparse points and do not share writes or replacement while parsing.
 - Every opened file and directory handle must resolve to the exact requested local path, blocking intermediate junction replacement.
 - Volume identity and a 128-bit file ID are rechecked alongside length and timestamp to detect same-name replacement.
@@ -88,7 +92,9 @@ The design follows iOS-inspired security principles: least privilege, a closed d
 - EOCD, ZIP64 end records, central headers, counts, lengths, and boundaries are validated before the standard ZIP parser is constructed, rejecting fake end records and central-directory floods fail-closed.
 - Capability matching uses the linear-time regular-expression engine with a time limit to resist crafted denial-of-service inputs.
 
-The UI and reports expose the verified baseline as a count such as `13/13`. The trust boundaries and residual risks are recorded in [`THREAT_MODEL.md`](THREAT_MODEL.md).
+Four further defenses — redirection trust, security-domain isolation, page-combining disable, and speculative-store-bypass disable — are applied and read back where the OS build and the CPU offer them, alongside a read-only check of hardware-enforced shadow stacks (CET). Anything the platform does not offer is displayed as unavailable rather than quietly assumed.
+
+The UI and reports expose the verified baseline as a count such as `16/16`, followed by the number of platform reinforcements active on that system. `--security-status` prints one line per control so the posture can be reviewed independently. The trust boundaries and residual risks, including the mitigations that were considered and deliberately rejected, are recorded in [`THREAT_MODEL.md`](THREAT_MODEL.md).
 
 These controls translate Apple's code-trust and strict-capability principles into defenses compatible with the current Windows/WPF design. They do not introduce AppContainer packaging or a signed distribution binary.
 
@@ -96,6 +102,7 @@ These controls translate Apple's code-trust and strict-capability principles int
 
 - No dynamic behavior, sandbox execution, or live destination analysis.
 - The WPF process is not an AppContainer and does not provide the same OS isolation as the iOS App Sandbox.
+- An administrator, a kernel-level component, or a compromised Windows trust store remains above this boundary. The process lockdown stops a same-user program, not a privileged one.
 - 7-Zip and RAR are identified but not unpacked.
 - Split ZIPs, encrypted central directories, and ambiguous multiple-EOCD layouts are not internally inspected and are reported.
 - Capability terms inside script comments are still reported and require context.
