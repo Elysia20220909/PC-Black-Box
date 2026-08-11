@@ -130,6 +130,12 @@ dotnet ".\bin\Release\net10.0-windows10.0.17763.0\PC Black Box.dll" --report "C:
 dotnet ".\bin\Release\net10.0-windows10.0.17763.0\PC Black Box.dll" --security-status
 ```
 
+外部プロセスからDACL、サイドチャネル緩和、通信アセンブリのFailFastをまとめて再検証できます。ローカルReleaseビルドのみを作成し、配布物は生成しません。
+
+```powershell
+pwsh -NoProfile -File .\tests\Test-RuntimeBoundaries.ps1
+```
+
 検索・絞込み・匿名化・セキュリティ基準を、対象ファイルなしで自己診断できます。一時レポートの作成・安全な置換・削除も隔離された一時フォルダー内で確認します。
 
 ```powershell

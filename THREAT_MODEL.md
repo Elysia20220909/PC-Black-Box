@@ -125,6 +125,9 @@ would break the running product, and a control that cannot stay on is worse than
 - An external same-user process must be denied `PROCESS_VM_READ`, `PROCESS_VM_WRITE`,
   `PROCESS_CREATE_THREAD`, and `PROCESS_DUP_HANDLE` against a running instance, while
   `PROCESS_QUERY_LIMITED_INFORMATION` still succeeds so the operator keeps Task Manager visibility.
+- `tests/Test-RuntimeBoundaries.ps1` must reproduce that access check, read back the combined
+  side-channel flags, and prove that loading `System.Net.Sockets` terminates a separate probe through
+  the managed network guard.
 - Target-free `--self-test` must pass product query, sanitization, report, baseline, directory-budget, ZIP, ZIP64, and ambiguous-record checks.
 - Live process mitigation flags must match the required policy bits.
 - Regression fixtures must preserve signature, capability, hostile-archive, privacy, and path-boundary behavior.

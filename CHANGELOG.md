@@ -9,6 +9,7 @@
 - Disabled the hot reload metadata-update path and the EventSource tracing surface in the shipped runtime configuration.
 - Enabled all .NET security analyzer rules as build errors and made any dependency advisory, at any severity, fail the build.
 - Extended `--security-status` to distinguish unsupported reinforcements from failed enforcement, and the self-test to verify the exact process DACL, combined side-channel flags, live managed-transport absence, and the transport list in both directions.
+- Added a source-only external runtime-boundary test for same-user process access, combined side-channel flags, and the managed network guard's FailFast path.
 - Documented the mitigations that were considered and deliberately rejected, with the reason each would break the running product.
 
 ## 0.6.0 — 2026-08-08

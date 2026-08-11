@@ -130,6 +130,12 @@ The security baseline can be checked without reading a target:
 dotnet ".\bin\Release\net10.0-windows10.0.17763.0\PC Black Box.dll" --security-status
 ```
 
+Re-run the DACL, combined side-channel mitigation, and managed-transport FailFast checks from an external process. This creates local Release build output only, not a distribution artifact.
+
+```powershell
+pwsh -NoProfile -File .\tests\Test-RuntimeBoundaries.ps1
+```
+
 Search, filtering, sanitization, and the security baseline can be tested without a target file. The check also creates, safely replaces, and removes an isolated temporary report:
 
 ```powershell
