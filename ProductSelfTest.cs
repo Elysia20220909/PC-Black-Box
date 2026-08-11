@@ -57,6 +57,15 @@ internal static class ProductSelfTest
                 control.Tier != SecurityControlTier.Required || control.State == SecurityControlState.Enforced), ref checks);
             Require(posture.RequiredCount + posture.ReinforcementCount == posture.Controls.Count, ref checks);
             Require(posture.ReinforcementEnforcedCount <= posture.ReinforcementCount, ref checks);
+            Require(ProcessObjectLockdown.VerifyCurrentPolicy(), ref checks);
+            Require(WindowsProcessHardening.VerifyReportedSideChannelPolicy(), ref checks);
+            Require(NetworkIsolationGuard.IsArmedAndManagedTransportFree(), ref checks);
+            Require(
+                new SecurityControlStatus("probe", SecurityControlTier.PlatformReinforcement, SecurityControlState.NotEnforced)
+                    .SafeLine.EndsWith("state=not-enforced", StringComparison.Ordinal) &&
+                new SecurityControlStatus("probe", SecurityControlTier.PlatformReinforcement, SecurityControlState.Unavailable)
+                    .SafeLine.EndsWith("state=unavailable", StringComparison.Ordinal),
+                ref checks);
             Require(TestNetworkIsolationNames(), ref checks);
 
             var result = new ScanResult

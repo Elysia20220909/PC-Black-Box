@@ -17,8 +17,8 @@ PC Black Box gives the owner prioritized evidence about an untrusted local downl
 
 - The target is never launched, loaded as code, repaired, moved, quarantined, or deleted.
 - Inspection does not continue unless every required control in `SECURITY-BASELINE-2` is enforced.
-- The process holds no assembly capable of transmitting on a network, and gaining one terminates it.
-- No same-user process can read this process's memory, write to it, start a thread in it, or duplicate its handles.
+- The process holds none of the standard .NET network-transport assemblies used by this source tree; loading one terminates it.
+- After lockdown, new same-user access requests cannot read or write this process's memory, start a thread in it, or duplicate its handles.
 - Parsing uses a stable no-follow handle with no write or delete sharing.
 - File identity is checked again after parsing and before a result is trusted.
 - Directory identity and write time are checked after enumeration and again after file inspection.
@@ -50,9 +50,9 @@ and reported as `unavailable` where it does not. Reinforcements are displayed, n
 12. Current directory removed from DLL discovery.
 13. Critical-error dialogs disabled and verified.
 14. Heap corruption terminates the process instead of continuing in an attacker-influenced allocator state.
-15. No network-transport assembly is loaded, and a later load of one terminates the process.
-16. The process object's DACL denies memory read, memory write, thread creation, and handle duplication
-    to every same-user caller, including the implicit rights of the object owner.
+15. No standard .NET network-transport assembly is loaded, and a later load of one terminates the process.
+16. The process object's DACL denies newly requested memory read, memory write, thread creation, and
+    handle duplication rights to same-user callers, including the implicit rights of the object owner.
 
 ### Reinforcement tier — four controls, applied where the platform allows
 
@@ -74,6 +74,11 @@ and reported as `unavailable` where it does not. Reinforcements are displayed, n
   (`System.Net.Requests`, `System.Net.WebClient`, `System.Net.ServicePoint`, `System.Net.Security`)
   are not blocked: they cannot transmit without the socket layer, and `System.Configuration` loads
   several of them while opening a purely local `app.config` during WPF startup.
+- This managed-runtime control is intentionally narrower than an AppContainer or Windows Filtering
+  Platform capability boundary. Native WinSock or HTTP P/Invoke added to this source could bypass it;
+  such a change is outside the accepted repository scope and must fail review.
+- A process DACL affects later access checks. Windows does not revoke a full-access handle already
+  returned to a launcher or held before lockdown, so a hostile launcher is outside this boundary.
 
 ## Adversaries considered
 
@@ -88,7 +93,7 @@ and reported as `unavailable` where it does not. Reinforcements are displayed, n
 - A same-user process that tries to read inspected bytes out of this process's memory, patch its code,
   start a thread inside it, or steal its open file handles.
 - A same-user process that tries to rewrite this process's DACL by way of implicit owner rights.
-- Any code path that would give the process a network transport after startup.
+- Any standard .NET code path that would give the process a managed network transport after startup.
 - An accidental operator action that selects a network, device, alternate-stream, or linked path.
 
 ## Explicitly out of scope
@@ -96,6 +101,7 @@ and reported as `unavailable` where it does not. Reinforcements are displayed, n
 - Kernel drivers, filesystem minifilters, real-time antivirus monitoring, memory scanning, behavioral sandboxing, cloud reputation, remediation, and enterprise policy enforcement.
 - Protection against an administrator, kernel compromise, compromised Windows trust store, malicious firmware, or physical access.
 - AppContainer isolation and an Authenticode-signed distribution binary. Those require a separately approved packaging and signing design; this repository remains private and source-only.
+- Revocation of process handles acquired before the startup DACL is installed, and OS-level denial of arbitrary native networking.
 
 ## Mitigations considered and deliberately not applied
 

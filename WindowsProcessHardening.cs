@@ -8,7 +8,7 @@ public enum SecurityControlTier
     /// <summary>Must be applied and read back, or inspection does not start.</summary>
     Required,
 
-    /// <summary>Applied and read back when the OS or CPU offers it; reported as unavailable when it does not.</summary>
+    /// <summary>Applied and read back when possible; unsupported and failed states remain distinguishable.</summary>
     PlatformReinforcement
 }
 
@@ -79,6 +79,9 @@ public static class WindowsProcessHardening
     private const uint DisablePageCombine = 0x00000004;
     private const uint SpeculativeStoreBypassDisable = 0x00000008;
     private const uint EnableUserShadowStack = 0x00000001;
+    private const int ErrorInvalidParameter = 87;
+    private const int ErrorNotSupported = 50;
+    private const int ErrorCallNotImplemented = 120;
     private const uint LoadLibrarySearchApplicationDir = 0x00000200;
     private const uint LoadLibrarySearchSystem32 = 0x00000800;
     private const uint FailCriticalErrors = 0x00000001;
@@ -102,7 +105,7 @@ public static class WindowsProcessHardening
         ("current-directory-dll-search", SecurityControlTier.Required),
         ("critical-error-mode", SecurityControlTier.Required),
         ("heap-terminate-on-corruption", SecurityControlTier.Required),
-        ("network-stack-absent", SecurityControlTier.Required),
+        ("managed-network-transport-absent", SecurityControlTier.Required),
         ("process-object-lockdown", SecurityControlTier.Required),
         ("redirection-trust", SecurityControlTier.PlatformReinforcement),
         ("security-domain-isolation", SecurityControlTier.PlatformReinforcement),
@@ -118,7 +121,7 @@ public static class WindowsProcessHardening
         try
         {
             // The network guard is armed first so a hostile load cannot slip in during the rest of setup.
-            Record(controls, "network-stack-absent", NetworkIsolationGuard.Arm());
+            Record(controls, "managed-network-transport-absent", NetworkIsolationGuard.Arm());
 
             TimeSpan regexTimeout = TimeSpan.FromSeconds(2);
             AppDomain.CurrentDomain.SetData("REGEX_DEFAULT_MATCH_TIMEOUT", regexTimeout);
@@ -158,7 +161,7 @@ public static class WindowsProcessHardening
             Record(controls, "heap-terminate-on-corruption", StateOf(TryEnableHeapTerminationOnCorruption()));
             Record(controls, "process-object-lockdown", ProcessObjectLockdown.Apply());
 
-            // Reinforcements: applied and read back where the platform allows, reported as unavailable where not.
+            // Reinforcements: applied and read back where possible. Unsupported and failed states stay distinct.
             Record(controls, "redirection-trust", ApplyAndVerify(
                 ProcessMitigationPolicy.RedirectionTrust,
                 EnforceRedirectionTrust));
@@ -181,15 +184,7 @@ public static class WindowsProcessHardening
 
     private static void Record(List<SecurityControlStatus> controls, string code, SecurityControlState state)
     {
-        SecurityControlTier tier = TierOf(code);
-
-        // A reinforcement the platform refuses is recorded as unavailable; it reports, it does not gate.
-        if (tier == SecurityControlTier.PlatformReinforcement && state == SecurityControlState.NotEnforced)
-        {
-            state = SecurityControlState.Unavailable;
-        }
-
-        controls.Add(new SecurityControlStatus(code, tier, state));
+        controls.Add(new SecurityControlStatus(code, TierOf(code), state));
     }
 
     private static SecurityControlTier TierOf(string code) =>
@@ -226,7 +221,10 @@ public static class WindowsProcessHardening
             uint requestedFlags = currentFlags | requiredFlags;
             if (!SetProcessMitigationPolicy(policy, ref requestedFlags, (nuint)sizeof(uint)))
             {
-                return SecurityControlState.Unavailable;
+                int error = Marshal.GetLastPInvokeError();
+                return error is ErrorInvalidParameter or ErrorNotSupported or ErrorCallNotImplemented
+                    ? SecurityControlState.Unavailable
+                    : SecurityControlState.NotEnforced;
             }
 
             return TryGetPolicy(policy, out uint appliedFlags) && (appliedFlags & requiredFlags) == requiredFlags
@@ -280,6 +278,26 @@ public static class WindowsProcessHardening
 
     private static bool VerifyPolicy(ProcessMitigationPolicy policy, uint requiredFlags) =>
         TryGetPolicy(policy, out uint actualFlags) && (actualFlags & requiredFlags) == requiredFlags;
+
+    /// <summary>
+    /// Confirms that sequential side-channel updates did not replace flags already reported as enforced.
+    /// </summary>
+    internal static bool VerifyReportedSideChannelPolicy()
+    {
+        uint reportedFlags = 0;
+        if (Current.Controls.Any(control =>
+                control.Code.Equals("security-domain-isolation", StringComparison.Ordinal) && control.Enforced))
+        {
+            reportedFlags |= IsolateSecurityDomain | DisablePageCombine;
+        }
+        if (Current.Controls.Any(control =>
+                control.Code.Equals("speculative-store-bypass", StringComparison.Ordinal) && control.Enforced))
+        {
+            reportedFlags |= SpeculativeStoreBypassDisable;
+        }
+
+        return reportedFlags == 0 || VerifyPolicy(ProcessMitigationPolicy.SideChannelIsolation, reportedFlags);
+    }
 
     private static bool VerifyDep()
     {

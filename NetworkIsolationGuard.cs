@@ -3,20 +3,18 @@ using System.Reflection;
 namespace DestinyBlackBox;
 
 /// <summary>
-/// PC Black Box promises that inspection is fully offline. This guard turns that promise into a
-/// checked property of the running process: no assembly that can open a socket, resolve a name, or
-/// issue a web request may be present, and any later attempt to load one kills the process before it
-/// can transmit. Nothing here reaches the network to prove the point — it only observes managed state.
+/// Guards the standard .NET network transports used by this source tree: none may be present, and a
+/// later load terminates the process before the caller can use it. This observes managed runtime state;
+/// it is not an AppContainer or Windows Filtering Platform capability denial for arbitrary native code.
 /// </summary>
 internal static class NetworkIsolationGuard
 {
     /// <summary>
-    /// The assemblies that can actually move a byte off this machine. Every managed outbound path on
-    /// Windows bottoms out in one of these: Berkeley sockets, the MsQuic binding, or the DNS resolver.
+    /// Standard .NET assemblies that provide HTTP, sockets, MsQuic, DNS, mail, ping, or WebSockets.
     ///
     /// Deliberately absent are the layers above them — System.Net.Requests, System.Net.WebClient,
     /// System.Net.ServicePoint, System.Net.Security, System.Net.Primitives. They describe requests but
-    /// cannot transmit one without the socket layer below, and System.Configuration loads several of
+    /// do not transmit without a lower transport, and System.Configuration loads several of
     /// them while opening a purely local app.config during WPF startup. Blocking them would abort the
     /// process on a local file read and teach the operator to distrust the alarm.
     /// </summary>
@@ -48,12 +46,9 @@ internal static class NetworkIsolationGuard
                 AppDomain.CurrentDomain.AssemblyLoad += OnAssemblyLoad;
             }
 
-            foreach (Assembly assembly in AppDomain.CurrentDomain.GetAssemblies())
-            {
-                if (IsTransmitCapable(assembly)) return SecurityControlState.NotEnforced;
-            }
-
-            return SecurityControlState.Enforced;
+            return IsManagedTransportFree()
+                ? SecurityControlState.Enforced
+                : SecurityControlState.NotEnforced;
         }
         catch
         {
@@ -64,6 +59,9 @@ internal static class NetworkIsolationGuard
     internal static bool IsBlockedAssemblyName(string? simpleName) =>
         !String.IsNullOrEmpty(simpleName) &&
         TransmitCapableAssemblies.Contains(simpleName, StringComparer.OrdinalIgnoreCase);
+
+    internal static bool IsArmedAndManagedTransportFree() =>
+        Volatile.Read(ref _armed) == 1 && IsManagedTransportFree();
 
     private static void OnAssemblyLoad(object? sender, AssemblyLoadEventArgs args)
     {
@@ -93,6 +91,18 @@ internal static class NetworkIsolationGuard
     private static bool IsTransmitCapable(Assembly assembly)
     {
         try { return IsBlockedAssemblyName(assembly.GetName().Name); }
-        catch { return false; }
+        catch { return true; }
+    }
+
+    private static bool IsManagedTransportFree()
+    {
+        try
+        {
+            return AppDomain.CurrentDomain.GetAssemblies().All(assembly => !IsTransmitCapable(assembly));
+        }
+        catch
+        {
+            return false;
+        }
     }
 }

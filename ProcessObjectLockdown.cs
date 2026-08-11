@@ -5,43 +5,26 @@ using System.Security.Principal;
 namespace DestinyBlackBox;
 
 /// <summary>
-/// Replaces the default DACL on this process object so that another program running as the same user
-/// cannot read its memory, write to it, start a thread inside it, or steal its file handles. The bytes
-/// of an untrusted download live in this address space while it is being parsed; the default Windows
-/// DACL would let any same-user process read them out. Kernel and administrator access remain out of
-/// scope — they are above this trust boundary and are documented as such.
+/// Replaces the default DACL on this process object so a later same-user OpenProcess request cannot
+/// read its memory, write to it, start a thread inside it, or duplicate its file handles. The bytes of
+/// an untrusted download live in this address space while it is being parsed. Handles obtained before
+/// this DACL is applied cannot be revoked; kernel and administrator access also remain out of scope.
 /// </summary>
 internal static class ProcessObjectLockdown
 {
     private const uint ProcessTerminate = 0x0001;
-    private const uint ProcessCreateThread = 0x0002;
-    private const uint ProcessVmOperation = 0x0008;
-    private const uint ProcessVmRead = 0x0010;
-    private const uint ProcessVmWrite = 0x0020;
-    private const uint ProcessDupHandle = 0x0040;
-    private const uint ProcessCreateProcess = 0x0080;
-    private const uint ProcessSetInformation = 0x0200;
-    private const uint ProcessQueryInformation = 0x0400;
-    private const uint ProcessSuspendResume = 0x0800;
     private const uint ProcessQueryLimitedInformation = 0x1000;
     private const uint ReadControl = 0x00020000;
-    private const uint WriteDac = 0x00040000;
-    private const uint WriteOwner = 0x00080000;
     private const uint Synchronize = 0x00100000;
     private const uint ProcessAllAccess = 0x001FFFFF;
 
+    private const uint OwnerSecurityInformation = 0x00000001;
     private const uint DaclSecurityInformation = 0x00000004;
     private const int ErrorInsufficientBuffer = 122;
 
     /// <summary>What the owning user keeps: see it in Task Manager, wait on it, and end it.</summary>
     private const uint OwnerRetainedAccess =
         ProcessTerminate | ProcessQueryLimitedInformation | ReadControl | Synchronize;
-
-    /// <summary>What no same-user caller may hold, including the implicit rights of the object owner.</summary>
-    private const uint ForbiddenAccess =
-        ProcessCreateThread | ProcessVmOperation | ProcessVmRead | ProcessVmWrite | ProcessDupHandle |
-        ProcessCreateProcess | ProcessSetInformation | ProcessQueryInformation | ProcessSuspendResume |
-        WriteDac | WriteOwner;
 
     internal static SecurityControlState Apply()
     {
@@ -77,7 +60,7 @@ internal static class ProcessObjectLockdown
                 return SecurityControlState.NotEnforced;
             }
 
-            return StateOf(VerifyNoForbiddenAccess(system));
+            return StateOf(VerifyExpectedPolicy(system, user, ownerRights));
         }
         catch
         {
@@ -85,29 +68,75 @@ internal static class ProcessObjectLockdown
         }
     }
 
-    /// <summary>Reads the DACL back from the kernel rather than trusting that the write took effect.</summary>
-    private static bool VerifyNoForbiddenAccess(SecurityIdentifier system)
+    /// <summary>Reads the complete expected policy back instead of accepting a merely restrictive DACL.</summary>
+    internal static bool VerifyCurrentPolicy()
     {
-        if (!TryReadDacl(out RawAcl? acl)) return false;
-        if (acl is null) return false;
+        try
+        {
+            using var identity = WindowsIdentity.GetCurrent();
+            SecurityIdentifier? user = identity.User;
+            if (user is null) return false;
+
+            return VerifyExpectedPolicy(
+                new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
+                user,
+                new SecurityIdentifier("S-1-3-4"));
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool VerifyExpectedPolicy(
+        SecurityIdentifier system,
+        SecurityIdentifier user,
+        SecurityIdentifier ownerRights)
+    {
+        if (!TryReadSecurityDescriptor(out RawSecurityDescriptor? descriptor) || descriptor is null) return false;
+        if (descriptor.Owner != user) return false;
+
+        RawAcl? acl = descriptor.DiscretionaryAcl;
+        if (acl is null || acl.Count != 3) return false;
+
+        bool systemSeen = false;
+        bool userSeen = false;
+        bool ownerRightsSeen = false;
 
         foreach (GenericAce ace in acl)
         {
             if (ace is not CommonAce common) return false;
-            if (common.AceQualifier != AceQualifier.AccessAllowed) continue;
-            if (common.SecurityIdentifier == system) continue;
-            if ((unchecked((uint)common.AccessMask) & ForbiddenAccess) != 0) return false;
+            if (common.AceQualifier != AceQualifier.AccessAllowed || common.AceFlags != AceFlags.None) return false;
+
+            uint mask = unchecked((uint)common.AccessMask);
+            if (common.SecurityIdentifier == system && !systemSeen && mask == ProcessAllAccess)
+            {
+                systemSeen = true;
+            }
+            else if (common.SecurityIdentifier == user && !userSeen && mask == OwnerRetainedAccess)
+            {
+                userSeen = true;
+            }
+            else if (common.SecurityIdentifier == ownerRights && !ownerRightsSeen && mask == OwnerRetainedAccess)
+            {
+                ownerRightsSeen = true;
+            }
+            else
+            {
+                return false;
+            }
         }
 
-        return true;
+        return systemSeen && userSeen && ownerRightsSeen;
     }
 
-    private static bool TryReadDacl(out RawAcl? acl)
+    private static bool TryReadSecurityDescriptor(out RawSecurityDescriptor? descriptor)
     {
-        acl = null;
+        descriptor = null;
         IntPtr process = GetCurrentProcess();
+        uint requestedInformation = OwnerSecurityInformation | DaclSecurityInformation;
 
-        if (GetKernelObjectSecurity(process, DaclSecurityInformation, null, 0, out uint required))
+        if (GetKernelObjectSecurity(process, requestedInformation, null, 0, out uint required))
         {
             return false;
         }
@@ -117,13 +146,13 @@ internal static class ProcessObjectLockdown
         }
 
         byte[] buffer = new byte[required];
-        if (!GetKernelObjectSecurity(process, DaclSecurityInformation, buffer, required, out _))
+        if (!GetKernelObjectSecurity(process, requestedInformation, buffer, required, out _))
         {
             return false;
         }
 
-        acl = new RawSecurityDescriptor(buffer, 0).DiscretionaryAcl;
-        return acl is not null;
+        descriptor = new RawSecurityDescriptor(buffer, 0);
+        return descriptor.DiscretionaryAcl is not null;
     }
 
     private static SecurityControlState StateOf(bool enforced) =>

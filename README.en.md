@@ -76,8 +76,8 @@ The design follows iOS-inspired security principles: least privilege, a closed d
 ## Defense in depth
 
 - Sixteen required controls are applied before application initialization and verified through OS and runtime responses. Inspection fails closed unless every one of them is verified.
-- No same-user program can read this process's memory, write to it, start a thread inside it, or duplicate its handles. The process DACL is rewritten at startup and includes an `OWNER RIGHTS` entry, so even the owning account cannot put those rights back. Task Manager can still see and end the process.
-- Fully offline operation is a checked property of the running process, not a promise in a document: no assembly that can open a socket, resolve a name, or issue an HTTP request may be loaded, and a later attempt to load one terminates the process before it can send.
+- A process DACL denies later same-user requests to read or write this process's memory, start a thread inside it, or duplicate its handles. An `OWNER RIGHTS` entry removes the owner's implicit DACL-change right. Task Manager-equivalent query and termination access remain available.
+- The running process verifies that the standard .NET socket, name-resolution, HTTP, and related transport assemblies are absent; a later load terminates the process before the caller can use that transport.
 - The OS blocks child processes, legacy extension points, non-system fonts, and native images from remote or Low-integrity locations.
 - DEP, ASLR, Control Flow Guard, and SEHOP are mandatory, and invalid-handle use is made fatal.
 - Heap corruption terminates the process instead of continuing in an allocator state an attacker can steer.
@@ -103,6 +103,8 @@ These controls translate Apple's code-trust and strict-capability principles int
 - No dynamic behavior, sandbox execution, or live destination analysis.
 - The WPF process is not an AppContainer and does not provide the same OS isolation as the iOS App Sandbox.
 - An administrator, a kernel-level component, or a compromised Windows trust store remains above this boundary. The process lockdown stops a same-user program, not a privileged one.
+- The process DACL constrains access requested after it is installed; Windows cannot revoke a handle already held by the launcher or another process.
+- Managed transport monitoring is not an OS-level network capability denial through AppContainer or Windows Filtering Platform. Native networking added in a future change could bypass it and is outside the accepted scope.
 - 7-Zip and RAR are identified but not unpacked.
 - Split ZIPs, encrypted central directories, and ambiguous multiple-EOCD layouts are not internally inspected and are reported.
 - Capability terms inside script comments are still reported and require context.
