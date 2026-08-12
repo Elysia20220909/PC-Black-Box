@@ -16,7 +16,9 @@ PC Black Box gives the owner prioritized evidence about an untrusted local downl
 ## Required invariants
 
 - The target is never launched, loaded as code, repaired, moved, quarantined, or deleted.
-- Inspection does not continue unless every control in `SECURITY-BASELINE-1` is enforced.
+- Inspection does not continue unless every required control in `SECURITY-BASELINE-2` is enforced.
+- The process holds none of the standard .NET network-transport assemblies used by this source tree; loading one terminates it.
+- After lockdown, new same-user access requests cannot read or write this process's memory, start a thread in it, or duplicate its handles.
 - Parsing uses a stable no-follow handle with no write or delete sharing.
 - File identity is checked again after parsing and before a result is trusted.
 - Directory identity and write time are checked after enumeration and again after file inspection.
@@ -27,7 +29,12 @@ PC Black Box gives the owner prioritized evidence about an untrusted local downl
 
 ## Security baseline
 
-`SECURITY-BASELINE-1` requires thirteen independently checked controls:
+`SECURITY-BASELINE-2` has two tiers. The required tier gates inspection: if any one of its controls
+cannot be applied and read back, the application refuses to inspect anything. The reinforcement tier
+depends on the OS build and the CPU; each item is applied and read back where the platform offers it,
+and reported as `unavailable` where it does not. Reinforcements are displayed, never assumed.
+
+### Required tier — sixteen controls, fail closed
 
 1. Finite default regular-expression timeout.
 2. Child-process creation blocked.
@@ -42,6 +49,36 @@ PC Black Box gives the owner prioritized evidence about an untrusted local downl
 11. Default DLL discovery restricted to the application directory and System32.
 12. Current directory removed from DLL discovery.
 13. Critical-error dialogs disabled and verified.
+14. Heap corruption terminates the process instead of continuing in an attacker-influenced allocator state.
+15. No standard .NET network-transport assembly is loaded, and a later load of one terminates the process.
+16. The process object's DACL denies newly requested memory read, memory write, thread creation, and
+    handle duplication rights to same-user callers, including the implicit rights of the object owner.
+
+### Reinforcement tier — four controls, applied where the platform allows
+
+17. Redirection trust enforced: the process refuses to follow junctions and symbolic links planted by a
+    lower-privilege writer. Requires Windows 10 21H2 or later.
+18. Security-domain isolation and page-combining disabled, so inspected bytes in this address space are
+    not shared with any process outside this security domain.
+19. Speculative store bypass disabled.
+20. Hardware-enforced shadow stacks (CET) observed as active. This cannot be switched on for a running
+    process, and a cleared flag is indistinguishable from a CPU without CET, so it is read only and is
+    never treated as a failure.
+
+### Verification limits within the baseline
+
+- Heap termination on corruption has no query API in Windows. The `HeapSetInformation` result is the
+  only available confirmation; every other control in both tiers is read back from the kernel.
+- The network control blocks the assemblies that can actually move bytes — sockets, MsQuic, the DNS
+  resolver, HTTP, mail, ping, and WebSockets. The request-shaped layers above them
+  (`System.Net.Requests`, `System.Net.WebClient`, `System.Net.ServicePoint`, `System.Net.Security`)
+  are not blocked: they cannot transmit without the socket layer, and `System.Configuration` loads
+  several of them while opening a purely local `app.config` during WPF startup.
+- This managed-runtime control is intentionally narrower than an AppContainer or Windows Filtering
+  Platform capability boundary. Native WinSock or HTTP P/Invoke added to this source could bypass it;
+  such a change is outside the accepted repository scope and must fail review.
+- A process DACL affects later access checks. Windows does not revoke a full-access handle already
+  returned to a launcher or held before lockdown, so a hostile launcher is outside this boundary.
 
 ## Adversaries considered
 
@@ -53,6 +90,10 @@ PC Black Box gives the owner prioritized evidence about an untrusted local downl
 - A ZIP that declares excessive entries or metadata, underreports central records, or embeds a fake EOCD to desynchronize parsers.
 - A local low-integrity or network location attempting to inject a native image.
 - A malicious working directory attempting DLL preloading.
+- A same-user process that tries to read inspected bytes out of this process's memory, patch its code,
+  start a thread inside it, or steal its open file handles.
+- A same-user process that tries to rewrite this process's DACL by way of implicit owner rights.
+- Any standard .NET code path that would give the process a managed network transport after startup.
 - An accidental operator action that selects a network, device, alternate-stream, or linked path.
 
 ## Explicitly out of scope
@@ -60,11 +101,33 @@ PC Black Box gives the owner prioritized evidence about an untrusted local downl
 - Kernel drivers, filesystem minifilters, real-time antivirus monitoring, memory scanning, behavioral sandboxing, cloud reputation, remediation, and enterprise policy enforcement.
 - Protection against an administrator, kernel compromise, compromised Windows trust store, malicious firmware, or physical access.
 - AppContainer isolation and an Authenticode-signed distribution binary. Those require a separately approved packaging and signing design; this repository remains private and source-only.
+- Revocation of process handles acquired before the startup DACL is installed, and OS-level denial of arbitrary native networking.
+
+## Mitigations considered and deliberately not applied
+
+These are stronger than anything in the baseline and were rejected on evidence, not oversight. Each
+would break the running product, and a control that cannot stay on is worse than an honest absence.
+
+| Mitigation | Why it is not applied |
+|---|---|
+| Dynamic code prohibition (`ProcessDynamicCodePolicy`) | The CLR generates and executes code at runtime. Enabling it stops the process before the first window is drawn. It would require a NativeAOT build, which WPF does not support. |
+| Microsoft-signed images only (`ProcessSignaturePolicy`) | Blocks every later non-Microsoft native image load. The application host itself is unsigned, and a self-contained publish would fail. It also converts any injected AV or IME hook into a crash rather than a refusal. |
+| Win32k system-call disable (`ProcessSystemCallDisablePolicy`) | The process is a WPF desktop application and needs win32k for every window it draws. |
+| Payload restriction / EAF, IAF, and ROP guards | Applied at process creation by policy, not reliably from inside a running .NET process, and unverifiable by read-back from where this baseline runs. |
+
 
 ## Verification gates
 
-- Strict Release rebuild with current .NET analyzers and warnings treated as errors.
-- Runtime `--security-status` result must be `enforced=true` with every required control present.
+- Strict Release rebuild with current .NET analyzers, all security rules enabled, and warnings treated as errors.
+- Dependency audit must report no advisory at any severity, direct or transitive.
+- Runtime `--security-status` result must be `enforced=true` with every required control present, and must
+  print one `control=… tier=… state=…` line per control for independent review.
+- An external same-user process must be denied `PROCESS_VM_READ`, `PROCESS_VM_WRITE`,
+  `PROCESS_CREATE_THREAD`, and `PROCESS_DUP_HANDLE` against a running instance, while
+  `PROCESS_QUERY_LIMITED_INFORMATION` still succeeds so the operator keeps Task Manager visibility.
+- `tests/Test-RuntimeBoundaries.ps1` must reproduce that access check, read back the combined
+  side-channel flags, and prove that loading `System.Net.Sockets` terminates a separate probe through
+  the managed network guard.
 - Target-free `--self-test` must pass product query, sanitization, report, baseline, directory-budget, ZIP, ZIP64, and ambiguous-record checks.
 - Live process mitigation flags must match the required policy bits.
 - Regression fixtures must preserve signature, capability, hostile-archive, privacy, and path-boundary behavior.

@@ -22,10 +22,15 @@ Include only the minimum evidence needed to reproduce the issue. Never attach cr
 - Signature verification uses the local Windows trust cache without online revocation retrieval.
 - Reports require an existing local destination, cannot overlap the inspected target, and are written with exclusive access and a durable flush.
 - New target selection discards the previous result to prevent stale evidence from being exported.
-- A module initializer applies the required security baseline before WPF application initialization. Startup and direct scanner entry both fail closed unless all controls are verified.
+- A module initializer applies the required security baseline before WPF application initialization. Startup and direct scanner entry both fail closed unless all required controls are verified.
 - Windows blocks child-process creation, legacy extension points, non-system fonts, remote native images, and Low-integrity native images for the process.
 - DEP, high-entropy ASLR, Control Flow Guard, and SEHOP are required and read back from the running process.
 - Strict handle checks are permanent; DLL discovery excludes the current directory and is restricted to the application directory and System32.
+- Heap corruption terminates the process rather than continuing in an allocator state an attacker can steer.
+- The process object's DACL is replaced at startup so later same-user access requests cannot read or write its memory, create a thread in it, or duplicate its handles. An `OWNER RIGHTS` entry removes the owner's implicit DACL-change right. Query-limited, synchronize, read-control, and terminate access remain available. Handles obtained before lockdown cannot be revoked.
+- Standard .NET network-transport assemblies are absent, and a later load terminates the process before the caller can use one. This managed-runtime invariant is not an AppContainer or Windows Filtering Platform capability denial for arbitrary native code.
+- Where the platform offers them, the process additionally enforces redirection trust, security-domain isolation, page-combining disable, and speculative-store-bypass disable, and reports whether hardware-enforced shadow stacks are active. Unsupported controls are `unavailable`; supported controls that fail enforcement are `not-enforced` rather than being silently relabeled.
+- Hot reload metadata updates and the EventSource tracing surface are disabled in the shipped runtime configuration.
 - Serious operating-system errors are returned to the app instead of opening modal error dialogs that could stall unattended inspection.
 - Inspection uses no-follow file handles and rechecks the volume plus 128-bit file identity after parsing.
 - Opened file and directory handles must resolve to the exact requested DOS path.
@@ -51,6 +56,13 @@ These controls apply iOS-inspired least-privilege and closed-data-flow principle
 - [Microsoft: Restricting the default DLL search](https://learn.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-setdefaultdlldirectories)
 - [Microsoft: Removing the current directory from DLL search](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-setdlldirectoryw)
 - [Microsoft: Process error mode](https://learn.microsoft.com/en-us/windows/win32/api/errhandlingapi/nf-errhandlingapi-seterrormode)
+- [Microsoft: Redirection-trust policy](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-process_mitigation_redirection_trust_policy)
+- [Microsoft: Side-channel-isolation policy](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-process_mitigation_side_channel_isolation_policy)
+- [Microsoft: User-shadow-stack policy](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-process_mitigation_user_shadow_stack_policy)
+- [Microsoft: Heap termination on corruption](https://learn.microsoft.com/en-us/windows/win32/api/heapapi/nf-heapapi-heapsetinformation)
+- [Microsoft: Process security and access rights](https://learn.microsoft.com/en-us/windows/win32/procthread/process-security-and-access-rights)
+- [Microsoft: Setting security on a kernel object](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-setkernelobjectsecurity)
+- [Microsoft: `OWNER RIGHTS` and implicit owner access](https://learn.microsoft.com/en-us/windows/win32/secauthz/sid-strings)
 - [Microsoft: `CreateFileW` and `FILE_FLAG_OPEN_REPARSE_POINT`](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew)
 - [Microsoft: File identity from an open handle](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/ns-fileapi-by_handle_file_information)
 - [.NET: Regular-expression options and non-backtracking mode](https://learn.microsoft.com/en-us/dotnet/standard/base-types/regular-expression-options)

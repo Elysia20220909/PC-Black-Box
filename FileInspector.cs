@@ -102,6 +102,8 @@ public sealed class FileInspector
             SecurityProfile = SecurityPosture.ProfileId,
             SecurityControlsEnforced = posture.EnforcedCount,
             SecurityControlsRequired = posture.RequiredCount,
+            SecurityReinforcementsEnforced = posture.ReinforcementEnforcedCount,
+            SecurityReinforcementsAvailable = posture.ReinforcementCount,
             TargetWasDirectory = !targetIsFile,
             StartedAt = DateTime.Now
         };

@@ -17,7 +17,7 @@ public partial class App : Application
             base.OnStartup(e);
             if (commandLineMode)
             {
-                try { Console.Error.WriteLine(posture.SafeStatusLine); } catch { }
+                WriteLines(Console.Error, posture);
             }
             else
             {
@@ -36,7 +36,7 @@ public partial class App : Application
 
         if (commandLineSecurityStatus)
         {
-            try { Console.Out.WriteLine(posture.SafeStatusLine); } catch { }
+            WriteLines(Console.Out, posture);
             Environment.ExitCode = 0;
             Shutdown(0);
             return;
@@ -71,5 +71,21 @@ public partial class App : Application
         }
 
         new MainWindow().Show();
+    }
+
+    /// <summary>Emits the posture summary and one line per control. Every line is sanitized and machine-readable.</summary>
+    private static void WriteLines(TextWriter writer, SecurityPosture posture)
+    {
+        try
+        {
+            writer.WriteLine(posture.SafeStatusLine);
+            foreach (string line in posture.SafeControlLines)
+            {
+                writer.WriteLine(line);
+            }
+        }
+        catch
+        {
+        }
     }
 }

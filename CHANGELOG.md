@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.0 — 2026-08-11
+
+- Replaced the 13-control baseline with `SECURITY-BASELINE-2`: sixteen required controls that gate inspection and four platform reinforcements that are applied where the OS and CPU allow and reported as unavailable where they do not.
+- Locked down newly requested same-user process access to memory, thread creation, and handle duplication; an `OWNER RIGHTS` entry removes the implicit owner right that could rewrite the DACL. Pre-existing handles remain an explicit Windows boundary.
+- Made the standard .NET network-transport surface a checked property: listed transport assemblies may not be loaded, while documentation now distinguishes this guard from OS-level AppContainer or WFP isolation.
+- Enabled heap termination on corruption, redirection trust, security-domain isolation, page-combining disable, and speculative-store-bypass disable, and reported hardware shadow-stack state.
+- Disabled the hot reload metadata-update path and the EventSource tracing surface in the shipped runtime configuration.
+- Enabled all .NET security analyzer rules as build errors and made any dependency advisory, at any severity, fail the build.
+- Extended `--security-status` to distinguish unsupported reinforcements from failed enforcement, and the self-test to verify the exact process DACL, combined side-channel flags, live managed-transport absence, and the transport list in both directions.
+- Added a source-only external runtime-boundary test for same-user process access, combined side-channel flags, and the managed network guard's FailFast path.
+- Documented the mitigations that were considered and deliberately rejected, with the reason each would break the running product.
+
 ## 0.6.0 — 2026-08-08
 
 - Reject oversized, malformed, split, or ambiguous ZIP central directories before constructing the standard archive parser.
