@@ -31,6 +31,10 @@ Include only the minimum evidence needed to reproduce the issue. Never attach cr
 - Opened file and directory handles must resolve to the exact requested DOS path.
 - Directory guards deny delete sharing during enumeration and settings or report writes.
 - Folder byte limits are rechecked against cumulative stable-handle sizes before hashing each file.
+- Folder traversal has independent limits for files, directories, depth, all enumerated entries, retained path metadata, and stable-handle bytes.
+- Enumerated directories are snapshotted and revalidated after file inspection; identity or write-time changes make the result partial.
+- ZIP EOCD, ZIP64, central-directory records, entry count, metadata size, name length, and exact terminal boundary are checked before `ZipArchive` allocation.
+- Split, encrypted-central-directory, oversized, malformed, or multiple-EOCD ZIP layouts fail closed rather than receiving a clean result.
 - Untrusted capability text is evaluated with the non-backtracking regular-expression engine and a finite timeout.
 
 These controls apply iOS-inspired least-privilege and closed-data-flow principles. They do not make a WPF process equivalent to the iOS App Sandbox and are not an absolute security guarantee.
@@ -51,4 +55,6 @@ These controls apply iOS-inspired least-privilege and closed-data-flow principle
 - [Microsoft: File identity from an open handle](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/ns-fileapi-by_handle_file_information)
 - [.NET: Regular-expression options and non-backtracking mode](https://learn.microsoft.com/en-us/dotnet/standard/base-types/regular-expression-options)
 - [.NET: Backtracking and finite match timeouts](https://learn.microsoft.com/en-us/dotnet/standard/base-types/backtracking-in-regular-expressions)
+- [PKWARE: ZIP File Format Specification](https://pkware.cachefly.net/webdocs/casestudies/APPNOTE.TXT)
+- [.NET runtime source: `ZipArchive`](https://source.dot.net/System.IO.Compression/System/IO/Compression/ZipArchive.cs.html)
 - [Microsoft Security Development Lifecycle](https://learn.microsoft.com/en-us/compliance/assurance/assurance-microsoft-security-development-lifecycle)

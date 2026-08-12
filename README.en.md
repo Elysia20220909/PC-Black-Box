@@ -53,7 +53,7 @@ Use `JA / EN` to switch languages. Only that language preference is stored in `%
 - Static capability terms associated with downloads, persistence, Defender changes, process injection, deletion, and related behavior
 - Executable content, macros, path traversal, and extreme compression ratios inside ZIP and Office packages
 
-Safety limits are 2,500 files or 12 GB per folder, 10,000 ZIP entries, and 300 signature checks. Reparse points are not followed.
+Folder inspection stops at 2,500 files, 10,000 directories, depth 128, 20,000 enumerated entries, eight million retained path characters, or 12 GB. ZIP metadata is capped at 10,000 entries, a 64 MiB central directory, and 4,096 bytes per central entry name; signature checks stop at 300 files. Reparse points are not followed.
 
 ## Assessment model
 
@@ -84,6 +84,8 @@ The design follows iOS-inspired security principles: least privilege, a closed d
 - Volume identity and a 128-bit file ID are rechecked alongside length and timestamp to detect same-name replacement.
 - The 12 GB folder limit is enforced again against cumulative stable-handle sizes, not only enumeration metadata.
 - Parent directories deny delete sharing during enumeration and settings or report writes to block destination replacement.
+- Every enumerated directory identity and write timestamp is revalidated after scanning; a mutation makes the folder result `PARTIAL`.
+- EOCD, ZIP64 end records, central headers, counts, lengths, and boundaries are validated before the standard ZIP parser is constructed, rejecting fake end records and central-directory floods fail-closed.
 - Capability matching uses the linear-time regular-expression engine with a time limit to resist crafted denial-of-service inputs.
 
 The UI and reports expose the verified baseline as a count such as `13/13`. The trust boundaries and residual risks are recorded in [`THREAT_MODEL.md`](THREAT_MODEL.md).
@@ -95,8 +97,11 @@ These controls translate Apple's code-trust and strict-capability principles int
 - No dynamic behavior, sandbox execution, or live destination analysis.
 - The WPF process is not an AppContainer and does not provide the same OS isolation as the iOS App Sandbox.
 - 7-Zip and RAR are identified but not unpacked.
+- Split ZIPs, encrypted central directories, and ambiguous multiple-EOCD layouts are not internally inspected and are reported.
 - Capability terms inside script comments are still reported and require context.
 - A `CLEAR` result does not guarantee safety.
+
+The product has no NSA or equivalent external certification. “High assurance” here means layered, testable, fail-closed engineering based on public specifications.
 
 ## Build
 

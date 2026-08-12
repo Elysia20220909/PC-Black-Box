@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.0 — 2026-08-08
+
+- Reject oversized, malformed, split, or ambiguous ZIP central directories before constructing the standard archive parser.
+- Bound ZIP metadata to 10,000 entries, 64 MiB of central-directory data, and 4,096 bytes per central entry name.
+- Bound folder traversal by directory count, depth, total enumerated entries, and retained path metadata in addition to file count and bytes.
+- Snapshot every enumerated directory and mark the result partial if folder contents change before inspection completes.
+- Extend the target-free self-test with ZIP, ZIP64, fake-end-record, entry-flood, directory, enumeration, and path-budget boundaries.
+
 ## 0.5.1 — 2026-08-04
 
 - Verify that every opened file and directory handle resolves to the exact requested local path.
