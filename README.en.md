@@ -136,7 +136,7 @@ Re-run the DACL, combined side-channel mitigation, and managed-transport FailFas
 pwsh -NoProfile -File .\tests\Test-RuntimeBoundaries.ps1
 ```
 
-Search, filtering, sanitization, and the security baseline can be tested without a target file. The check also creates, safely replaces, and removes an isolated temporary report:
+Search, filtering, sanitization, and the security baseline can be tested without a target file. The check also creates, safely replaces, and removes an isolated temporary report, and exercises the inspection path itself against fixtures it creates and removes: digest fidelity, script-capability findings, archive traversal reported without extraction, and an already-canceled inspection that reads nothing.
 
 ```powershell
 dotnet ".\bin\Release\net10.0-windows10.0.17763.0\PC Black Box.dll" --self-test

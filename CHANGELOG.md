@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.1 — 2026-08-12
+
+- Extended the target-free self-test to cover the inspection path itself: digest fidelity on an ordinary text file, script-capability findings, archive traversal and active content reported without extraction, and an already-canceled inspection that reads nothing. Each check builds and removes its own temporary fixture.
+- Locked the documented score bands and clamp, the active-content extension match, and the report guarantees that keep absolute paths out and sanitize table cells.
+- Recorded why these checks run inside the hardened product process: a standard test host reaches its runner over a socket, so the managed-transport control cannot be enforced there and the inspection path refuses to run.
+
 ## 0.7.0 — 2026-08-11
 
 - Replaced the 13-control baseline with `SECURITY-BASELINE-2`: sixteen required controls that gate inspection and four platform reinforcements that are applied where the OS and CPU allow and reported as unavailable where they do not.

@@ -136,7 +136,7 @@ dotnet ".\bin\Release\net10.0-windows10.0.17763.0\PC Black Box.dll" --security-s
 pwsh -NoProfile -File .\tests\Test-RuntimeBoundaries.ps1
 ```
 
-検索・絞込み・匿名化・セキュリティ基準を、対象ファイルなしで自己診断できます。一時レポートの作成・安全な置換・削除も隔離された一時フォルダー内で確認します。
+検索・絞込み・匿名化・セキュリティ基準を、対象ファイルなしで自己診断できます。一時レポートの作成・安全な置換・削除に加えて、自身で作成・削除する一時フォルダー内で調査経路そのもの（ハッシュの一致、スクリプト能力の検出、圧縮ファイルを展開せずに逸脱パスを報告すること、中止済みの調査が対象を読まないこと）も確認します。
 
 ```powershell
 dotnet ".\bin\Release\net10.0-windows10.0.17763.0\PC Black Box.dll" --self-test
