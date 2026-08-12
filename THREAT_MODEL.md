@@ -79,6 +79,12 @@ and reported as `unavailable` where it does not. Reinforcements are displayed, n
   such a change is outside the accepted repository scope and must fail review.
 - A process DACL affects later access checks. Windows does not revoke a full-access handle already
   returned to a launcher or held before lockdown, so a hostile launcher is outside this boundary.
+- The inspection path refuses to run unless the required tier is enforced, and a standard test host
+  cannot satisfy that: `vstest` reaches its runner over a socket, so the host has already loaded
+  `System.Net.Sockets` and the managed-transport control reports `not-enforced` before the first test
+  runs. Inspection behavior is therefore verified from `--self-test` inside the hardened product
+  process instead of from an external unit-test host. Adding a test-only exemption to the baseline
+  would make the enforced posture untrue of the process that ships, and is rejected for that reason.
 
 ## Adversaries considered
 
@@ -129,6 +135,10 @@ would break the running product, and a control that cannot stay on is worse than
   side-channel flags, and prove that loading `System.Net.Sockets` terminates a separate probe through
   the managed network guard.
 - Target-free `--self-test` must pass product query, sanitization, report, baseline, directory-budget, ZIP, ZIP64, and ambiguous-record checks.
+- `--self-test` must also inspect fixtures it creates and removes itself, and confirm that a text file's
+  reported digest matches the bytes on disk, that script capabilities and archive traversal are reported
+  without extraction, that no archive entry escapes onto disk, and that an already-canceled inspection
+  ends without reading the target.
 - Live process mitigation flags must match the required policy bits.
 - Regression fixtures must preserve signature, capability, hostile-archive, privacy, and path-boundary behavior.
 - Regression checks must preserve final-handle path matching, guarded directory writes, directory mutation detection, archive preflight, and cumulative observed-size limits.

