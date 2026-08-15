@@ -44,6 +44,9 @@ pwsh tests/Test-RuntimeBoundaries.ps1
 
 環境によって挙動が変わります。**起動に失敗しても、製品の不具合と決めつけないでください。**
 
+- **昇格して起動しない。** 0.7.2 以降、管理者権限での起動は専用メッセージで拒否される
+  （コマンドラインでは `PC_BLACK_BOX_ELEVATION elevated=true refusing=true`、終了コード 1）。
+  ゲートを回すときに管理者ターミナルを使わないこと。
 - exe を **CreateProcess で直接**起動すると、環境によっては拒否される。実測例:
   bash の `./PC Black Box.exe` → `Permission denied`、PowerShell の
   `Start-Process -NoNewWindow -RedirectStandardOutput` → `ERROR_ELEVATION_REQUIRED`。
@@ -73,11 +76,10 @@ pwsh tests/Test-RuntimeBoundaries.ps1
 
 ## 6. 既知の未修正の問題
 
-- **「管理者として実行」すると起動できない** — PR #9 で修正済み（Draft、未 merge）。
-  昇格トークンの Owner が `S-1-5-32-544`（BUILTIN\Administrators）になるため、`ProcessObjectLockdown` の
-  読み戻し（`descriptor.Owner != user`）が不一致となり、`process-object-lockdown` だけが not-enforced になっていた。
-  PR #9 では所有者比較をトークンの既定所有者に正したうえで、昇格起動そのものを専用メッセージで断るようにした。
-  **merge されるまでは、昇格せずに起動すること**（マニフェストは `asInvoker` で昇格は不要）。
+- **昇格起動の不具合は解決済み**（#9、0.7.2）。昇格トークンの Owner が `S-1-5-32-544` になるため
+  `process-object-lockdown` が誤って not-enforced になっていた問題は、所有者比較を正して解消した。
+  あわせて昇格起動そのものを拒否するようにしたので、**現在の期待動作は「拒否」**（§3 参照）。
+  昔のビルドで「基準を確認できません」と出た場合は、この件を疑う。
 - **ビルド成果物の取り違えに注意。** 外部ツールのスキャン成果物（`.codex/.../artifacts/` 配下など）に
   古いビルドが残ることがある。**正は `bin/Release/`**。動作確認の前に、必ずビルド日時と
   `--self-test` の検査項目数を確認する。
