@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.2 — 2026-08-15
+
+- Refused an elevated launch outright, with its own message instead of a generic baseline failure. Inspecting untrusted bytes never needs a token that can rewrite the machine, so startup, the command-line modes, and the direct scanner entry each decline before reading anything.
+- Compared the process object's read-back owner against the token's own default owner rather than the user SID. An elevated token names the Administrators group, which previously reported a correctly applied DACL as unenforced and stopped the application through the wrong door.
+- Extended the target-free self-test to certify that the process it is running in is not elevated.
+
 ## 0.7.1 — 2026-08-12
 
 - Extended the target-free self-test to cover the inspection path itself: digest fidelity on an ordinary text file, script-capability findings, archive traversal and active content reported without extraction, and an already-canceled inspection that reads nothing. Each check builds and removes its own temporary fixture.

@@ -11,6 +11,31 @@ public partial class App : Application
         bool commandLineSecurityStatus = e.Args.Length == 1 && e.Args[0].Equals("--security-status", StringComparison.OrdinalIgnoreCase);
         bool commandLineSelfTest = e.Args.Length == 1 && e.Args[0].Equals("--self-test", StringComparison.OrdinalIgnoreCase);
         bool commandLineMode = commandLineReport || commandLineSecurityStatus || commandLineSelfTest;
+
+        // Refused before the baseline is consulted, so an elevated operator reads why this was
+        // declined instead of a generic verification failure. The posture still follows on the
+        // command line, because a refused launch is exactly when the detail is worth having.
+        if (ProcessElevation.IsElevated)
+        {
+            base.OnStartup(e);
+            if (commandLineMode)
+            {
+                try { Console.Error.WriteLine(ProcessElevation.SafeRefusalLine); } catch { }
+                WriteLines(Console.Error, WindowsProcessHardening.Current);
+            }
+            else
+            {
+                MessageBox.Show(
+                    ProcessElevation.RefusalMessage,
+                    "PC Black Box",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+            Environment.ExitCode = 1;
+            Shutdown(1);
+            return;
+        }
+
         SecurityPosture posture = WindowsProcessHardening.Current;
         if (!posture.IsEnforced)
         {

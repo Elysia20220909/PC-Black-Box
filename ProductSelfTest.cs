@@ -59,6 +59,7 @@ internal static class ProductSelfTest
                 control.Tier != SecurityControlTier.Required || control.State == SecurityControlState.Enforced), ref checks);
             Require(posture.RequiredCount + posture.ReinforcementCount == posture.Controls.Count, ref checks);
             Require(posture.ReinforcementEnforcedCount <= posture.ReinforcementCount, ref checks);
+            Require(!ProcessElevation.IsElevated, ref checks);
             Require(ProcessObjectLockdown.VerifyCurrentPolicy(), ref checks);
             Require(WindowsProcessHardening.VerifyReportedSideChannelPolicy(), ref checks);
             Require(NetworkIsolationGuard.IsArmedAndManagedTransportFree(), ref checks);

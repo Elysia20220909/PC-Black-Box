@@ -86,6 +86,11 @@ public sealed class FileInspector
 
     private static ScanResult ScanCore(string targetPath, IProgress<ScanProgress>? progress, CancellationToken cancellationToken)
     {
+        if (ProcessElevation.IsElevated)
+        {
+            throw new SecurityException("PC Black Box does not inspect files with administrator rights.");
+        }
+
         SecurityPosture posture = WindowsProcessHardening.Current;
         if (!posture.IsEnforced)
         {
