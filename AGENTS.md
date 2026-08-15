@@ -38,10 +38,21 @@ pwsh tests/Test-RuntimeBoundaries.ps1
 
 - `--security-status` → `enforced=true controls=16/16`（`state=not-enforced` の行が1つでもあれば不合格）
 - `--self-test` → `PC_BLACK_BOX_SELF_TEST passed=true`
+- `Test-RuntimeBoundaries.ps1` → `PC_BLACK_BOX_RUNTIME_BOUNDARY_TEST passed=true`
 
-サンドボックス下など exe を直接起動できない環境では、上記のように `dotnet` に dll を渡す。
-GUI サブシステムのため、PowerShell の `&` では出力を取り逃す。出力が必要なら
-`Start-Process -NoNewWindow -Wait -RedirectStandardOutput` を使う。
+### 起動方法の落とし穴
+
+環境によって挙動が変わります。**起動に失敗しても、製品の不具合と決めつけないでください。**
+
+- exe を **CreateProcess で直接**起動すると、環境によっては拒否される。実測例:
+  bash の `./PC Black Box.exe` → `Permission denied`、PowerShell の
+  `Start-Process -NoNewWindow -RedirectStandardOutput` → `ERROR_ELEVATION_REQUIRED`。
+  一方、**リダイレクトなしの `Start-Process`（ShellExecute 経由）なら起動できる**。
+  `Test-RuntimeBoundaries.ps1` が通るのはこのため。
+- したがって `--security-status` と `--self-test` は、上記のとおり **`dotnet` に dll を渡す**のが確実。
+- GUI サブシステムなので `& '.\PC Black Box.exe'` では**出力を取り逃し、`$LASTEXITCODE` も設定されない**。
+  出力が必要なら `Start-Process -NoNewWindow -Wait -RedirectStandardOutput` を使う
+  （ただし上の制約と両立しない環境がある）。
 
 ## 4. 分担と衝突回避
 
