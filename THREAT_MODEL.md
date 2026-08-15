@@ -132,6 +132,8 @@ would break the running product, and a control that cannot stay on is worse than
 - An elevated launch must be refused before inspection, with `PC_BLACK_BOX_ELEVATION elevated=true
   refusing=true` on the command line and a non-zero exit code, while the posture it prints still reports
   `enforced=true` — the refusal is a privilege decision, not a failed control.
+- A fail-closed startup dialog must name the required controls that did not verify, in either language,
+  and must name nothing else: no reinforcement lines, no enforced controls, and no text from a target.
 - An external same-user process must be denied `PROCESS_VM_READ`, `PROCESS_VM_WRITE`,
   `PROCESS_CREATE_THREAD`, and `PROCESS_DUP_HANDLE` against a running instance, while
   `PROCESS_QUERY_LIMITED_INFORMATION` still succeeds so the operator keeps Task Manager visibility.

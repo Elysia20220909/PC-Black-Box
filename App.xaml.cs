@@ -26,7 +26,7 @@ public partial class App : Application
             else
             {
                 MessageBox.Show(
-                    ProcessElevation.RefusalMessage,
+                    BuildElevationRefusalMessage(IsJapanese()),
                     "PC Black Box",
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
@@ -47,7 +47,7 @@ public partial class App : Application
             else
             {
                 MessageBox.Show(
-                    "The required security baseline could not be verified. PC Black Box will close without inspecting files.",
+                    BuildSecurityFailureMessage(posture, IsJapanese()),
                     "PC Black Box",
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
@@ -97,6 +97,37 @@ public partial class App : Application
 
         new MainWindow().Show();
     }
+
+    /// <summary>The operator's own language choice, read the way the main window reads it.</summary>
+    private static bool IsJapanese()
+    {
+        try { return !SettingsStore.LoadLanguage().Equals("en", StringComparison.Ordinal); }
+        catch { return true; }
+    }
+
+    /// <summary>
+    /// Names the required controls that did not verify. A dialog that says only "the baseline" failed
+    /// sends the operator looking for a fault in their machine instead of at the one line that is
+    /// actually missing. Every name here comes from the fixed baseline list, never from a target.
+    /// </summary>
+    internal static string BuildSecurityFailureMessage(SecurityPosture posture, bool japanese)
+    {
+        IReadOnlyList<string> failedRequiredControls = posture.SafeFailedRequiredControlLines;
+        string failedControls = failedRequiredControls.Count > 0
+            ? String.Join(Environment.NewLine, failedRequiredControls)
+            : "control=unknown tier=required state=not-enforced";
+
+        return japanese
+            ? $"必須のセキュリティ基準を確認できなかったため、ファイルを調べずに終了します。{Environment.NewLine}{Environment.NewLine}" +
+              $"{posture.SafeStatusLine}{Environment.NewLine}{Environment.NewLine}確認できなかった必須項目:{Environment.NewLine}{failedControls}"
+            : $"The required security baseline could not be verified. PC Black Box will close without inspecting any files.{Environment.NewLine}{Environment.NewLine}" +
+              $"{posture.SafeStatusLine}{Environment.NewLine}{Environment.NewLine}Failed required control(s):{Environment.NewLine}{failedControls}";
+    }
+
+    /// <summary>Says what to do instead, in the operator's language. The machine-readable line stays fixed.</summary>
+    internal static string BuildElevationRefusalMessage(bool japanese) => japanese
+        ? "管理者権限では実行しません。この画面を閉じて、通常の権限で起動し直してください。"
+        : ProcessElevation.RefusalMessage;
 
     /// <summary>Emits the posture summary and one line per control. Every line is sanitized and machine-readable.</summary>
     private static void WriteLines(TextWriter writer, SecurityPosture posture)

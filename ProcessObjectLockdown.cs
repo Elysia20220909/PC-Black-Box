@@ -41,17 +41,12 @@ internal static class ProcessObjectLockdown
             // Windows grants an object owner, so the owning user cannot simply rewrite this DACL back.
             var ownerRights = new SecurityIdentifier("S-1-3-4");
 
-            var acl = new RawAcl(GenericAcl.AclRevision, 3);
-            acl.InsertAce(0, new CommonAce(AceFlags.None, AceQualifier.AccessAllowed, unchecked((int)ProcessAllAccess), system, false, null));
-            acl.InsertAce(1, new CommonAce(AceFlags.None, AceQualifier.AccessAllowed, unchecked((int)OwnerRetainedAccess), user, false, null));
-            acl.InsertAce(2, new CommonAce(AceFlags.None, AceQualifier.AccessAllowed, unchecked((int)OwnerRetainedAccess), ownerRights, false, null));
-
             var descriptor = new RawSecurityDescriptor(
                 ControlFlags.DiscretionaryAclPresent | ControlFlags.SelfRelative,
-                owner: user,
+                owner: expectedOwner,
                 group: null,
                 systemAcl: null,
-                discretionaryAcl: acl);
+                discretionaryAcl: CreateExpectedAcl(system, user, ownerRights));
 
             byte[] binaryForm = new byte[descriptor.BinaryLength];
             descriptor.GetBinaryForm(binaryForm, 0);
@@ -102,6 +97,41 @@ internal static class ProcessObjectLockdown
         }
     }
 
+    private static RawAcl CreateExpectedAcl(
+        SecurityIdentifier system,
+        SecurityIdentifier user,
+        SecurityIdentifier ownerRights)
+    {
+        var acl = new RawAcl(GenericAcl.AclRevision, 3);
+        acl.InsertAce(0, new CommonAce(AceFlags.None, AceQualifier.AccessAllowed, unchecked((int)ProcessAllAccess), system, false, null));
+        acl.InsertAce(1, new CommonAce(AceFlags.None, AceQualifier.AccessAllowed, unchecked((int)OwnerRetainedAccess), user, false, null));
+        acl.InsertAce(2, new CommonAce(AceFlags.None, AceQualifier.AccessAllowed, unchecked((int)OwnerRetainedAccess), ownerRights, false, null));
+        return acl;
+    }
+
+    /// <summary>
+    /// Proves on a synthetic descriptor that the owner comparison actually distinguishes the token's
+    /// default owner from the user SID. The two are the same value for an ordinary launch, so nothing
+    /// running under a normal token can tell a correct comparison from the mistaken one that reported an
+    /// elevated process's correctly applied DACL as unenforced.
+    /// </summary>
+    internal static bool VerifyDistinctTokenOwnerModel()
+    {
+        var system = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
+        var user = new SecurityIdentifier(WellKnownSidType.BuiltinUsersSid, null);
+        var tokenOwner = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+        var ownerRights = new SecurityIdentifier("S-1-3-4");
+        var descriptor = new RawSecurityDescriptor(
+            ControlFlags.DiscretionaryAclPresent | ControlFlags.SelfRelative,
+            owner: tokenOwner,
+            group: null,
+            systemAcl: null,
+            discretionaryAcl: CreateExpectedAcl(system, user, ownerRights));
+
+        return MatchesExpectedPolicy(descriptor, system, user, ownerRights, tokenOwner) &&
+               !MatchesExpectedPolicy(descriptor, system, user, ownerRights, user);
+    }
+
     private static bool VerifyExpectedPolicy(
         SecurityIdentifier system,
         SecurityIdentifier user,
@@ -109,6 +139,16 @@ internal static class ProcessObjectLockdown
         SecurityIdentifier expectedOwner)
     {
         if (!TryReadSecurityDescriptor(out RawSecurityDescriptor? descriptor) || descriptor is null) return false;
+        return MatchesExpectedPolicy(descriptor, system, user, ownerRights, expectedOwner);
+    }
+
+    private static bool MatchesExpectedPolicy(
+        RawSecurityDescriptor descriptor,
+        SecurityIdentifier system,
+        SecurityIdentifier user,
+        SecurityIdentifier ownerRights,
+        SecurityIdentifier expectedOwner)
+    {
         if (descriptor.Owner != expectedOwner) return false;
 
         RawAcl? acl = descriptor.DiscretionaryAcl;
