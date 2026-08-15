@@ -73,10 +73,11 @@ pwsh tests/Test-RuntimeBoundaries.ps1
 
 ## 6. 既知の未修正の問題
 
-- **「管理者として実行」すると起動できない。** 昇格トークンの Owner が `S-1-5-32-544`（BUILTIN\Administrators）
-  になるため、`ProcessObjectLockdown` の読み戻し（`descriptor.Owner != user`）が不一致となり
-  `process-object-lockdown` だけが not-enforced になる。必須16項目が揃わず、フェイルクローズドで終了する。
-  通常権限なら 16/16 で通る。回避策は昇格せずに起動すること（マニフェストは `asInvoker` で昇格は不要）。
+- **「管理者として実行」すると起動できない** — PR #9 で修正済み（Draft、未 merge）。
+  昇格トークンの Owner が `S-1-5-32-544`（BUILTIN\Administrators）になるため、`ProcessObjectLockdown` の
+  読み戻し（`descriptor.Owner != user`）が不一致となり、`process-object-lockdown` だけが not-enforced になっていた。
+  PR #9 では所有者比較をトークンの既定所有者に正したうえで、昇格起動そのものを専用メッセージで断るようにした。
+  **merge されるまでは、昇格せずに起動すること**（マニフェストは `asInvoker` で昇格は不要）。
 - **ビルド成果物の取り違えに注意。** 外部ツールのスキャン成果物（`.codex/.../artifacts/` 配下など）に
   古いビルドが残ることがある。**正は `bin/Release/`**。動作確認の前に、必ずビルド日時と
   `--self-test` の検査項目数を確認する。
