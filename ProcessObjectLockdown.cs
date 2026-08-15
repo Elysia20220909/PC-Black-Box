@@ -34,6 +34,7 @@ internal static class ProcessObjectLockdown
             SecurityIdentifier? user = identity.User;
             if (user is null) return SecurityControlState.NotEnforced;
 
+            SecurityIdentifier expectedOwner = ExpectedOwnerOf(identity, user);
             var system = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
 
             // S-1-3-4 (OWNER RIGHTS). Present, it replaces the implicit READ_CONTROL|WRITE_DAC that
@@ -60,12 +61,24 @@ internal static class ProcessObjectLockdown
                 return SecurityControlState.NotEnforced;
             }
 
-            return StateOf(VerifyExpectedPolicy(system, user, ownerRights));
+            return StateOf(VerifyExpectedPolicy(system, user, ownerRights, expectedOwner));
         }
         catch
         {
             return SecurityControlState.NotEnforced;
         }
+    }
+
+    /// <summary>
+    /// Windows stamps a new object's owner from the token's <c>Owner</c> field, which is not always the
+    /// user SID: an elevated token names the Administrators group instead. Comparing the read-back owner
+    /// against that same field keeps the check exact, rather than reporting a correctly applied DACL as
+    /// unenforced whenever the token's default owner is not the user.
+    /// </summary>
+    private static SecurityIdentifier ExpectedOwnerOf(WindowsIdentity identity, SecurityIdentifier user)
+    {
+        try { return identity.Owner ?? user; }
+        catch { return user; }
     }
 
     /// <summary>Reads the complete expected policy back instead of accepting a merely restrictive DACL.</summary>
@@ -80,7 +93,8 @@ internal static class ProcessObjectLockdown
             return VerifyExpectedPolicy(
                 new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
                 user,
-                new SecurityIdentifier("S-1-3-4"));
+                new SecurityIdentifier("S-1-3-4"),
+                ExpectedOwnerOf(identity, user));
         }
         catch
         {
@@ -91,10 +105,11 @@ internal static class ProcessObjectLockdown
     private static bool VerifyExpectedPolicy(
         SecurityIdentifier system,
         SecurityIdentifier user,
-        SecurityIdentifier ownerRights)
+        SecurityIdentifier ownerRights,
+        SecurityIdentifier expectedOwner)
     {
         if (!TryReadSecurityDescriptor(out RawSecurityDescriptor? descriptor) || descriptor is null) return false;
-        if (descriptor.Owner != user) return false;
+        if (descriptor.Owner != expectedOwner) return false;
 
         RawAcl? acl = descriptor.DiscretionaryAcl;
         if (acl is null || acl.Count != 3) return false;

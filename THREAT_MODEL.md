@@ -25,7 +25,8 @@ PC Black Box gives the owner prioritized evidence about an untrusted local downl
 - All loops, input sizes, filesystem entries, directory depth, retained paths, archive metadata, signature checks, text lengths, and regular-expression evaluation are bounded.
 - ZIP central-directory structure must pass bounded preflight before the standard archive parser can allocate entry objects.
 - Reports exclude absolute paths and personal identifiers and are never written inside the inspected target.
-- No administrator privilege, UIAccess, external lookup, or child process is required.
+- No administrator privilege, UIAccess, external lookup, or child process is required. An elevated
+  launch is refused rather than accommodated.
 
 ## Security baseline
 
@@ -128,6 +129,9 @@ would break the running product, and a control that cannot stay on is worse than
 - Dependency audit must report no advisory at any severity, direct or transitive.
 - Runtime `--security-status` result must be `enforced=true` with every required control present, and must
   print one `control=… tier=… state=…` line per control for independent review.
+- An elevated launch must be refused before inspection, with `PC_BLACK_BOX_ELEVATION elevated=true
+  refusing=true` on the command line and a non-zero exit code, while the posture it prints still reports
+  `enforced=true` — the refusal is a privilege decision, not a failed control.
 - An external same-user process must be denied `PROCESS_VM_READ`, `PROCESS_VM_WRITE`,
   `PROCESS_CREATE_THREAD`, and `PROCESS_DUP_HANDLE` against a running instance, while
   `PROCESS_QUERY_LIMITED_INFORMATION` still succeeds so the operator keeps Task Manager visibility.

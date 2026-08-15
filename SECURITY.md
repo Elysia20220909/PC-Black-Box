@@ -18,6 +18,7 @@ Include only the minimum evidence needed to reproduce the issue. Never attach cr
 ## Hardened application boundary
 
 - The process runs as the current user and never requests elevation or UIAccess.
+- An elevated launch is refused before anything is inspected. The window explains that the tool does not run with administrator rights, the command-line modes emit `PC_BLACK_BOX_ELEVATION elevated=true refusing=true` ahead of the posture lines, and the direct scanner entry throws. Inspecting untrusted bytes under a token that can rewrite the machine is a privilege the task never needs.
 - Inspection accepts one local fixed, removable, or RAM-drive target at a time. Network, device, alternate-data-stream, and reparse-point paths are rejected.
 - Signature verification uses the local Windows trust cache without online revocation retrieval.
 - Reports require an existing local destination, cannot overlap the inspected target, and are written with exclusive access and a durable flush.
@@ -27,7 +28,7 @@ Include only the minimum evidence needed to reproduce the issue. Never attach cr
 - DEP, high-entropy ASLR, Control Flow Guard, and SEHOP are required and read back from the running process.
 - Strict handle checks are permanent; DLL discovery excludes the current directory and is restricted to the application directory and System32.
 - Heap corruption terminates the process rather than continuing in an allocator state an attacker can steer.
-- The process object's DACL is replaced at startup so later same-user access requests cannot read or write its memory, create a thread in it, or duplicate its handles. An `OWNER RIGHTS` entry removes the owner's implicit DACL-change right. Query-limited, synchronize, read-control, and terminate access remain available. Handles obtained before lockdown cannot be revoked.
+- The process object's DACL is replaced at startup so later same-user access requests cannot read or write its memory, create a thread in it, or duplicate its handles. An `OWNER RIGHTS` entry removes the owner's implicit DACL-change right. The read-back owner is compared against the token's own default owner, which is not always the user SID, so a correctly applied DACL is never reported as unenforced. Query-limited, synchronize, read-control, and terminate access remain available. Handles obtained before lockdown cannot be revoked.
 - Standard .NET network-transport assemblies are absent, and a later load terminates the process before the caller can use one. This managed-runtime invariant is not an AppContainer or Windows Filtering Platform capability denial for arbitrary native code.
 - Where the platform offers them, the process additionally enforces redirection trust, security-domain isolation, page-combining disable, and speculative-store-bypass disable, and reports whether hardware-enforced shadow stacks are active. Unsupported controls are `unavailable`; supported controls that fail enforcement are `not-enforced` rather than being silently relabeled.
 - Hot reload metadata updates and the EventSource tracing surface are disabled in the shipped runtime configuration.
