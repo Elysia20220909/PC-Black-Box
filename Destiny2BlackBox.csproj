@@ -9,9 +9,9 @@
     <AssemblyName>PC Black Box</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>assets\pc-black-box.ico</ApplicationIcon>
-    <Version>0.7.2</Version>
-    <FileVersion>0.7.2.0</FileVersion>
-    <AssemblyVersion>0.7.2.0</AssemblyVersion>
+    <Version>0.7.3</Version>
+    <FileVersion>0.7.3.0</FileVersion>
+    <AssemblyVersion>0.7.3.0</AssemblyVersion>
     <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
     <CheckForOverflowUnderflow>true</CheckForOverflowUnderflow>
     <Deterministic>true</Deterministic>

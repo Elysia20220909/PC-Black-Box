@@ -24,6 +24,7 @@ Include only the minimum evidence needed to reproduce the issue. Never attach cr
 - Reports require an existing local destination, cannot overlap the inspected target, and are written with exclusive access and a durable flush.
 - New target selection discards the previous result to prevent stale evidence from being exported.
 - A module initializer applies the required security baseline before WPF application initialization. Startup and direct scanner entry both fail closed unless all required controls are verified.
+- When startup does fail closed, the dialog names the required controls that did not verify, in the operator's own language. The names come from the fixed baseline list and the posture summary, so a message shown before any target is opened cannot carry inspected data.
 - Windows blocks child-process creation, legacy extension points, non-system fonts, remote native images, and Low-integrity native images for the process.
 - DEP, high-entropy ASLR, Control Flow Guard, and SEHOP are required and read back from the running process.
 - Strict handle checks are permanent; DLL discovery excludes the current directory and is restricted to the application directory and System32.

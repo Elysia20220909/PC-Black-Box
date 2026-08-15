@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.3 — 2026-08-15
+
+- Named the required controls that failed in the startup dialog, in the operator's own language, instead of reporting only that "the baseline" could not be verified. The previous wording sent the reader looking for a fault in their machine rather than at the single control that was missing.
+- Added a self-test that proves the process-owner comparison distinguishes the token's default owner from the user SID. Under an ordinary token the two are the same value, so nothing in a normal run could tell the corrected comparison from the mistaken one.
+- Locked the failure and refusal wording to fixed control identifiers in both languages, so a dialog shown at startup can never carry inspected data.
+
 ## 0.7.2 — 2026-08-15
 
 - Refused an elevated launch outright, with its own message instead of a generic baseline failure. Inspecting untrusted bytes never needs a token that can rewrite the machine, so startup, the command-line modes, and the direct scanner entry each decline before reading anything.

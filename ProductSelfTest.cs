@@ -61,6 +61,9 @@ internal static class ProductSelfTest
             Require(posture.ReinforcementEnforcedCount <= posture.ReinforcementCount, ref checks);
             Require(!ProcessElevation.IsElevated, ref checks);
             Require(ProcessObjectLockdown.VerifyCurrentPolicy(), ref checks);
+            Require(ProcessObjectLockdown.VerifyDistinctTokenOwnerModel(), ref checks);
+            Require(TestBaselineFailureMessage(), ref checks);
+            Require(TestElevationRefusalMessage(), ref checks);
             Require(WindowsProcessHardening.VerifyReportedSideChannelPolicy(), ref checks);
             Require(NetworkIsolationGuard.IsArmedAndManagedTransportFree(), ref checks);
             Require(
@@ -118,6 +121,37 @@ internal static class ProductSelfTest
         !NetworkIsolationGuard.IsBlockedAssemblyName("System.Net.Requests") &&
         !NetworkIsolationGuard.IsBlockedAssemblyName(null) &&
         !NetworkIsolationGuard.IsBlockedAssemblyName("PresentationCore");
+
+    /// <summary>
+    /// The failure dialog must name the required controls that failed, in either language, and must not
+    /// pad the list with reinforcements the operator is not being stopped for.
+    /// </summary>
+    private static bool TestBaselineFailureMessage()
+    {
+        var posture = new SecurityPosture(
+        [
+            new SecurityControlStatus("process-object-lockdown", SecurityControlTier.Required, SecurityControlState.NotEnforced),
+            new SecurityControlStatus("dep", SecurityControlTier.Required, SecurityControlState.Enforced),
+            new SecurityControlStatus("user-shadow-stack", SecurityControlTier.PlatformReinforcement, SecurityControlState.Unavailable)
+        ]);
+        string english = App.BuildSecurityFailureMessage(posture, japanese: false);
+        string japanese = App.BuildSecurityFailureMessage(posture, japanese: true);
+        const string expected = "control=process-object-lockdown tier=required state=not-enforced";
+
+        return english.Contains("without inspecting any files", StringComparison.Ordinal) &&
+               english.Contains(expected, StringComparison.Ordinal) &&
+               !english.Contains("control=user-shadow-stack", StringComparison.Ordinal) &&
+               !english.Contains("control=dep", StringComparison.Ordinal) &&
+               japanese.Contains("ファイルを調べずに終了", StringComparison.Ordinal) &&
+               japanese.Contains(expected, StringComparison.Ordinal) &&
+               !japanese.Contains("control=user-shadow-stack", StringComparison.Ordinal);
+    }
+
+    /// <summary>An elevated launch must be told what to do instead, in either language.</summary>
+    private static bool TestElevationRefusalMessage() =>
+        App.BuildElevationRefusalMessage(japanese: false).Contains("administrator rights", StringComparison.Ordinal) &&
+        App.BuildElevationRefusalMessage(japanese: true).Contains("通常の権限で起動", StringComparison.Ordinal) &&
+        ProcessElevation.SafeRefusalLine.Equals("PC_BLACK_BOX_ELEVATION elevated=true refusing=true", StringComparison.Ordinal);
 
     /// <summary>Locks the documented score bands and the clamp that keeps a score inside 0–100.</summary>
     private static bool TestRiskBands()

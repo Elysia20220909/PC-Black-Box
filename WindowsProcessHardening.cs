@@ -59,6 +59,15 @@ public sealed class SecurityPosture
         $"controls={EnforcedCount}/{RequiredCount} reinforcements={ReinforcementEnforcedCount}/{ReinforcementCount}";
 
     public IReadOnlyList<string> SafeControlLines => Controls.Select(control => control.SafeLine).ToList();
+
+    /// <summary>
+    /// Only the required controls that did not verify. The operator who is being turned away needs the
+    /// name of what failed; every string here comes from the fixed baseline list, never from a target.
+    /// </summary>
+    public IReadOnlyList<string> SafeFailedRequiredControlLines => Controls
+        .Where(control => control.Tier == SecurityControlTier.Required && !control.Enforced)
+        .Select(control => control.SafeLine)
+        .ToList();
 }
 
 public static class WindowsProcessHardening
