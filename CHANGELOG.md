@@ -6,6 +6,7 @@
 - Made any per-file inspection limit promote the overall result to `INCOMPLETE`; an incomplete traversal can no longer present itself as `CLEAR` in the window, Markdown, or JSON report.
 - Added explicit report evidence for SHA-256 bytes read and capability-pattern bytes scanned, plus a self-test fixture whose indicator appears beyond the former 8-MiB boundary.
 - Advanced the JSON report schema to v3 with separate `risk`, `completeness`, and combined `assessment` fields, so a known `HIGH` cannot be hidden by `INCOMPLETE`.
+- Added a `COPY LOOKUP URL` action beside `COPY SHA-256`, built only from a revalidated SHA-256, so an operator can carry a digest to an external service without the product itself gaining any network path. The message states what opening the URL would disclose.
 - Replaced the stale hard-coded window version with the executing assembly version and documented that entropy remains an 8-MiB sample while archive entry bodies remain outside the static parser.
 
 ## 0.7.3 — 2026-08-15

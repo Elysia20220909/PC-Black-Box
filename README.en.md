@@ -41,6 +41,7 @@ Use `JA / EN` to switch languages. Only that language preference is stored in `%
 - Select a finding card on `OVERVIEW`, or focus it with Tab and press Enter / Space, to open the matching file evidence directly.
 - Use `Ctrl+O` for a file, `Ctrl+Shift+O` for a folder, `Ctrl+F` to search, and `F5` or `Ctrl+Enter` to inspect.
 - Use `Ctrl+1 / 2 / 3` for Overview, Files, and Report; press `Esc` to cancel an active inspection.
+- `COPY SHA-256` and `COPY LOOKUP URL` in the file evidence pane only place text on the clipboard. The product never opens the URL and never connects; opening it is the operator's decision, and doing so discloses that hash to the service.
 
 ## What it inspects
 
@@ -110,7 +111,7 @@ These controls translate Apple's code-trust and strict-capability principles int
 - Split ZIPs, encrypted central directories, and ambiguous multiple-EOCD layouts are not internally inspected and are reported.
 - Capability terms inside script comments are still reported and require context.
 - A `CLEAR` result does not guarantee safety.
-- VirusTotal-style external reputation, multiple antivirus engines, cloud hash intelligence, and dynamic sandboxes are not included.
+- VirusTotal-style external reputation, multiple antivirus engines, cloud hash intelligence, and dynamic sandboxes are not included. The product goes as far as copying the SHA-256 and a lookup URL; the lookup itself happens elsewhere, at the operator’s hand.
 
 The product has no NSA or equivalent external certification. “High assurance” here means layered, testable, fail-closed engineering based on public specifications.
 

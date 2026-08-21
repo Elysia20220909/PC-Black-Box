@@ -112,6 +112,7 @@ public partial class MainWindow : Window
         TimeValue.Text = "—";
         ScanProgressBar.Value = 0;
         CopyHashButton.IsEnabled = false;
+        CopyLookupUrlButton.IsEnabled = false;
         CopyReportButton.IsEnabled = false;
         SaveMarkdownButton.IsEnabled = false;
         SaveJsonButton.IsEnabled = false;
@@ -410,6 +411,7 @@ public partial class MainWindow : Window
         {
             FileDetailText.Text = IsJapanese ? "条件に一致するファイルはありません。" : "No file matches the current filters.";
             CopyHashButton.IsEnabled = false;
+            CopyLookupUrlButton.IsEnabled = false;
         }
     }
 
@@ -418,11 +420,13 @@ public partial class MainWindow : Window
         if (FileGrid.SelectedItem is not FileAnalysis file)
         {
             CopyHashButton.IsEnabled = false;
+            CopyLookupUrlButton.IsEnabled = false;
             return;
         }
 
         UpdateFileDetail(file);
         CopyHashButton.IsEnabled = !String.IsNullOrWhiteSpace(file.Sha256);
+        CopyLookupUrlButton.IsEnabled = SecurityPolicy.TryBuildHashLookupUrl(file.Sha256, out _);
     }
 
     private void UpdateFileDetail(FileAnalysis file)
@@ -461,6 +465,18 @@ public partial class MainWindow : Window
         if (FileGrid.SelectedItem is FileAnalysis file && !String.IsNullOrWhiteSpace(file.Sha256))
         {
             CopyTextSafely(file.Sha256, IsJapanese ? "SHA-256をコピーしました" : "SHA-256 copied");
+        }
+    }
+
+    // Copying is deliberately as far as this goes: the product cannot open the URL, and the
+    // operator is told what opening it would disclose before they decide to.
+    private void CopyLookupUrl_Click(object sender, RoutedEventArgs e)
+    {
+        if (FileGrid.SelectedItem is FileAnalysis file && SecurityPolicy.TryBuildHashLookupUrl(file.Sha256, out string url))
+        {
+            CopyTextSafely(url, IsJapanese
+                ? "照会URLをコピーしました — 開くとハッシュがVirusTotalに渡ります"
+                : "Lookup URL copied — opening it discloses the hash to VirusTotal");
         }
     }
 
@@ -657,6 +673,7 @@ public partial class MainWindow : Window
             ? $"ファイル全体のSHA-256 / 明示的な上限内でのスクリプト・PE・PDF能力語 / オフライン署名確認 / 安定ファイルID / Internet Zone / 実ファイル形式 / 拡張子偽装 / 先頭8MiBのエントロピー / ZIP内部構造\n\nセキュリティ基準 {postureCount} をOSとランタイムから確認済み。この環境で有効な追加防御は {reinforcementCount} 件です。実行・アップロード・外部照会・パケット取得・メモリ読取は行いません。"
             : $"Whole-file SHA-256 / bounded capability-pattern scanning for scripts, PE, and PDF / offline signature verification / stable file identity / Internet Zone / true file format / extension mismatch / first-8-MiB entropy / ZIP structure\n\nSecurity baseline {postureCount} is verified through OS and runtime checks. {reinforcementCount} platform reinforcements are active on this system. No execution, upload, external lookup, packet capture, or memory read.";
         CopyHashButton.Content = ja ? "SHA-256をコピー" : "COPY SHA-256";
+        CopyLookupUrlButton.Content = ja ? "照会URLをコピー" : "COPY LOOKUP URL";
         ReportTitleText.Text = ja ? "匿名化された調査レポート" : "SANITIZED INSPECTION REPORT";
         CopyReportButton.Content = ja ? "コピー" : "COPY";
         SaveMarkdownButton.Content = ja ? "Markdown保存" : "SAVE MARKDOWN";

@@ -106,6 +106,7 @@ internal static class ProductSelfTest
             Require(TestInvalidArchiveMakesResultIncomplete(), ref checks);
             Require(TestRiskAndCompletenessRemainSeparate(), ref checks);
             Require(TestCapabilityBudgetsStayOrdered(), ref checks);
+            Require(TestHashLookupUrlFailsClosed(), ref checks);
             Require(TestArchiveFindingsWithoutExtraction(), ref checks);
             Require(TestCanceledInspectionReadsNothing(), ref checks);
             return new ProductSelfTestResult(true, checks);
@@ -404,6 +405,31 @@ internal static class ProductSelfTest
     private static bool TestCapabilityBudgetsStayOrdered() =>
         FileInspector.MaxCapabilityBytesPerScan >= FileInspector.MaxCapabilityBytesPerFile &&
         FileInspector.MaxCapabilityTimePerScan >= FileInspector.MaxCapabilityTimePerFile;
+
+    /// <summary>
+    /// Builds a lookup URL only from a well-formed digest. The URL is the one place a target-derived
+    /// value is offered for the operator to carry off this machine, so anything else must fail closed.
+    /// </summary>
+    private static bool TestHashLookupUrlFailsClosed()
+    {
+        if (!SecurityPolicy.TryBuildHashLookupUrl(new string('A', 64), out string url)) return false;
+        if (!url.Equals("https://www.virustotal.com/gui/file/" + new string('a', 64), StringComparison.Ordinal)) return false;
+
+        string[] rejected =
+        [
+            String.Empty,
+            new string('a', 63),
+            new string('a', 65),
+            new string('g', 64),
+            "../" + new string('a', 61)
+        ];
+        foreach (string candidate in rejected)
+        {
+            if (SecurityPolicy.TryBuildHashLookupUrl(candidate, out string leaked) || leaked.Length != 0) return false;
+        }
+
+        return SecurityPolicy.TryBuildHashLookupUrl(null, out string missing) == false && missing.Length == 0;
+    }
 
     /// <summary>
     /// Reports an escaping path and active content inside an archive from the central directory alone:
