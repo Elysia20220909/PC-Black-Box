@@ -2,7 +2,7 @@
 
 ## 0.8.0 — 2026-08-21
 
-- Replaced the first-8-MiB capability sample with bounded streaming for scripts, Windows PE files, and PDFs. Chunk overlap preserves indicators that cross a read boundary, while explicit 256-MiB/file, 512-MiB/inspection, 30-second/file, and 60-second/inspection budgets fail closed as `INCOMPLETE`; SHA-256 remains a separate whole-file pass.
+- Replaced the first-8-MiB capability sample with bounded streaming for scripts, Windows PE files, and PDFs. Chunk overlap preserves indicators that cross a read boundary, while explicit 1-GiB/file, 4-GiB/inspection, 60-second/file, and 180-second/inspection budgets fail closed as `INCOMPLETE`; SHA-256 remains a separate whole-file pass. The byte budgets govern coverage at a measured ~50 MiB/s, so an ordinary folder of installers is inspected in full instead of exhausting the budget partway.
 - Made any per-file inspection limit promote the overall result to `INCOMPLETE`; an incomplete traversal can no longer present itself as `CLEAR` in the window, Markdown, or JSON report.
 - Added explicit report evidence for SHA-256 bytes read and capability-pattern bytes scanned, plus a self-test fixture whose indicator appears beyond the former 8-MiB boundary.
 - Advanced the JSON report schema to v3 with separate `risk`, `completeness`, and combined `assessment` fields, so a known `HIGH` cannot be hidden by `INCOMPLETE`.

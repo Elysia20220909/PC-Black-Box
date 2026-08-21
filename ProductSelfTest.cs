@@ -105,6 +105,7 @@ internal static class ProductSelfTest
             Require(TestLongPathExtensionUsesFullPath(), ref checks);
             Require(TestInvalidArchiveMakesResultIncomplete(), ref checks);
             Require(TestRiskAndCompletenessRemainSeparate(), ref checks);
+            Require(TestCapabilityBudgetsStayOrdered(), ref checks);
             Require(TestArchiveFindingsWithoutExtraction(), ref checks);
             Require(TestCanceledInspectionReadsNothing(), ref checks);
             return new ProductSelfTestResult(true, checks);
@@ -395,6 +396,14 @@ internal static class ProductSelfTest
                jsonResult.GetProperty("completeness").GetString() is "INCOMPLETE" &&
                jsonResult.GetProperty("assessment").GetString() is "HIGH+INCOMPLETE";
     }
+
+    /// <summary>
+    /// Keeps the per-inspection budget at or above the per-file budget. Inverted budgets would cut every
+    /// file short at the smaller number while the report still named the per-file limit as the reason.
+    /// </summary>
+    private static bool TestCapabilityBudgetsStayOrdered() =>
+        FileInspector.MaxCapabilityBytesPerScan >= FileInspector.MaxCapabilityBytesPerFile &&
+        FileInspector.MaxCapabilityTimePerScan >= FileInspector.MaxCapabilityTimePerFile;
 
     /// <summary>
     /// Reports an escaping path and active content inside an archive from the central directory alone:

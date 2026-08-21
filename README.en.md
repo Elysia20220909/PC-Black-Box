@@ -53,7 +53,7 @@ Use `JA / EN` to switch languages. Only that language preference is stored in `%
 - Streaming capability matching for scripts, Windows PE files, and PDFs within explicit limits, including downloads, persistence, Defender changes, process injection, deletion, and related behavior
 - Executable content, macros, path traversal, and extreme compression ratios inside ZIP and Office packages
 
-Folder inspection stops at 2,500 files, 10,000 directories, depth 128, 20,000 enumerated entries, eight million retained path characters, or 12 GB. Capability content scanning is capped at 256 MiB and 30 seconds per file, and 512 MiB and 60 seconds per inspection. ZIP metadata is capped at 10,000 entries, a 64 MiB central directory, 4,096 bytes per central entry name, and a 2 GiB archive inspection size; signature checks stop at 300 files. Reparse points are not followed. Any limit, read failure, or analysis timeout makes the result `INCOMPLETE`, never `CLEAR`.
+Folder inspection stops at 2,500 files, 10,000 directories, depth 128, 20,000 enumerated entries, eight million retained path characters, or 12 GB. Capability content scanning is capped at 1 GiB and 60 seconds per file, and 4 GiB and 180 seconds per inspection. The byte budgets decide how much is inspected; the time budgets exist only so that pathologically slow reads or crafted input cannot stall a scan. ZIP metadata is capped at 10,000 entries, a 64 MiB central directory, 4,096 bytes per central entry name, and a 2 GiB archive inspection size; signature checks stop at 300 files. Reparse points are not followed. Any limit, read failure, or analysis timeout makes the result `INCOMPLETE`, never `CLEAR`.
 
 ## Assessment model
 
