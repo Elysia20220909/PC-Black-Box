@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.0 — 2026-08-21
+
+- Replaced the first-8-MiB capability sample with bounded streaming for scripts, Windows PE files, and PDFs. Chunk overlap preserves indicators that cross a read boundary, while explicit 256-MiB/file, 512-MiB/inspection, 30-second/file, and 60-second/inspection budgets fail closed as `INCOMPLETE`; SHA-256 remains a separate whole-file pass.
+- Made any per-file inspection limit promote the overall result to `INCOMPLETE`; an incomplete traversal can no longer present itself as `CLEAR` in the window, Markdown, or JSON report.
+- Added explicit report evidence for SHA-256 bytes read and capability-pattern bytes scanned, plus a self-test fixture whose indicator appears beyond the former 8-MiB boundary.
+- Advanced the JSON report schema to v3 with separate `risk`, `completeness`, and combined `assessment` fields, so a known `HIGH` cannot be hidden by `INCOMPLETE`.
+- Replaced the stale hard-coded window version with the executing assembly version and documented that entropy remains an 8-MiB sample while archive entry bodies remain outside the static parser.
+
 ## 0.7.3 — 2026-08-15
 
 - Named the required controls that failed in the startup dialog, in the operator's own language, instead of reporting only that "the baseline" could not be verified. The previous wording sent the reader looking for a fault in their machine rather than at the single control that was missing.
