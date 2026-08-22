@@ -24,6 +24,15 @@ public static class ReportBuilder
         {
             builder.AppendLine($"- {(ja ? "能力語の内容走査" : "Capability content scan")}: {FileAnalysis.FormatSize(result.CapabilityScannedBytes)} / {FileAnalysis.FormatSize(result.CapabilityEligibleBytes)}");
         }
+        if (result.ArchiveContentScanApplicable)
+        {
+            string archiveCoverage = result.ArchiveContentTotalKnown
+                ? $"{FileAnalysis.FormatSize(result.ArchiveContentScannedBytes)} / {FileAnalysis.FormatSize(result.ArchiveContentEligibleBytes)}"
+                : ja
+                    ? $"{FileAnalysis.FormatSize(result.ArchiveContentScannedBytes)} 走査 / 合計不明"
+                    : $"{FileAnalysis.FormatSize(result.ArchiveContentScannedBytes)} scanned / total unknown";
+            builder.AppendLine($"- {(ja ? "ZIP内部本文の走査" : "ZIP entry-content scan")}: {archiveCoverage}");
+        }
         builder.AppendLine($"- {(ja ? "有効な署名" : "Valid signatures")}: {result.SignedCount}");
         builder.AppendLine($"- {(ja ? "アクティブコンテンツ" : "Active-content files")}: {result.ActiveContentCount}");
         if (result.IsPartial)
@@ -121,7 +130,7 @@ public static class ReportBuilder
         bool ja = !language.Equals("en", StringComparison.OrdinalIgnoreCase);
         var payload = new
         {
-            schema = "pc-black-box-report-v3",
+            schema = "pc-black-box-report-v4",
             generatedAt = DateTimeOffset.UtcNow,
             target = Clean(result.TargetName),
             security = new
@@ -150,6 +159,10 @@ public static class ReportBuilder
                 sha256BytesRead = result.TotalBytes,
                 capabilityEligibleBytes = result.CapabilityEligibleBytes,
                 capabilityScannedBytes = result.CapabilityScannedBytes,
+                archiveContentScanApplicable = result.ArchiveContentScanApplicable,
+                archiveContentTotalKnown = result.ArchiveContentTotalKnown,
+                archiveContentEligibleBytes = result.ArchiveContentTotalKnown ? result.ArchiveContentEligibleBytes : (long?)null,
+                archiveContentScannedBytes = result.ArchiveContentScannedBytes,
                 durationSeconds = Math.Round(result.Duration.TotalSeconds, 3)
             },
             files = result.Files.Select(file => new
@@ -164,7 +177,14 @@ public static class ReportBuilder
                 signer = Clean(file.Signer),
                 file.InternetZone,
                 sourceHost = file.SourceHost == "—" ? null : Clean(file.SourceHost),
-                file.ArchiveEntries,
+                archiveEntries = file.ArchiveEntries,
+                embeddedZipPayload = file.EmbeddedZipPayload,
+                archiveHasPrefix = file.ArchiveHasPrefix,
+                archivePrefixBytes = file.ArchivePrefixBytes,
+                archiveContentScanApplicable = file.ArchiveContentScanApplicable,
+                archiveContentTotalKnown = file.ArchiveContentTotalKnown,
+                archiveContentEligibleBytes = file.ArchiveContentTotalKnown ? file.ArchiveContentEligibleBytes : (long?)null,
+                archiveContentScannedBytes = file.ArchiveContentScannedBytes,
                 shortcutTarget = file.ShortcutTarget == "—" ? null : Clean(file.ShortcutTarget),
                 shortcutArguments = file.ShortcutArguments == "—" ? null : Clean(file.ShortcutArguments),
                 file.InspectionLimited,

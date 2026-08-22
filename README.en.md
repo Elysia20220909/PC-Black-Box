@@ -54,9 +54,10 @@ Use `JA / EN` to switch languages. Only that language preference is stored in `%
 - OLE compound files (installers and legacy Office documents): recognized by content and read for strings, with the storage tree left unparsed and reported as incomplete
 - PE architecture, product/company metadata, and entropy sampled from the first 8 MiB
 - Streaming capability matching for scripts, Windows PE files, and PDFs within explicit limits, including downloads, persistence, Defender changes, process injection, deletion, and related behavior
-- Executable content, macros, path traversal, and extreme compression ratios inside ZIP and Office packages
+- Prefixed data, internal double extensions, executable content, macros, path traversal, and extreme compression ratios inside ZIP and Office packages
+- Capability terms such as downloads, persistence, Defender changes, and process injection in direct ZIP entries, streamed without extracting them to disk
 
-Folder inspection stops at 2,500 files, 10,000 directories, depth 128, 20,000 enumerated entries, eight million retained path characters, or 12 GB. Capability content scanning is capped at 1 GiB and 60 seconds per file, and 4 GiB and 180 seconds per inspection. The byte budgets decide how much is inspected; the time budgets exist only so that pathologically slow reads or crafted input cannot stall a scan. ZIP metadata is capped at 10,000 entries, a 64 MiB central directory, 4,096 bytes per central entry name, and a 2 GiB archive inspection size; signature checks stop at 300 files. Reparse points are not followed. Any limit, read failure, or analysis timeout makes the result `INCOMPLETE`, never `CLEAR`.
+Folder inspection stops at 2,500 files, 10,000 directories, depth 128, 20,000 enumerated entries, eight million retained path characters, or 12 GB. Ordinary-file capability scanning is capped at 1 GiB and 60 seconds per file, and 4 GiB and 180 seconds per inspection. Direct ZIP entry-content scanning is capped at 64 MiB per entry, 256 MiB per ZIP, and 1 GiB per inspection, with at most one extra sentinel byte per capped entry to prove that data continues. Compressed input is limited to 64 KiB reads, and the 30-second/ZIP and 120-second/inspection clocks are checked before and after each input read. They still cannot forcibly interrupt one local OS read or inflater step already in progress. If observed EOF cannot establish the total body size, the product reports bytes scanned but labels the total unknown instead of inventing a denominator. ZIP metadata is capped at 10,000 entries, a 64 MiB central directory and ZIP64 terminal extension, 4,096 bytes per central entry name, and a 2 GiB archive input; signature checks stop at 300 files. Reparse points are not followed. Any limit, read failure, or analysis timeout makes the result `INCOMPLETE`, never `CLEAR`.
 
 ## Assessment model
 
@@ -110,7 +111,9 @@ These controls translate Apple's code-trust and strict-capability principles int
 - The process DACL constrains access requested after it is installed; Windows cannot revoke a handle already held by the launcher or another process.
 - Managed transport monitoring is not an OS-level network capability denial through AppContainer or Windows Filtering Platform. Native networking added in a future change could bypass it and is outside the accepted scope.
 - 7-Zip and RAR are identified but not unpacked.
-- ZIP entry names, attributes, and declared sizes are inspected, but entry bodies are not unpacked for capability or malware-signature matching.
+- Direct ZIP entries are streamed for capability terms within explicit limits and are never extracted to disk. This is not a malware-signature engine. Nested ZIP, 7-Zip, and RAR content is not recursively opened and therefore makes the result `INCOMPLETE`.
+- Ordinary ZIP and ZIP64 terminal records within the safety limit recover relative offsets through prefixed data, including ZIP64 records with extensible data, so the body can still be inspected. The prefix itself remains unparsed, so the result is `INCOMPLETE`. ZIP-like tails whose offsets cannot be recovered remain `INCOMPLETE` instead of falling back to an ordinary file.
+- PDF, PE, script, and other primary formats can carry a trailing ZIP; both surfaces are inspected and reported as a polyglot. Central-directory body sizes are not trusted: direct entries are read to observed EOF, and a mismatch makes the result `INCOMPLETE`.
 - Split ZIPs, encrypted central directories, and ambiguous multiple-EOCD layouts are not internally inspected and are reported.
 - Capability terms inside script comments are still reported and require context.
 - A `CLEAR` result does not guarantee safety.
