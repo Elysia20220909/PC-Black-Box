@@ -16,9 +16,16 @@ outputs/
 *.nupkg
 
 # Local inspection fixtures and generated reports
+# A report names the files that were inspected, the hosts they came from, and their digests, so it is
+# more identifying than any single hash. Ignoring only the reports/ directory left one saved anywhere
+# else in the tree fully committable.
 test-fixtures/
 test-results/
 reports/
+pc-black-box-*.md
+pc-black-box-*.json
+*.report.md
+*.report.json
 *.pcap
 *.pcapng
 *.etl

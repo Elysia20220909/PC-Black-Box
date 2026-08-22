@@ -41,7 +41,7 @@ Use `JA / EN` to switch languages. Only that language preference is stored in `%
 - Select a finding card on `OVERVIEW`, or focus it with Tab and press Enter / Space, to open the matching file evidence directly.
 - Use `Ctrl+O` for a file, `Ctrl+Shift+O` for a folder, `Ctrl+F` to search, and `F5` or `Ctrl+Enter` to inspect.
 - Use `Ctrl+1 / 2 / 3` for Overview, Files, and Report; press `Esc` to cancel an active inspection.
-- `COPY SHA-256` and `COPY LOOKUP URL` in the file evidence pane only place text on the clipboard. The product never opens the URL and never connects; opening it is the operator's decision, and doing so discloses that hash to the service.
+- `COPY SHA-256` and `COPY LOOKUP URL` in the file evidence pane only place text on the clipboard. The product never opens the URL and never connects; opening it is the operator's decision, and doing so discloses that hash to the service. The clipboard itself is outside this product: with Windows clipboard history enabled, the copied string is also retained by Windows and may sync to a Microsoft account.
 
 ## What it inspects
 
@@ -72,6 +72,7 @@ Legitimate administration scripts, installers, and compression tools can trigger
 - No process injection, game-memory access, or packet capture is performed.
 - Files are not deleted, quarantined, moved, or repaired.
 - Reports omit **this machine’s** absolute paths, Windows user names, IP addresses, Steam IDs, and credentials. Strings held inside the target, such as a shortcut’s target and arguments, are shown as the evidence behind a finding.
+- Treat the report itself as sensitive. It lists the inspected file names, the hosts they came from, and their digests, which identifies more than any single hash does. Generated reports are gitignored; read one before sharing it.
 - No external hash lookup or browser launch is available; inspection remains fully offline.
 
 The design follows iOS-inspired security principles: least privilege, a closed data flow, explicit user actions, and fixed trust boundaries. It remains a conventional Windows desktop app and does not claim isolation equivalent to the iOS App Sandbox.

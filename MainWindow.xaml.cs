@@ -482,9 +482,12 @@ public partial class MainWindow : Window
     {
         if (FileGrid.SelectedItem is FileAnalysis file && SecurityPolicy.TryBuildHashLookupUrl(file.Sha256, out string url))
         {
+            // The process stops at the clipboard; the machine does not. Windows clipboard history keeps
+            // copied text and can sync it to the operator's Microsoft account, and this product cannot
+            // read that setting reliably, so it says so instead of implying the string stops here.
             CopyTextSafely(url, IsJapanese
-                ? "照会URLをコピーしました — 開くとハッシュがVirusTotalに渡ります"
-                : "Lookup URL copied — opening it discloses the hash to VirusTotal");
+                ? "照会URLをコピーしました — 開くとハッシュがVirusTotalに渡ります。クリップボード履歴が有効なら、この文字列もWindows側に残ります"
+                : "Lookup URL copied — opening it discloses the hash to VirusTotal, and Windows keeps a copy if clipboard history is on");
         }
     }
 
