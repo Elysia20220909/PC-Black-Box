@@ -443,6 +443,15 @@ public partial class MainWindow : Window
         {
             details.AppendLine($"{(IsJapanese ? "内容走査" : "CONTENT"),-10} {FileAnalysis.FormatSize(file.CapabilityScannedBytes)} / {file.SizeText}");
         }
+        if (file.ArchiveContentScanApplicable)
+        {
+            string coverage = file.ArchiveContentTotalKnown
+                ? $"{FileAnalysis.FormatSize(file.ArchiveContentScannedBytes)} / {FileAnalysis.FormatSize(file.ArchiveContentEligibleBytes)}"
+                : IsJapanese
+                    ? $"{FileAnalysis.FormatSize(file.ArchiveContentScannedBytes)} 走査 / 合計不明"
+                    : $"{FileAnalysis.FormatSize(file.ArchiveContentScannedBytes)} scanned / total unknown";
+            details.AppendLine($"{(IsJapanese ? "ZIP本文" : "ZIP BODY"),-10} {coverage}");
+        }
         if (file.ShortcutTarget != "—")
         {
             details.AppendLine($"{(IsJapanese ? "起動先" : "TARGET"),-10} {file.ShortcutTarget}");
@@ -457,6 +466,11 @@ public partial class MainWindow : Window
         }
         details.AppendLine($"ZONE       {(file.InternetZone?.ToString() ?? "—")}  |  {(IsJapanese ? "入手元" : "SOURCE")} {file.SourceHost}");
         if (file.ArchiveEntries > 0) details.AppendLine($"{(IsJapanese ? "書庫" : "ARCHIVE"),-10} {file.ArchiveEntries} {(IsJapanese ? "項目" : "entries")}");
+        if (file.ArchiveHasPrefix)
+        {
+            string prefix = file.ArchivePrefixBytes > 0 ? FileAnalysis.FormatSize(file.ArchivePrefixBytes) : (IsJapanese ? "あり" : "present");
+            details.AppendLine($"{(IsJapanese ? "前置き" : "PREFIX"),-10} {prefix}");
+        }
         if (file.Indicators.Count > 0)
         {
             details.AppendLine();

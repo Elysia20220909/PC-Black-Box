@@ -35,8 +35,12 @@ public sealed class FileInspector
     private const int SampleBytes = 8 * 1024 * 1024;
     private const int CapabilityChunkBytes = 1024 * 1024;
     private const int CapabilityOverlapBytes = 4096;
-    // The byte budgets decide how much is actually inspected; the time budgets only bound
-    // pathological slowness (a stalling network share, a crafted input) so a scan cannot hang.
+    private const int ArchiveContentChunkBytes = 256 * 1024;
+    private const int ArchiveContentOverlapBytes = 4096;
+    private const int ArchiveCompressedReadChunkBytes = 64 * 1024;
+    // The byte budgets decide how much is actually inspected. Time budgets are cooperative;
+    // archive source reads are kept small and checked before and after, but a synchronous local
+    // OS read or one inflater step already in progress cannot be preempted from managed code.
     // Measured throughput on this class of machine is roughly 50 MiB/s, so the per-inspection
     // byte budget is reached in about 75 seconds — well inside its time budget. Sizing them the
     // other way round would let an ordinary folder of installers exhaust the budget and report
@@ -45,6 +49,11 @@ public sealed class FileInspector
     internal const long MaxCapabilityBytesPerScan = 4096L * 1024 * 1024;
     internal static readonly TimeSpan MaxCapabilityTimePerFile = TimeSpan.FromSeconds(60);
     internal static readonly TimeSpan MaxCapabilityTimePerScan = TimeSpan.FromSeconds(180);
+    internal const long MaxArchiveContentBytesPerEntry = 64L * 1024 * 1024;
+    internal const long MaxArchiveContentBytesPerFile = 256L * 1024 * 1024;
+    internal const long MaxArchiveContentBytesPerScan = 1024L * 1024 * 1024;
+    internal static readonly TimeSpan MaxArchiveContentTimePerFile = TimeSpan.FromSeconds(30);
+    internal static readonly TimeSpan MaxArchiveContentTimePerScan = TimeSpan.FromSeconds(120);
     private static readonly TimeSpan RegexMatchTimeout = TimeSpan.FromSeconds(1);
     private static readonly Regex ZoneIdPattern = CreatePattern(@"^ZoneId=(?<value>\d+)", RegexOptions.IgnoreCase | RegexOptions.Multiline);
     private static readonly Regex HostUrlPattern = CreatePattern(@"^HostUrl=(?<value>.+)$", RegexOptions.IgnoreCase | RegexOptions.Multiline);
@@ -68,6 +77,13 @@ public sealed class FileInspector
     private static readonly HashSet<string> ScriptExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".ps1", ".psm1", ".psd1", ".bat", ".cmd", ".vbs", ".vbe", ".js", ".jse", ".wsf", ".wsh", ".hta", ".reg"
+    };
+
+    private static readonly HashSet<string> ZipPackageExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".zip", ".docx", ".docm", ".dotx", ".dotm", ".xlsx", ".xlsm", ".xltx", ".xltm", ".xlam",
+        ".pptx", ".pptm", ".potx", ".potm", ".ppsx", ".ppsm", ".sldx", ".sldm", ".jar", ".apk",
+        ".nupkg", ".vsix", ".odt", ".ods", ".odp", ".epub", ".xpi"
     };
 
     private static readonly (string Code, Regex Pattern, int Score, string Ja, string En)[] CapabilityPatterns =
@@ -138,6 +154,7 @@ public sealed class FileInspector
         int signatureChecks = 0;
         long inspectedBytes = 0;
         var capabilityBudget = new CapabilityScanBudget();
+        var archiveContentBudget = new ArchiveContentScanBudget();
 
         for (int index = 0; index < files.Count; index++)
         {
@@ -146,7 +163,7 @@ public sealed class FileInspector
             progress?.Report(new ScanProgress(index, files.Count, Path.GetFileName(file)));
             try
             {
-                FileAnalysis analysis = AnalyzeFile(file, root, targetIsFile, inspectedBytes, ref signatureChecks, capabilityBudget, cancellationToken);
+                FileAnalysis analysis = AnalyzeFile(file, root, targetIsFile, inspectedBytes, ref signatureChecks, capabilityBudget, archiveContentBudget, cancellationToken);
                 result.Files.Add(analysis);
                 inspectedBytes += analysis.Size;
             }
@@ -344,6 +361,7 @@ public sealed class FileInspector
         long inspectedBytes,
         ref int signatureChecks,
         CapabilityScanBudget capabilityBudget,
+        ArchiveContentScanBudget archiveContentBudget,
         CancellationToken cancellationToken)
     {
         using FileStream secureStream = SecureFileReader.OpenRead(path);
@@ -366,13 +384,14 @@ public sealed class FileInspector
 
         byte[] sample = ReadSampleAndHash(secureStream, analysis, cancellationToken);
         analysis.FileType = DetectFileType(sample, Path.GetExtension(path));
+        DetectAdditionalZipPayload(secureStream, analysis, cancellationToken);
         analysis.Entropy = CalculateEntropy(sample);
         ReadVersionAndPeMetadata(path, secureStream, analysis);
         ReadInternetZone(path, analysis);
         DetectNameAndTypeMismatch(analysis, sample, rawRelativePath);
         if (analysis.FileType == ShortcutType) InspectShortcut(secureStream, analysis);
         DetectCapabilities(secureStream, analysis, capabilityBudget, cancellationToken);
-        InspectStructuredFormats(secureStream, analysis, cancellationToken);
+        InspectStructuredFormats(secureStream, analysis, archiveContentBudget, cancellationToken);
 
         if (ShouldCheckSignature(analysis))
         {
@@ -424,7 +443,7 @@ public sealed class FileInspector
     private static string DetectFileType(byte[] bytes, string extension)
     {
         if (StartsWith(bytes, [0x4D, 0x5A])) return "Windows PE";
-        if (StartsWith(bytes, [0x50, 0x4B, 0x03, 0x04]) || StartsWith(bytes, [0x50, 0x4B, 0x05, 0x06])) return "ZIP / package";
+        if (StartsWith(bytes, [0x50, 0x4B, 0x03, 0x04]) || StartsWith(bytes, [0x50, 0x4B, 0x05, 0x06])) return ZipPackageType;
         if (StartsWith(bytes, Encoding.ASCII.GetBytes("%PDF"))) return "PDF";
         if (StartsWith(bytes, [0x7F, 0x45, 0x4C, 0x46])) return "ELF binary";
         if (StartsWith(bytes, [0x52, 0x61, 0x72, 0x21])) return RarType;
@@ -434,12 +453,94 @@ public sealed class FileInspector
         if (LooksLikeIsoImage(bytes)) return IsoImageType;
         if (StartsWith(bytes, [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1])) return OleCompoundType;
         if (ShortcutInspector.LooksLikeShortcut(bytes)) return ShortcutType;
+        if (ZipPackageExtensions.Contains(extension)) return ZipPackageType;
         if (ScriptExtensions.Contains(extension)) return "Script / active text";
         if (LooksLikeText(bytes)) return "Text";
         return "Binary / unknown";
     }
 
+    private static void DetectAdditionalZipPayload(
+        FileStream stream,
+        FileAnalysis analysis,
+        CancellationToken cancellationToken)
+    {
+        if (analysis.FileType == ZipPackageType)
+        {
+            return;
+        }
+
+        bool zipLikeTerminal = HasZipLikeTerminalRecord(stream);
+        long originalPosition = stream.Position;
+        try
+        {
+            using Stream payload = OpenValidatedZipPayload(stream, cancellationToken, out _);
+            if (analysis.FileType is "Text" or "Binary / unknown")
+            {
+                analysis.FileType = ZipPackageType;
+                return;
+            }
+
+            analysis.EmbeddedZipPayload = true;
+            analysis.InspectionLimited = true;
+            AddIndicator(analysis, new("danger", "archive-polyglot", "別形式のファイルに有効なZIP構造が重ねられています", "A valid ZIP structure is overlaid on another file format", 30));
+        }
+        catch (ArchiveSafetyLimitException)
+        {
+            if (analysis.FileType is "Text" or "Binary / unknown")
+            {
+                analysis.FileType = ZipPackageType;
+            }
+            else
+            {
+                analysis.EmbeddedZipPayload = true;
+                analysis.InspectionLimited = true;
+                AddIndicator(analysis, new("danger", "archive-polyglot", "別形式のファイルにZIPらしい構造が重ねられています", "A ZIP-like structure is overlaid on another file format", 30));
+            }
+        }
+        catch (Exception exception) when (exception is InvalidDataException or OverflowException)
+        {
+            if (zipLikeTerminal)
+            {
+                analysis.InspectionLimited = true;
+                AddIndicator(analysis, new("watch", "invalid-embedded-archive", "ファイル末尾にZIP終端らしい構造がありますが、正常に検証できません", "The file ends with a ZIP-like structure that could not be validated", 20));
+            }
+        }
+        finally
+        {
+            stream.Position = originalPosition;
+        }
+    }
+
+    private static bool HasZipLikeTerminalRecord(Stream stream)
+    {
+        long originalPosition = stream.Position;
+        try
+        {
+            int tailLength = checked((int)Math.Min(stream.Length, EndOfCentralDirectoryLength + UInt16.MaxValue));
+            if (tailLength < sizeof(uint)) return false;
+            byte[] tail = new byte[tailLength];
+            stream.Position = stream.Length - tailLength;
+            stream.ReadExactly(tail);
+            return ContainsSignature(tail, EndOfCentralDirectorySignature) ||
+                   ContainsSignature(tail, Zip64EndOfCentralDirectoryLocatorSignature);
+        }
+        finally
+        {
+            stream.Position = originalPosition;
+        }
+    }
+
+    private static bool ContainsSignature(ReadOnlySpan<byte> bytes, uint signature)
+    {
+        for (int index = 0; index <= bytes.Length - sizeof(uint); index++)
+        {
+            if (BinaryPrimitives.ReadUInt32LittleEndian(bytes[index..]) == signature) return true;
+        }
+        return false;
+    }
+
     internal const string ShortcutType = "Windows shortcut";
+    internal const string ZipPackageType = "ZIP / package";
     internal const string OleCompoundType = "OLE compound";
     internal const string RarType = "RAR archive";
     internal const string SevenZipType = "7-Zip archive";
@@ -550,7 +651,7 @@ public sealed class FileInspector
             AddIndicator(analysis, new("danger", "unicode-control", "ファイル名に表示を偽装できる不可視制御文字があります", "The file name contains an invisible control character that can spoof its display", 45));
         }
 
-        if (DoubleExtensionPattern.IsMatch(name))
+        if (HasDoubleExtension(name))
         {
             AddIndicator(analysis, new("danger", "double-extension", "文書や画像に見せる二重拡張子です", "A double extension makes active content look like a document or image", 40));
         }
@@ -785,7 +886,11 @@ public sealed class FileInspector
     private static string FormatShortcutField(string value) =>
         String.IsNullOrWhiteSpace(value) ? "—" : SecurityPolicy.SanitizeText(value, 512);
 
-    private static void InspectStructuredFormats(FileStream stream, FileAnalysis analysis, CancellationToken cancellationToken)
+    private static void InspectStructuredFormats(
+        FileStream stream,
+        FileAnalysis analysis,
+        ArchiveContentScanBudget archiveContentBudget,
+        CancellationToken cancellationToken)
     {
         // A container this product can name but cannot open is the same failure the OLE case was: refusing to
         // look is not the same as having looked. Scoring it at the floor would let an attacker pick the
@@ -794,7 +899,7 @@ public sealed class FileInspector
         {
             analysis.InspectionLimited = true;
             AddIndicator(analysis, new("watch", "container-unopened", "この書庫・イメージ形式は中身を開けないため、内部は未確認です", "This archive or image format is not opened, so its contents are unexamined", 15));
-            return;
+            if (!analysis.EmbeddedZipPayload) return;
         }
 
         if (analysis.FileType == OleCompoundType)
@@ -804,10 +909,10 @@ public sealed class FileInspector
             // exactly the lie the first-8-MiB sample used to tell.
             analysis.InspectionLimited = true;
             AddIndicator(analysis, new("watch", "ole-structure-unparsed", "MSIやOfficeなどOLE複合ファイルの内部構造は解析していません", "The internal structure of this OLE compound file (installer or Office document) was not parsed", 10));
-            return;
+            if (!analysis.EmbeddedZipPayload) return;
         }
 
-        if (analysis.FileType != "ZIP / package") return;
+        if (analysis.FileType != ZipPackageType && !analysis.EmbeddedZipPayload) return;
         if (analysis.Size > SecurityPolicy.MaxArchiveInspectionBytes)
         {
             analysis.InspectionLimited = true;
@@ -817,21 +922,34 @@ public sealed class FileInspector
 
         try
         {
-            stream.Position = 0;
-            ValidateArchiveCentralDirectory(stream, cancellationToken);
-            stream.Position = 0;
-            using var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: true);
+            bool beginsWithZipPayload = BeginsWithZipPayload(stream);
+            using OffsetReadStream archiveStream = OpenValidatedZipPayload(stream, cancellationToken, out long prefixBytes);
+            analysis.ArchivePrefixBytes = prefixBytes;
+            analysis.ArchiveHasPrefix = prefixBytes > 0 || !beginsWithZipPayload;
+            if (analysis.ArchiveHasPrefix)
+            {
+                analysis.InspectionLimited = true;
+                AddIndicator(analysis, prefixBytes > 0
+                    ? new("watch", "archive-prefix", $"ZIP本体の前に{FileAnalysis.FormatSize(prefixBytes)}の未解釈データがあります", $"The ZIP payload has {FileAnalysis.FormatSize(prefixBytes)} of unparsed prefixed data", 22)
+                    : new("watch", "archive-prefix", "ZIP項目より前に未解釈データがあります", "Unparsed data appears before the ZIP entries", 22));
+            }
+
+            using var archive = new ZipArchive(archiveStream, ZipArchiveMode.Read, leaveOpen: true);
             int activeEntries = 0;
             int nestedArchives = 0;
             bool traversal = false;
             bool alternateStream = false;
             bool linkEntry = false;
             bool deceptiveName = false;
+            bool doubleExtension = false;
             bool oversizedName = false;
+            bool normalizedName = false;
+            bool directoryData = false;
             bool macro = false;
             bool extremeRatio = false;
             int count = 0;
             long declaredBytes = 0;
+            var contentEntries = new List<ZipArchiveEntry>();
 
             foreach (ZipArchiveEntry entry in archive.Entries)
             {
@@ -840,24 +958,14 @@ public sealed class FileInspector
                 if (count > MaxArchiveEntries)
                 {
                     analysis.InspectionLimited = true;
+                    AddIndicator(analysis, new("watch", "archive-limit", $"内部一覧は{MaxArchiveEntries}件で打ち切りました", $"Archive inspection stopped at {MaxArchiveEntries} entries", 10));
                     break;
                 }
 
                 string entryPath = entry.FullName.Replace('\\', '/');
-                if (entryPath.Length > MaxArchiveEntryNameChars)
-                {
-                    oversizedName = true;
-                    continue;
-                }
-                string[] segments = entryPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
-                if (entryPath.StartsWith('/') || ArchiveDrivePathPattern.IsMatch(entryPath) || segments.Any(segment => segment == "..")) traversal = true;
-                if (segments.Any(segment => segment.Contains(':'))) alternateStream = true;
-                if (SecurityPolicy.ContainsDirectionalOrInvisibleControl(entryPath)) deceptiveName = true;
-                uint unixType = (unchecked((uint)entry.ExternalAttributes) >> 16) & 0xF000;
-                if (unixType == 0xA000 || (((FileAttributes)entry.ExternalAttributes) & FileAttributes.ReparsePoint) != 0) linkEntry = true;
-                if (IsActiveContentExtension(Path.GetExtension(entryPath))) activeEntries++;
-                if (new[] { ".zip", ".rar", ".7z", ".gz", ".iso" }.Contains(Path.GetExtension(entryPath), StringComparer.OrdinalIgnoreCase)) nestedArchives++;
-                if (entryPath.EndsWith("vbaProject.bin", StringComparison.OrdinalIgnoreCase)) macro = true;
+                bool directoryEntry = entryPath.EndsWith("/", StringComparison.Ordinal);
+                contentEntries.Add(entry);
+                if (directoryEntry && entry.Length > 0) directoryData = true;
                 if (entry.Length > SecurityPolicy.MaxArchiveDeclaredBytes - declaredBytes)
                 {
                     declaredBytes = SecurityPolicy.MaxArchiveDeclaredBytes + 1;
@@ -866,7 +974,28 @@ public sealed class FileInspector
                 {
                     declaredBytes += entry.Length;
                 }
-                if (entry.Length > 100L * 1024 * 1024 && entry.Length / Math.Max(1d, entry.CompressedLength) > 1000d) extremeRatio = true;
+                if (IsExtremeCompressionEntry(entry)) extremeRatio = true;
+
+                if (entryPath.Length > MaxArchiveEntryNameChars)
+                {
+                    oversizedName = true;
+                    analysis.InspectionLimited = true;
+                    continue;
+                }
+                string[] segments = entryPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                if (entryPath.StartsWith('/') || ArchiveDrivePathPattern.IsMatch(entryPath) || segments.Any(segment => segment == "..")) traversal = true;
+                if (segments.Any(segment => segment.Contains(':'))) alternateStream = true;
+                if (SecurityPolicy.ContainsDirectionalOrInvisibleControl(entryPath)) deceptiveName = true;
+                string entryLeaf = Path.GetFileName(entryPath);
+                string normalizedLeaf = entryLeaf.TrimEnd(' ', '.');
+                if (!entryLeaf.Equals(normalizedLeaf, StringComparison.Ordinal)) normalizedName = true;
+                if (HasDoubleExtension(entryLeaf)) doubleExtension = true;
+                uint unixType = (unchecked((uint)entry.ExternalAttributes) >> 16) & 0xF000;
+                if (unixType == 0xA000 || (((FileAttributes)entry.ExternalAttributes) & FileAttributes.ReparsePoint) != 0) linkEntry = true;
+                string entryExtension = Path.GetExtension(normalizedLeaf);
+                if (IsActiveContentExtension(entryExtension)) activeEntries++;
+                if (IsNestedContainerExtension(entryExtension)) nestedArchives++;
+                if (entryPath.TrimEnd(' ', '.').EndsWith("vbaProject.bin", StringComparison.OrdinalIgnoreCase)) macro = true;
             }
 
             analysis.ArchiveEntries = Math.Min(count, MaxArchiveEntries);
@@ -874,12 +1003,24 @@ public sealed class FileInspector
             if (alternateStream) AddIndicator(analysis, new("danger", "archive-ads", "圧縮ファイル内に代替データストリーム形式の名前があります", "The archive contains a name that can target an alternate data stream", 40));
             if (linkEntry) AddIndicator(analysis, new("danger", "archive-link", "圧縮ファイル内にリンクまたは再解析ポイント形式の項目があります", "The archive contains a link or reparse-point entry", 40));
             if (deceptiveName) AddIndicator(analysis, new("watch", "archive-unicode-control", "圧縮ファイル内の名前に不可視制御文字があります", "An archive entry name contains an invisible control character", 25));
+            if (doubleExtension) AddIndicator(analysis, new("danger", "archive-double-extension", "圧縮ファイル内に文書や画像を装う二重拡張子があります", "An archive entry uses a double extension to look like a document or image", 40));
             if (oversizedName) AddIndicator(analysis, new("watch", "archive-name-limit", "安全上限を超える長い項目名があります", "An archive entry name exceeds the safety limit", 15));
-            if (extremeRatio || declaredBytes > SecurityPolicy.MaxArchiveDeclaredBytes) AddIndicator(analysis, new("danger", "archive-ratio", "展開後サイズまたは圧縮率が安全上限を超えています", "The declared expanded size or compression ratio exceeds the safety limit", 40));
+            if (normalizedName) AddIndicator(analysis, new("watch", "archive-windows-name-normalization", "Windowsで末尾の空白やドットが除かれる項目名があります", "An archive entry name loses trailing spaces or dots on Windows", 20));
+            if (directoryData) AddIndicator(analysis, new("watch", "archive-directory-data", "ディレクトリ名のZIP項目に本文データがあります", "A directory-named ZIP entry contains body data", 20));
+            if (extremeRatio || declaredBytes > SecurityPolicy.MaxArchiveDeclaredBytes)
+            {
+                analysis.InspectionLimited = true;
+                AddIndicator(analysis, new("danger", "archive-ratio", "展開後サイズまたは圧縮率が安全上限を超えています", "The declared expanded size or compression ratio exceeds the safety limit", 40));
+            }
             if (macro) AddIndicator(analysis, new("watch", "office-macro", "Officeマクロを含みます", "The package contains an Office macro", 28));
             if (activeEntries > 0) AddIndicator(analysis, new("watch", "archive-active-content", $"圧縮ファイル内に実行可能な内容が{activeEntries}件あります", $"The archive contains {activeEntries} active-content item(s)", Math.Min(25, 8 + activeEntries * 2)));
-            if (nestedArchives > 0) AddIndicator(analysis, new("info", "nested-archive", $"内部に別の圧縮ファイルが{nestedArchives}件あります", $"The archive contains {nestedArchives} nested archive(s)", 3));
-            if (analysis.InspectionLimited) AddIndicator(analysis, new("watch", "archive-limit", $"内部一覧は{MaxArchiveEntries}件で打ち切りました", $"Archive inspection stopped at {MaxArchiveEntries} entries", 10));
+            if (nestedArchives > 0)
+            {
+                analysis.InspectionLimited = true;
+                AddIndicator(analysis, new("watch", "nested-archive-unopened", $"内部の圧縮ファイル{nestedArchives}件は再帰展開していないため、その中身は未確認です", $"The {nestedArchives} nested archive(s) were not recursively opened, so their contents remain unchecked", 15));
+            }
+
+            InspectArchiveEntryBodies(contentEntries, archiveStream, analysis, archiveContentBudget, cancellationToken);
         }
         catch (ArchiveSafetyLimitException)
         {
@@ -901,6 +1042,541 @@ public sealed class FileInspector
             analysis.InspectionLimited = true;
             AddIndicator(analysis, new("watch", "archive-read-error", "圧縮ファイルの内部確認を完了できませんでした", "Archive content inspection could not be completed", 12));
         }
+    }
+
+    private static OffsetReadStream OpenValidatedZipPayload(Stream stream, CancellationToken cancellationToken, out long prefixBytes)
+    {
+        prefixBytes = InferZipPayloadOffset(stream, cancellationToken);
+        var payload = new OffsetReadStream(stream, prefixBytes);
+        try
+        {
+            payload.Position = 0;
+            ValidateArchiveCentralDirectory(payload, cancellationToken);
+            payload.Position = 0;
+            return payload;
+        }
+        catch
+        {
+            payload.Dispose();
+            throw;
+        }
+    }
+
+    private static bool BeginsWithZipPayload(Stream stream)
+    {
+        long originalPosition = stream.Position;
+        try
+        {
+            if (stream.Length < sizeof(uint)) return false;
+            Span<byte> signatureBytes = stackalloc byte[sizeof(uint)];
+            stream.Position = 0;
+            stream.ReadExactly(signatureBytes);
+            uint signature = BinaryPrimitives.ReadUInt32LittleEndian(signatureBytes);
+            return signature is 0x04034B50 or EndOfCentralDirectorySignature or Zip64EndOfCentralDirectorySignature;
+        }
+        finally
+        {
+            stream.Position = originalPosition;
+        }
+    }
+
+    /// <summary>
+    /// ZIP offsets are relative to the start of the ZIP payload. If bytes are prepended without rewriting
+    /// those offsets, the physical central-directory start reveals the prefix length exactly. Working from
+    /// the terminal record avoids a cheap evasion made from a long run of fake local-header signatures.
+    /// </summary>
+    private static long InferZipPayloadOffset(Stream stream, CancellationToken cancellationToken)
+    {
+        long originalPosition = stream.Position;
+        try
+        {
+            long length = stream.Length;
+            if (length < EndOfCentralDirectoryLength)
+            {
+                throw new InvalidDataException("The ZIP end record is missing.");
+            }
+
+            int tailLength = checked((int)Math.Min(length, EndOfCentralDirectoryLength + UInt16.MaxValue));
+            byte[] tail = new byte[tailLength];
+            stream.Position = length - tailLength;
+            stream.ReadExactly(tail);
+            int endIndex = FindUnambiguousEndOfCentralDirectory(tail);
+            if (endIndex < 0)
+            {
+                throw new InvalidDataException("The ZIP end record is invalid.");
+            }
+
+            ReadOnlySpan<byte> endRecord = tail.AsSpan(endIndex, EndOfCentralDirectoryLength);
+            long endOffset = checked(length - tailLength + endIndex);
+            ushort diskNumber = BinaryPrimitives.ReadUInt16LittleEndian(endRecord[4..]);
+            ushort centralDirectoryDisk = BinaryPrimitives.ReadUInt16LittleEndian(endRecord[6..]);
+            ushort entriesOnDisk = BinaryPrimitives.ReadUInt16LittleEndian(endRecord[8..]);
+            ushort totalEntries = BinaryPrimitives.ReadUInt16LittleEndian(endRecord[10..]);
+            uint centralDirectorySize = BinaryPrimitives.ReadUInt32LittleEndian(endRecord[12..]);
+            uint centralDirectoryOffset = BinaryPrimitives.ReadUInt32LittleEndian(endRecord[16..]);
+
+            bool zip64 =
+                diskNumber == UInt16.MaxValue || centralDirectoryDisk == UInt16.MaxValue ||
+                entriesOnDisk == UInt16.MaxValue || totalEntries == UInt16.MaxValue ||
+                centralDirectorySize == UInt32.MaxValue || centralDirectoryOffset == UInt32.MaxValue;
+            if (zip64) return InferZip64PayloadOffset(stream, endOffset, cancellationToken);
+            if (diskNumber != 0 || centralDirectoryDisk != 0 || entriesOnDisk != totalEntries)
+            {
+                throw new InvalidDataException("Split ZIP archives are not accepted.");
+            }
+
+            long physicalCentralStart = checked(endOffset - centralDirectorySize);
+            long payloadOffset = checked(physicalCentralStart - centralDirectoryOffset);
+            if (physicalCentralStart < 0 || payloadOffset < 0 || payloadOffset > endOffset)
+            {
+                throw new InvalidDataException("The ZIP payload offset is inconsistent.");
+            }
+            return payloadOffset;
+        }
+        finally
+        {
+            stream.Position = originalPosition;
+        }
+    }
+
+    private static long InferZip64PayloadOffset(
+        Stream stream,
+        long endOffset,
+        CancellationToken cancellationToken)
+    {
+        const int locatorLength = 20;
+        const int zip64HeaderLength = 12;
+        if (endOffset < locatorLength + zip64HeaderLength)
+        {
+            throw new InvalidDataException("The ZIP64 terminal records are truncated.");
+        }
+
+        Span<byte> locator = stackalloc byte[locatorLength];
+        long locatorOffset = endOffset - locatorLength;
+        stream.Position = locatorOffset;
+        stream.ReadExactly(locator);
+        if (BinaryPrimitives.ReadUInt32LittleEndian(locator) != Zip64EndOfCentralDirectoryLocatorSignature ||
+            BinaryPrimitives.ReadUInt32LittleEndian(locator[4..]) != 0 ||
+            BinaryPrimitives.ReadUInt32LittleEndian(locator[16..]) != 1)
+        {
+            throw new InvalidDataException("Split or malformed ZIP64 archives are not accepted.");
+        }
+
+        ulong declaredOffsetValue = BinaryPrimitives.ReadUInt64LittleEndian(locator[8..]);
+        if (declaredOffsetValue > Int64.MaxValue)
+        {
+            throw new InvalidDataException("The ZIP64 end record offset is unsupported.");
+        }
+
+        long searchStart = Math.Max(0, checked(locatorOffset - (MaxArchiveCentralDirectoryBytes + zip64HeaderLength)));
+        byte[] buffer = new byte[ArchiveContentChunkBytes + zip64HeaderLength - 1];
+        long position = searchStart;
+        int overlap = 0;
+        long physicalOffset = -1;
+        while (position < locatorOffset)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            int requested = checked((int)Math.Min(ArchiveContentChunkBytes, locatorOffset - position));
+            stream.Position = position;
+            int read = stream.Read(buffer, overlap, requested);
+            if (read == 0)
+            {
+                throw new InvalidDataException("The ZIP64 end record could not be read.");
+            }
+
+            int available = overlap + read;
+            long bufferOffset = position - overlap;
+            for (int index = 0; index <= available - zip64HeaderLength; index++)
+            {
+                ReadOnlySpan<byte> candidate = buffer.AsSpan(index);
+                if (BinaryPrimitives.ReadUInt32LittleEndian(candidate) != Zip64EndOfCentralDirectorySignature) continue;
+                ulong recordSize = BinaryPrimitives.ReadUInt64LittleEndian(candidate[4..]);
+                if (recordSize < 44 || recordSize > MaxArchiveCentralDirectoryBytes) continue;
+
+                long candidateOffset = checked(bufferOffset + index);
+                if (checked(candidateOffset + zip64HeaderLength + (long)recordSize) != locatorOffset) continue;
+                if (physicalOffset >= 0)
+                {
+                    throw new InvalidDataException("The ZIP64 end-record boundary is ambiguous.");
+                }
+                physicalOffset = candidateOffset;
+            }
+
+            overlap = Math.Min(zip64HeaderLength - 1, available);
+            Buffer.BlockCopy(buffer, available - overlap, buffer, 0, overlap);
+            position += read;
+        }
+
+        if (physicalOffset < 0)
+        {
+            throw new InvalidDataException("The ZIP64 end record is missing or exceeds the safety limit.");
+        }
+
+        long payloadOffset = checked(physicalOffset - (long)declaredOffsetValue);
+        if (payloadOffset < 0)
+        {
+            throw new InvalidDataException("The ZIP64 payload offset is inconsistent.");
+        }
+        return payloadOffset;
+    }
+
+    private static void InspectArchiveEntryBodies(
+        IReadOnlyCollection<ZipArchiveEntry> entries,
+        OffsetReadStream archiveStream,
+        FileAnalysis analysis,
+        ArchiveContentScanBudget budget,
+        CancellationToken cancellationToken)
+    {
+        analysis.ArchiveContentScanApplicable = entries.Count > 0;
+        analysis.ArchiveContentTotalKnown = false;
+        analysis.ArchiveContentEligibleBytes = 0;
+        if (entries.Count == 0) return;
+
+        List<ZipArchiveEntry> orderedEntries = entries
+            .OrderByDescending(ArchiveEntryPriority)
+            .ThenBy(entry => entry.Length)
+            .ThenBy(entry => entry.FullName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        byte[] buffer = new byte[ArchiveContentChunkBytes + ArchiveContentOverlapBytes];
+        var matchedCapabilityScores = new Dictionary<string, int>(StringComparer.Ordinal);
+        bool pdfActiveMatched = false;
+        bool readFailed = false;
+        bool contentLimited = false;
+        bool allEntriesReachedEof = true;
+        Stopwatch timer = Stopwatch.StartNew();
+        archiveStream.SetReadGuard(
+            () =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (timer.Elapsed >= MaxArchiveContentTimePerFile || budget.Elapsed + timer.Elapsed >= MaxArchiveContentTimePerScan)
+                {
+                    throw new ArchiveContentTimeLimitException();
+                }
+            },
+            ArchiveCompressedReadChunkBytes);
+
+        try
+        {
+            foreach (ZipArchiveEntry entry in orderedEntries)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (timer.Elapsed >= MaxArchiveContentTimePerFile || budget.Elapsed + timer.Elapsed >= MaxArchiveContentTimePerScan)
+                {
+                    MarkArchiveContentLimited(analysis, "archive-content-time", "ZIP内部本文の走査が時間上限に達しました", "ZIP entry-content scanning reached its time limit");
+                    return;
+                }
+
+                if (IsExtremeCompressionEntry(entry))
+                {
+                    allEntriesReachedEof = false;
+                    contentLimited = true;
+                    continue;
+                }
+
+                long remainingFileBytes = Math.Max(0, MaxArchiveContentBytesPerFile - analysis.ArchiveContentScannedBytes);
+                long remainingScanBytes = Math.Max(0, MaxArchiveContentBytesPerScan - budget.BytesScanned);
+                long entryLimit = Math.Min(MaxArchiveContentBytesPerEntry, Math.Min(remainingFileBytes, remainingScanBytes));
+                if (entryLimit == 0)
+                {
+                    allEntriesReachedEof = false;
+                    contentLimited = true;
+                    break;
+                }
+
+                long entryScanned = 0;
+                int overlap = 0;
+                var nestedProbe = new NestedContainerProbe();
+                bool reachedEof = false;
+                bool entryReadFailed = false;
+                try
+                {
+                    using Stream entryStream = entry.Open();
+                    while (true)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        if (timer.Elapsed >= MaxArchiveContentTimePerFile || budget.Elapsed + timer.Elapsed >= MaxArchiveContentTimePerScan)
+                        {
+                            MarkArchiveContentLimited(analysis, "archive-content-time", "ZIP内部本文の走査が時間上限に達しました", "ZIP entry-content scanning reached its time limit");
+                            return;
+                        }
+
+                        long entryRemaining = entryLimit - entryScanned;
+                        if (entryRemaining <= 0)
+                        {
+                            long remainingFileProbe = MaxArchiveContentBytesPerFile - analysis.ArchiveContentScannedBytes;
+                            long remainingScanProbe = MaxArchiveContentBytesPerScan - budget.BytesScanned;
+                            if (remainingFileProbe <= 0 || remainingScanProbe <= 0) break;
+
+                            int probe = entryStream.ReadByte();
+                            if (probe < 0)
+                            {
+                                reachedEof = true;
+                            }
+                            else
+                            {
+                                buffer[overlap] = (byte)probe;
+                                overlap = ProcessArchiveEntryChunk(
+                                    buffer,
+                                    overlap,
+                                    1,
+                                    entry,
+                                    matchedCapabilityScores,
+                                    analysis,
+                                    budget,
+                                    ref entryScanned,
+                                    ref nestedProbe,
+                                    ref pdfActiveMatched);
+                            }
+                            break;
+                        }
+
+                        int requested = (int)Math.Min(ArchiveContentChunkBytes, entryRemaining);
+                        int read = entryStream.Read(buffer, overlap, requested);
+                        if (read == 0)
+                        {
+                            reachedEof = true;
+                            break;
+                        }
+
+                        overlap = ProcessArchiveEntryChunk(
+                            buffer,
+                            overlap,
+                            read,
+                            entry,
+                            matchedCapabilityScores,
+                            analysis,
+                            budget,
+                            ref entryScanned,
+                            ref nestedProbe,
+                            ref pdfActiveMatched);
+                    }
+                }
+                catch (ArchiveContentTimeLimitException)
+                {
+                    MarkArchiveContentLimited(analysis, "archive-content-time", "ZIP内部本文の走査が時間上限に達しました", "ZIP entry-content scanning reached its time limit");
+                    return;
+                }
+                catch (Exception exception) when (exception is InvalidDataException or IOException or NotSupportedException)
+                {
+                    entryReadFailed = true;
+                    readFailed = true;
+                }
+
+                if (entry.FullName.Replace('\\', '/').EndsWith("/", StringComparison.Ordinal) && entryScanned > 0)
+                {
+                    AddIndicator(analysis, new("watch", "archive-directory-data", "ディレクトリ名のZIP項目に本文データがあります", "A directory-named ZIP entry contains body data", 20));
+                }
+
+                if (entryReadFailed)
+                {
+                    allEntriesReachedEof = false;
+                    contentLimited = true;
+                    continue;
+                }
+
+                if (entryScanned > entry.Length || (reachedEof && entryScanned != entry.Length))
+                {
+                    analysis.InspectionLimited = true;
+                    AddIndicator(analysis, new("danger", "archive-entry-size-mismatch", "ZIP項目の実読取サイズが中央ディレクトリの宣言と一致しません", "A ZIP entry's observed body size does not match its central-directory declaration", 35));
+                }
+                if (!reachedEof)
+                {
+                    allEntriesReachedEof = false;
+                    contentLimited = true;
+                }
+            }
+
+            if (allEntriesReachedEof)
+            {
+                analysis.ArchiveContentEligibleBytes = analysis.ArchiveContentScannedBytes;
+                analysis.ArchiveContentTotalKnown = true;
+            }
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            MarkArchiveContentLimited(analysis, "archive-regex-time-limit", "ZIP内部本文の能力語照合が時間上限に達しました", "ZIP entry capability matching reached its time limit");
+            return;
+        }
+        finally
+        {
+            archiveStream.ClearReadGuard();
+            timer.Stop();
+            budget.Elapsed += timer.Elapsed;
+        }
+
+        if (readFailed)
+        {
+            MarkArchiveContentLimited(analysis, "archive-entry-read-error", "ZIP内部の一部を安全に読み取れませんでした", "One or more ZIP entries could not be read safely");
+        }
+        if (contentLimited)
+        {
+            if (budget.BytesScanned >= MaxArchiveContentBytesPerScan)
+            {
+                MarkArchiveContentLimited(
+                    analysis,
+                    "archive-content-budget",
+                    $"ZIP内部本文の走査は1回{FileAnalysis.FormatSize(MaxArchiveContentBytesPerScan)}までです",
+                    $"ZIP entry-content scanning is limited to {FileAnalysis.FormatSize(MaxArchiveContentBytesPerScan)} per inspection");
+            }
+            else
+            {
+                MarkArchiveContentLimited(
+                    analysis,
+                    "archive-content-limit",
+                    $"ZIP内部本文は1項目{FileAnalysis.FormatSize(MaxArchiveContentBytesPerEntry)}、1ファイル{FileAnalysis.FormatSize(MaxArchiveContentBytesPerFile)}まで走査します",
+                    $"ZIP entry-content scanning is limited to {FileAnalysis.FormatSize(MaxArchiveContentBytesPerEntry)} per entry and {FileAnalysis.FormatSize(MaxArchiveContentBytesPerFile)} per file");
+            }
+        }
+    }
+
+    private static int ProcessArchiveEntryChunk(
+        byte[] buffer,
+        int overlap,
+        int read,
+        ZipArchiveEntry entry,
+        Dictionary<string, int> matchedCapabilityScores,
+        FileAnalysis analysis,
+        ArchiveContentScanBudget budget,
+        ref long entryScanned,
+        ref NestedContainerProbe nestedProbe,
+        ref bool pdfActiveMatched)
+    {
+        long chunkStart = Math.Max(0, entryScanned - overlap);
+        entryScanned += read;
+        analysis.ArchiveContentScannedBytes += read;
+        budget.BytesScanned += read;
+        int available = overlap + read;
+        UpdateNestedContainerProbe(buffer.AsSpan(0, available), chunkStart, ref nestedProbe);
+        if (nestedProbe.IsDetected)
+        {
+            analysis.InspectionLimited = true;
+            AddIndicator(analysis, new("watch", "nested-archive-unopened", "ZIP内部に別の書庫・イメージ形式があり、その中身は再帰的に開いていません", "A ZIP entry contains another archive or image format that was not recursively opened", 15));
+        }
+        if (nestedProbe.ActivePayloadSeen)
+        {
+            analysis.InspectionLimited = true;
+            AddIndicator(analysis, new("danger", "archive-entry-active-payload", "ZIP項目名に表れない実行形式の本文がありますが、その構造や署名は解析していません", "A ZIP entry body contains an executable format not revealed by its name; its structure and signature were not parsed", 30));
+        }
+        MatchArchiveCapabilityChunk(
+            buffer,
+            available,
+            entry,
+            matchedCapabilityScores,
+            analysis,
+            ref pdfActiveMatched);
+        int nextOverlap = Math.Min(ArchiveContentOverlapBytes, available);
+        Buffer.BlockCopy(buffer, available - nextOverlap, buffer, 0, nextOverlap);
+        return nextOverlap;
+    }
+
+    private static void MatchArchiveCapabilityChunk(
+        byte[] buffer,
+        int available,
+        ZipArchiveEntry entry,
+        Dictionary<string, int> matchedCapabilityScores,
+        FileAnalysis analysis,
+        ref bool pdfActiveMatched)
+    {
+        string ascii = Encoding.Latin1.GetString(buffer, 0, available);
+        int evenUnicodeBytes = available & ~1;
+        string unicodeEven = evenUnicodeBytes >= 2 ? Encoding.Unicode.GetString(buffer, 0, evenUnicodeBytes) : String.Empty;
+        int oddUnicodeBytes = (available - 1) & ~1;
+        string unicodeOdd = oddUnicodeBytes >= 2 ? Encoding.Unicode.GetString(buffer, 1, oddUnicodeBytes) : String.Empty;
+        string searchable = ascii + "\n" + unicodeEven + "\n" + unicodeOdd;
+        string safeEntryName = SecurityPolicy.SanitizeText(entry.FullName.Replace('\\', '/'), 512);
+        string extension = GetArchiveEntryExtension(entry.FullName);
+        bool fullWeight = ScriptExtensions.Contains(extension) || extension.Equals(".lnk", StringComparison.OrdinalIgnoreCase);
+
+        foreach (var capability in CapabilityPatterns)
+        {
+            if (matchedCapabilityScores.TryGetValue(capability.Code, out int previousScore) && previousScore >= capability.Score) continue;
+            if (!capability.Pattern.IsMatch(searchable)) continue;
+            int score = fullWeight ? capability.Score : Math.Max(4, capability.Score / 2);
+            if (previousScore >= score) continue;
+
+            matchedCapabilityScores[capability.Code] = score;
+            string indicatorCode = "archive-entry-" + capability.Code;
+            analysis.Indicators.RemoveAll(indicator => indicator.Code.Equals(indicatorCode, StringComparison.OrdinalIgnoreCase));
+            AddIndicator(analysis, new(
+                score >= 30 ? "danger" : "watch",
+                indicatorCode,
+                fullWeight
+                    ? $"ZIP内の「{safeEntryName}」: {capability.Ja}"
+                    : $"ZIP内のバイナリ項目「{safeEntryName}」に「{capability.Ja}」と関連する文字列があります",
+                fullWeight
+                    ? $"Archive entry '{safeEntryName}': {capability.En}"
+                    : $"Binary archive entry '{safeEntryName}' contains text associated with: {capability.En}",
+                score));
+        }
+
+        if (!pdfActiveMatched && extension.Equals(".pdf", StringComparison.OrdinalIgnoreCase) && PdfActivePattern.IsMatch(ascii))
+        {
+            pdfActiveMatched = true;
+            AddIndicator(analysis, new("watch", "archive-entry-pdf-active-action", $"ZIP内のPDF「{safeEntryName}」にJavaScriptまたは自動起動アクションの兆候があります", $"PDF archive entry '{safeEntryName}' contains an indicator of JavaScript or an automatic launch action", 28));
+        }
+    }
+
+    private static int ArchiveEntryPriority(ZipArchiveEntry entry)
+    {
+        string extension = GetArchiveEntryExtension(entry.FullName);
+        if (IsActiveContentExtension(extension) || extension.Equals(".pdf", StringComparison.OrdinalIgnoreCase)) return 2;
+        return extension.ToLowerInvariant() is ".txt" or ".xml" or ".json" or ".config" or ".ini" or ".yml" or ".yaml" ? 1 : 0;
+    }
+
+    private static bool IsNestedContainerExtension(string extension) =>
+        ZipPackageExtensions.Contains(extension) ||
+        extension.ToLowerInvariant() is ".rar" or ".7z" or ".gz" or ".iso" or ".img" or ".cab";
+
+    private static string GetArchiveEntryExtension(string entryPath) =>
+        Path.GetExtension(Path.GetFileName(entryPath.Replace('\\', '/')).TrimEnd(' ', '.'));
+
+    private static bool HasDoubleExtension(string name)
+    {
+        string leaf = Path.GetFileName(name.Replace('\\', '/'));
+        return DoubleExtensionPattern.IsMatch(leaf) || DoubleExtensionPattern.IsMatch(leaf.TrimEnd(' ', '.'));
+    }
+
+    private static void UpdateNestedContainerProbe(
+        ReadOnlySpan<byte> bytes,
+        long chunkStart,
+        ref NestedContainerProbe probe)
+    {
+        probe.ZipHeaderSeen |= ContainsSignature(bytes, 0x04034B50);
+        probe.ZipEndSeen |= ContainsSignature(bytes, EndOfCentralDirectorySignature);
+        probe.ActivePayloadSeen |= ContainsSignatureInAbsoluteWindow(bytes, chunkStart, [0x4D, 0x5A], 0, 64);
+        probe.OtherHeaderSeen |=
+            ContainsSignatureInAbsoluteWindow(bytes, chunkStart, [0x52, 0x61, 0x72, 0x21], 0, 64) ||
+            ContainsSignatureInAbsoluteWindow(bytes, chunkStart, [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C], 0, 64) ||
+            ContainsSignatureInAbsoluteWindow(bytes, chunkStart, [0x1F, 0x8B], 0, 64) ||
+            ContainsSignatureInAbsoluteWindow(bytes, chunkStart, [0x4D, 0x53, 0x43, 0x46], 0, 64) ||
+            ContainsSignatureInAbsoluteWindow(bytes, chunkStart, [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1], 0, 64);
+        probe.OtherHeaderSeen |= ContainsSignatureInAbsoluteWindow(bytes, chunkStart, "CD001"u8, 0x8001, 0x8001 + 64);
+    }
+
+    private static bool ContainsSignatureInAbsoluteWindow(
+        ReadOnlySpan<byte> bytes,
+        long chunkStart,
+        ReadOnlySpan<byte> signature,
+        long minimumOffset,
+        long maximumOffset)
+    {
+        long first = Math.Max(0, minimumOffset - chunkStart);
+        long last = Math.Min(bytes.Length - signature.Length, maximumOffset - chunkStart);
+        if (first > last) return false;
+        for (long index = first; index <= last; index++)
+        {
+            if (bytes.Slice(checked((int)index), signature.Length).SequenceEqual(signature)) return true;
+        }
+        return false;
+    }
+
+    private static bool IsExtremeCompressionEntry(ZipArchiveEntry entry) =>
+        entry.Length > 100L * 1024 * 1024 && entry.Length / Math.Max(1d, entry.CompressedLength) > 1000d;
+
+    private static void MarkArchiveContentLimited(FileAnalysis analysis, string code, string japanese, string english)
+    {
+        analysis.InspectionLimited = true;
+        AddIndicator(analysis, new("watch", code, japanese, english, 10));
     }
 
     private static void ValidateArchiveCentralDirectory(Stream stream, CancellationToken cancellationToken)
@@ -1000,9 +1676,9 @@ public sealed class FileInspector
         {
             ReadOnlySpan<byte> candidate = tail[index..];
             if (BinaryPrimitives.ReadUInt32LittleEndian(candidate) != EndOfCentralDirectorySignature) continue;
-            if (match >= 0) return -1;
             ushort commentLength = BinaryPrimitives.ReadUInt16LittleEndian(candidate[20..]);
-            if (index + EndOfCentralDirectoryLength + commentLength != tail.Length) return -1;
+            if (index + EndOfCentralDirectoryLength + commentLength != tail.Length) continue;
+            if (match >= 0) return -1;
             match = index;
         }
         return match;
@@ -1280,10 +1956,101 @@ public sealed class FileInspector
     {
     }
 
+    private sealed class ArchiveContentTimeLimitException : IOException
+    {
+    }
+
     private sealed class CapabilityScanBudget
     {
         public long BytesScanned { get; set; }
         public TimeSpan Elapsed { get; set; }
+    }
+
+    private sealed class ArchiveContentScanBudget
+    {
+        public long BytesScanned { get; set; }
+        public TimeSpan Elapsed { get; set; }
+    }
+
+    private struct NestedContainerProbe
+    {
+        public bool ZipHeaderSeen { get; set; }
+        public bool ZipEndSeen { get; set; }
+        public bool OtherHeaderSeen { get; set; }
+        public bool ActivePayloadSeen { get; set; }
+        public readonly bool IsDetected => (ZipHeaderSeen && ZipEndSeen) || OtherHeaderSeen;
+    }
+
+    private sealed class OffsetReadStream(Stream source, long offset) : Stream
+    {
+        private readonly Stream _source = source ?? throw new ArgumentNullException(nameof(source));
+        private readonly long _offset = offset >= 0 && offset <= source.Length
+            ? offset
+            : throw new ArgumentOutOfRangeException(nameof(offset));
+        private Action? _readGuard;
+        private int _maximumReadBytes = Int32.MaxValue;
+
+        public override bool CanRead => _source.CanRead;
+        public override bool CanSeek => _source.CanSeek;
+        public override bool CanWrite => false;
+        public override long Length => _source.Length - _offset;
+        public override long Position
+        {
+            get => _source.Position - _offset;
+            set
+            {
+                if (value < 0 || value > Length) throw new ArgumentOutOfRangeException(nameof(value));
+                _source.Position = checked(_offset + value);
+            }
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public void SetReadGuard(Action readGuard, int maximumReadBytes)
+        {
+            _readGuard = readGuard ?? throw new ArgumentNullException(nameof(readGuard));
+            _maximumReadBytes = maximumReadBytes > 0 ? maximumReadBytes : throw new ArgumentOutOfRangeException(nameof(maximumReadBytes));
+        }
+
+        public void ClearReadGuard()
+        {
+            _readGuard = null;
+            _maximumReadBytes = Int32.MaxValue;
+        }
+
+        public override int Read(byte[] buffer, int bufferOffset, int count)
+        {
+            _readGuard?.Invoke();
+            int read = _source.Read(buffer, bufferOffset, Math.Min(count, _maximumReadBytes));
+            _readGuard?.Invoke();
+            return read;
+        }
+
+        public override int Read(Span<byte> buffer)
+        {
+            _readGuard?.Invoke();
+            int read = _source.Read(buffer[..Math.Min(buffer.Length, _maximumReadBytes)]);
+            _readGuard?.Invoke();
+            return read;
+        }
+
+        public override long Seek(long seekOffset, SeekOrigin origin)
+        {
+            long target = origin switch
+            {
+                SeekOrigin.Begin => seekOffset,
+                SeekOrigin.Current => checked(Position + seekOffset),
+                SeekOrigin.End => checked(Length + seekOffset),
+                _ => throw new ArgumentOutOfRangeException(nameof(origin))
+            };
+            Position = target;
+            return target;
+        }
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int bufferOffset, int count) => throw new NotSupportedException();
     }
 
     private readonly record struct PendingDirectory(string Path, int Depth);

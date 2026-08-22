@@ -41,6 +41,11 @@ Include only the minimum evidence needed to reproduce the issue. Never attach cr
 - Folder traversal has independent limits for files, directories, depth, all enumerated entries, retained path metadata, and stable-handle bytes.
 - Enumerated directories are snapshotted and revalidated after file inspection; identity or write-time changes make the result partial.
 - ZIP EOCD, ZIP64, central-directory records, entry count, metadata size, name length, and exact terminal boundary are checked before `ZipArchive` allocation.
+- For an ordinary ZIP or a bounded ZIP64 record with prepended bytes, including a ZIP64 record with extensible data, the payload start is derived from physical terminal-record positions and relative offsets instead of trusting the first local-header signature. The prefix remains unparsed and therefore makes the result incomplete.
+- Primary file type and trailing ZIP structure are tracked separately, so a PDF/PE/script polyglot has both surfaces inspected. A ZIP-like terminal record that fails validation remains incomplete.
+- Direct ZIP entry bodies are decompressed only through bounded in-memory streams and never extracted. The scanner probes actual EOF independently of central-directory size declarations, and any mismatch or unread remainder is incomplete.
+- Byte limits are hard apart from one documented sentinel byte per capped entry. Compressed source reads are limited to 64 KiB and guarded by the time and cancellation checks before and after each read. One local OS read or inflater step already executing still cannot be forcibly interrupted.
+- If the observed EOF cannot establish the total entry-body size, reports expose the scanned byte count and an unknown total; they never render a guessed denominator as fully covered.
 - Split, encrypted-central-directory, oversized, malformed, or multiple-EOCD ZIP layouts fail closed rather than receiving a clean result.
 - Untrusted capability text is evaluated with the non-backtracking regular-expression engine and a finite timeout.
 

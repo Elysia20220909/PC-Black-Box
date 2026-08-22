@@ -23,6 +23,13 @@ public sealed class FileAnalysis
     public int? InternetZone { get; set; }
     public string SourceHost { get; set; } = "—";
     public int ArchiveEntries { get; set; }
+    public bool EmbeddedZipPayload { get; set; }
+    public bool ArchiveHasPrefix { get; set; }
+    public long ArchivePrefixBytes { get; set; }
+    public bool ArchiveContentScanApplicable { get; set; }
+    public bool ArchiveContentTotalKnown { get; set; }
+    public long ArchiveContentEligibleBytes { get; set; }
+    public long ArchiveContentScannedBytes { get; set; }
     public string ShortcutTarget { get; set; } = "—";
     public string ShortcutArguments { get; set; } = "—";
     public bool InspectionLimited { get; set; }
@@ -72,10 +79,26 @@ public sealed class ScanResult
     public int ActiveContentCount => Files.Count(x => x.FileType == "Windows PE" || FileInspector.IsActiveContentExtension(FileInspector.GetInspectionExtension(x)));
     public long CapabilityEligibleBytes => Files.Where(x => x.CapabilityScanApplicable).Sum(x => x.Size);
     public long CapabilityScannedBytes => Files.Sum(x => x.CapabilityScannedBytes);
+    public bool ArchiveContentScanApplicable => Files.Any(x => x.ArchiveContentScanApplicable);
+    public bool ArchiveContentTotalKnown =>
+        ArchiveContentScanApplicable && Files.Where(x => x.ArchiveContentScanApplicable).All(x => x.ArchiveContentTotalKnown);
+    public long ArchiveContentEligibleBytes => SaturatingSum(Files.Select(x => x.ArchiveContentEligibleBytes));
+    public long ArchiveContentScannedBytes => SaturatingSum(Files.Select(x => x.ArchiveContentScannedBytes));
     public int RiskScore => Files.Count == 0 ? 0 : Files.Max(x => x.RiskScore);
     public string RiskCode => RiskScore >= 60 ? "HIGH" : RiskScore >= 25 ? "REVIEW" : Files.Any(x => x.Indicators.Count > 0) ? "LOW" : "CLEAR";
     public string CompletenessCode => IsPartial ? "INCOMPLETE" : "COMPLETE";
     public string AssessmentCode => !IsPartial ? RiskCode : RiskCode == "CLEAR" ? "INCOMPLETE" : $"{RiskCode}+INCOMPLETE";
+
+    private static long SaturatingSum(IEnumerable<long> values)
+    {
+        long total = 0;
+        foreach (long value in values)
+        {
+            if (value > Int64.MaxValue - total) return Int64.MaxValue;
+            total += value;
+        }
+        return total;
+    }
 }
 
 public sealed record ScanProgress(int Completed, int Total, string CurrentFile);

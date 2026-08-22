@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.0 — 2026-08-22
+
+- Stopped treating bytes before a ZIP payload as a type-evasion win. For ordinary ZIP and bounded ZIP64 terminal records, including records with extensible data, the physical record position and its relative offset recover the payload start; bounded preflight and the standard parser then operate through a read-only offset view. The archive body is still inspected, while the prefix itself is reported as unparsed and keeps the result `INCOMPLETE`. No entry is extracted or launched.
+- Kept the primary format and ZIP structure separate. PDF, PE, script, OLE, or another recognized format with a valid trailing ZIP now has both surfaces inspected and reports `archive-polyglot`; a ZIP-like terminal record that cannot be validated reports `invalid-embedded-archive` instead of falling back to a complete ordinary file.
+- Extended archive-name inspection to catch document-looking double extensions such as `invoice.pdf.ps1`, including names whose executable extension is followed by Windows-trimmed spaces or dots.
+- Added bounded streaming over every direct ZIP entry body, including entries whose central directory declares zero bytes or names them as directories. Actual EOF is observed independently of the declaration; a mismatch reports `archive-entry-size-mismatch` and `INCOMPLETE`. Active content is inspected first, and chunk overlap preserves capability terms across reads.
+- Capability findings retain the strongest matching context across entries, so a low-weight marker in a decoy PDF or binary cannot suppress the same capability in a later script.
+- The body budgets are 64 MiB per entry, 256 MiB per ZIP, and 1 GiB per inspection, plus at most one sentinel byte when a capped entry must be proven to continue. Compressed input reads are capped at 64 KiB and guarded by the 30-second/ZIP and 120-second/inspection clocks before and after each source read; one already-running local OS read or inflater step remains non-preemptible. Extreme declared expansion ratios are not opened.
+- Made nested containers honest, even when their extension is removed or inert bytes precede their signature. Nested ZIP/RAR/7-Zip/GZip/Cabinet/OLE/ISO and disguised PE bodies stay `INCOMPLETE`; their direct bytes can be scanned, but their own structure is not recursively parsed.
+- Stopped mistaking an EOCD-shaped byte sequence inside a nested entry for a second terminal record. Only candidates whose declared comment reaches the actual file end are considered; an appended fake terminal record still fails the central-directory boundary checks.
+- Added honest ZIP body coverage, polyglot state, and prefix evidence to the window, Markdown, and JSON, advanced the JSON schema to v4, and report an unknown denominator whenever observed EOF cannot establish the total. Harmless underreported-size, PDF+ZIP, malformed-tail, fixed and extensible-data prefixed-ZIP64, disguised nested-container, Windows-name-normalization, and chunk-boundary self-tests lock the new paths.
+
 ## 0.8.1 — 2026-08-22
 
 - Stopped rewarding an attacker for breaking the shortcut parser. A LinkInfo block larger than the extraction cap is legal and trivial to pad, and it made the walk abandon every field that follows — so a shortcut running an encoded command scored lower than one that parsed cleanly. The walk now steps over an oversized block and keeps reading, the header-derived flags are recorded even when the command line cannot be recovered, and a failed parse of active content is scored at review weight instead of the floor.

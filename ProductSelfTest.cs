@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.IO;
 using System.IO.Compression;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 namespace DestinyBlackBox;
@@ -98,6 +99,7 @@ internal static class ProductSelfTest
             Require(TestReportOmitsAbsolutePathAndSanitizesCells(), ref checks);
             Require(TestTextInspectionHashesWithoutExecuting(), ref checks);
             Require(TestScriptCapabilitiesRaiseReview(), ref checks);
+            Require(TestEmbeddedZipMarkerDoesNotHideScript(), ref checks);
             Require(TestLateScriptCapabilitiesRaiseReview(), ref checks);
             Require(TestChunkBoundaryCapability(), ref checks);
             Require(TestBoundedWhitespaceCapabilityAcrossChunk(), ref checks);
@@ -106,6 +108,9 @@ internal static class ProductSelfTest
             Require(TestInvalidArchiveMakesResultIncomplete(), ref checks);
             Require(TestRiskAndCompletenessRemainSeparate(), ref checks);
             Require(TestCapabilityBudgetsStayOrdered(), ref checks);
+            Require(TestArchiveContentBudgetsStayOrdered(), ref checks);
+            Require(TestUnknownArchiveCoverageIsNotShownAsComplete(), ref checks);
+            Require(TestArchiveEntryCapReportsUnknownTotal(), ref checks);
             Require(TestHashLookupUrlFailsClosed(), ref checks);
             Require(TestShortcutCommandLineIsRead(), ref checks);
             Require(TestHostileShortcutFailsClosed(), ref checks);
@@ -113,6 +118,17 @@ internal static class ProductSelfTest
             Require(TestOversizedLinkInfoStillYieldsTheCommandLine(), ref checks);
             Require(TestUnopenedContainerIsNeverClear(), ref checks);
             Require(TestArchiveFindingsWithoutExtraction(), ref checks);
+            Require(TestArchiveCapabilityFindingUpgradesToActiveEntry(), ref checks);
+            Require(TestDirectoryNamedArchiveEntryBodyIsScanned(), ref checks);
+            Require(TestUnderreportedArchiveEntryBodyIsStillScanned(), ref checks);
+            Require(TestPdfZipPolyglotInspectsBothFormats(), ref checks);
+            Require(TestMalformedEmbeddedZipIsIncomplete(), ref checks);
+            Require(TestNestedArchiveNeverLooksComplete(), ref checks);
+            Require(TestDisguisedNestedFormatsStayIncomplete(), ref checks);
+            Require(TestLoneZipEndMarkerDoesNotClaimNestedArchive(), ref checks);
+            Require(TestPrefixedArchiveBodyInspection(), ref checks);
+            Require(TestPrefixedZip64IsRecognized(), ref checks);
+            Require(TestPrefixedExtendedZip64IsRecognized(), ref checks);
             Require(TestCanceledInspectionReadsNothing(), ref checks);
             return new ProductSelfTestResult(true, checks);
         }
@@ -215,7 +231,7 @@ internal static class ProductSelfTest
         return markdown.IndexOf(result.TargetPath, StringComparison.OrdinalIgnoreCase) < 0 &&
                json.IndexOf(result.TargetPath, StringComparison.OrdinalIgnoreCase) < 0 &&
                markdown.Contains("folder/name'\uFFFD\uFFFD.ps1", StringComparison.Ordinal) &&
-               document.RootElement.GetProperty("schema").GetString() is "pc-black-box-report-v3" &&
+               document.RootElement.GetProperty("schema").GetString() is "pc-black-box-report-v4" &&
                document.RootElement.GetProperty("files")[0].GetProperty("path").GetString()
                    is "folder|name`\uFFFD\uFFFD.ps1";
     }
@@ -258,6 +274,23 @@ internal static class ProductSelfTest
             return file.Indicators.Any(indicator => indicator.Code.Equals("defender-change", StringComparison.Ordinal)) &&
                    file.Indicators.Any(indicator => indicator.Code.Equals("remote-download", StringComparison.Ordinal)) &&
                    file.RiskCode.Equals("REVIEW", StringComparison.Ordinal);
+        });
+
+    /// <summary>A local-header byte sequence inside a script must not reclassify it and skip its text scan.</summary>
+    private static bool TestEmbeddedZipMarkerDoesNotHideScript() =>
+        WithFixtureDirectory(directory =>
+        {
+            string path = Path.Combine(directory, "marker.ps1");
+            byte[] prefix = Encoding.ASCII.GetBytes("WriteProcessMemory\r\n");
+            byte[] bytes = new byte[prefix.Length + 4];
+            prefix.CopyTo(bytes, 0);
+            new byte[] { 0x50, 0x4B, 0x03, 0x04 }.CopyTo(bytes, prefix.Length);
+            File.WriteAllBytes(path, bytes);
+
+            ScanResult result = Inspect(path);
+            return result.Files.Count == 1 &&
+                   result.Files[0].FileType.Equals("Script / active text", StringComparison.Ordinal) &&
+                   result.Files[0].Indicators.Any(indicator => indicator.Code.Equals("process-injection", StringComparison.Ordinal));
         });
 
     /// <summary>Proves capability matching covers bytes beyond the former first-8-MiB sample boundary.</summary>
@@ -410,6 +443,71 @@ internal static class ProductSelfTest
     private static bool TestCapabilityBudgetsStayOrdered() =>
         FileInspector.MaxCapabilityBytesPerScan >= FileInspector.MaxCapabilityBytesPerFile &&
         FileInspector.MaxCapabilityTimePerScan >= FileInspector.MaxCapabilityTimePerFile;
+
+    private static bool TestArchiveContentBudgetsStayOrdered() =>
+        FileInspector.MaxArchiveContentBytesPerFile >= FileInspector.MaxArchiveContentBytesPerEntry &&
+        FileInspector.MaxArchiveContentBytesPerScan >= FileInspector.MaxArchiveContentBytesPerFile &&
+        FileInspector.MaxArchiveContentTimePerScan >= FileInspector.MaxArchiveContentTimePerFile;
+
+    private static bool TestUnknownArchiveCoverageIsNotShownAsComplete()
+    {
+        var result = new ScanResult
+        {
+            TargetName = "bounded.zip",
+            IsPartial = true,
+            PartialReason = "Archive body total is unknown."
+        };
+        result.Files.Add(new FileAnalysis
+        {
+            RelativePath = "bounded.zip",
+            ArchiveContentScanApplicable = true,
+            ArchiveContentTotalKnown = false,
+            ArchiveContentScannedBytes = FileInspector.MaxArchiveContentBytesPerEntry,
+            InspectionLimited = true
+        });
+
+        string report = ReportBuilder.Build(result, "en");
+        using JsonDocument document = JsonDocument.Parse(ReportBuilder.BuildJson(result, "en"));
+        JsonElement jsonResult = document.RootElement.GetProperty("result");
+        JsonElement jsonFile = document.RootElement.GetProperty("files")[0];
+        return report.Contains("64 MB scanned / total unknown", StringComparison.Ordinal) &&
+               !report.Contains("64 MB / 64 MB", StringComparison.Ordinal) &&
+               !jsonResult.GetProperty("archiveContentTotalKnown").GetBoolean() &&
+               jsonResult.GetProperty("archiveContentEligibleBytes").ValueKind == JsonValueKind.Null &&
+               !jsonFile.GetProperty("archiveContentTotalKnown").GetBoolean() &&
+               jsonFile.GetProperty("archiveContentEligibleBytes").ValueKind == JsonValueKind.Null;
+    }
+
+    private static bool TestArchiveEntryCapReportsUnknownTotal() =>
+        WithFixtureDirectory(directory =>
+        {
+            string path = Path.Combine(directory, "bounded-body.zip");
+            using (var archive = ZipFile.Open(path, ZipArchiveMode.Create))
+            {
+                using Stream entry = archive.CreateEntry("payload.dat", CompressionLevel.Fastest).Open();
+                byte[] block = new byte[1024 * 1024];
+                for (int written = 0; written < FileInspector.MaxArchiveContentBytesPerEntry; written += block.Length)
+                {
+                    entry.Write(block);
+                }
+                entry.WriteByte(0);
+                entry.WriteByte(0);
+            }
+
+            ScanResult result = Inspect(path);
+            if (result.Files.Count != 1) return false;
+            FileAnalysis file = result.Files[0];
+            using JsonDocument document = JsonDocument.Parse(ReportBuilder.BuildJson(result, "en"));
+            JsonElement jsonFile = document.RootElement.GetProperty("files")[0];
+            return file.ArchiveContentScanApplicable &&
+                   !file.ArchiveContentTotalKnown &&
+                   file.ArchiveContentEligibleBytes == 0 &&
+                   file.ArchiveContentScannedBytes == FileInspector.MaxArchiveContentBytesPerEntry + 1 &&
+                   file.Indicators.Any(indicator => indicator.Code.Equals("archive-content-limit", StringComparison.Ordinal)) &&
+                   file.InspectionLimited &&
+                   result.IsPartial &&
+                   jsonFile.GetProperty("archiveContentEligibleBytes").ValueKind == JsonValueKind.Null;
+        });
 
     /// <summary>
     /// Builds a lookup URL only from a well-formed digest. The URL is the one place a target-derived
@@ -640,6 +738,306 @@ internal static class ProductSelfTest
                    !File.Exists(Path.Combine(Path.GetDirectoryName(directory)!, "escape.ps1"));
         });
 
+    private static bool TestArchiveCapabilityFindingUpgradesToActiveEntry() =>
+        WithFixtureDirectory(directory =>
+        {
+            string path = Path.Combine(directory, "capability-order.zip");
+            byte[] marker = Encoding.ASCII.GetBytes("WriteProcessMemory");
+            using (var archive = ZipFile.Open(path, ZipArchiveMode.Create))
+            {
+                using (Stream decoy = archive.CreateEntry("decoy.pdf", CompressionLevel.NoCompression).Open())
+                {
+                    decoy.Write(marker);
+                }
+                using (Stream active = archive.CreateEntry("payload.ps1", CompressionLevel.NoCompression).Open())
+                {
+                    active.Write(new byte[1024]);
+                    active.Write(marker);
+                }
+            }
+
+            ScanResult result = Inspect(path);
+            Indicator? finding = result.Files.Single().Indicators.SingleOrDefault(
+                indicator => indicator.Code.Equals("archive-entry-process-injection", StringComparison.Ordinal));
+            return finding is not null &&
+                   finding.Score == 35 &&
+                   finding.English.Contains("payload.ps1", StringComparison.Ordinal);
+        });
+
+    private static bool TestDirectoryNamedArchiveEntryBodyIsScanned() =>
+        WithFixtureDirectory(directory =>
+        {
+            byte[] body = Encoding.ASCII.GetBytes("WriteProcessMemory");
+            string archivePath = Path.Combine(directory, "directory-data.zip");
+            using (var archive = ZipFile.Open(archivePath, ZipArchiveMode.Create))
+            {
+                using Stream entry = archive.CreateEntry("payload/", CompressionLevel.NoCompression).Open();
+                entry.Write(body);
+            }
+
+            ScanResult result = Inspect(archivePath);
+            if (result.Files.Count != 1) return false;
+            FileAnalysis file = result.Files[0];
+            return file.Indicators.Any(indicator => indicator.Code.Equals("archive-directory-data", StringComparison.Ordinal)) &&
+                   file.Indicators.Any(indicator => indicator.Code.Equals("archive-entry-process-injection", StringComparison.Ordinal)) &&
+                   file.ArchiveContentEligibleBytes == body.Length &&
+                   file.ArchiveContentScannedBytes == body.Length;
+        });
+
+    private static bool TestUnderreportedArchiveEntryBodyIsStillScanned() =>
+        WithFixtureDirectory(directory =>
+        {
+            byte[] body = Encoding.ASCII.GetBytes("WriteProcessMemory");
+            using var archiveBytes = new MemoryStream();
+            using (var archive = new ZipArchive(archiveBytes, ZipArchiveMode.Create, leaveOpen: true))
+            {
+                using Stream entry = archive.CreateEntry("payload.ps1", CompressionLevel.NoCompression).Open();
+                entry.Write(body);
+            }
+
+            byte[] malformed = archiveBytes.ToArray();
+            int centralOffset = FindSignatureOffset(malformed, 0x02014B50);
+            if (centralOffset < 0) return false;
+            BinaryPrimitives.WriteUInt32LittleEndian(malformed.AsSpan(centralOffset + 24), 0);
+            string path = Path.Combine(directory, "underreported.zip");
+            File.WriteAllBytes(path, malformed);
+
+            ScanResult result = Inspect(path);
+            if (result.Files.Count != 1) return false;
+            FileAnalysis file = result.Files[0];
+            return file.Indicators.Any(indicator => indicator.Code.Equals("archive-entry-size-mismatch", StringComparison.Ordinal)) &&
+                   file.Indicators.Any(indicator => indicator.Code.Equals("archive-entry-process-injection", StringComparison.Ordinal)) &&
+                   file.ArchiveContentScannedBytes == body.Length &&
+                   file.ArchiveContentTotalKnown &&
+                   file.ArchiveContentEligibleBytes == body.Length &&
+                   file.InspectionLimited &&
+                   result.IsPartial;
+        });
+
+    private static bool TestPdfZipPolyglotInspectsBothFormats() =>
+        WithFixtureDirectory(directory =>
+        {
+            byte[] body = Encoding.ASCII.GetBytes("WriteProcessMemory");
+            using var zipBytes = new MemoryStream();
+            using (var archive = new ZipArchive(zipBytes, ZipArchiveMode.Create, leaveOpen: true))
+            {
+                using Stream entry = archive.CreateEntry("payload.ps1", CompressionLevel.NoCompression).Open();
+                entry.Write(body);
+            }
+
+            byte[] pdfPrefix = Encoding.ASCII.GetBytes("%PDF-1.7\r\n% inert polyglot prefix\r\n");
+            byte[] zipPayload = zipBytes.ToArray();
+            byte[] combined = new byte[pdfPrefix.Length + zipPayload.Length];
+            pdfPrefix.CopyTo(combined, 0);
+            zipPayload.CopyTo(combined, pdfPrefix.Length);
+            string path = Path.Combine(directory, "polyglot.pdf");
+            File.WriteAllBytes(path, combined);
+
+            ScanResult result = Inspect(path);
+            if (result.Files.Count != 1) return false;
+            FileAnalysis file = result.Files[0];
+            return file.FileType.Equals("PDF", StringComparison.Ordinal) &&
+                   file.EmbeddedZipPayload &&
+                   file.Indicators.Any(indicator => indicator.Code.Equals("archive-polyglot", StringComparison.Ordinal)) &&
+                   file.Indicators.Any(indicator => indicator.Code.Equals("archive-entry-process-injection", StringComparison.Ordinal)) &&
+                   file.InspectionLimited &&
+                   result.IsPartial;
+        });
+
+    private static bool TestMalformedEmbeddedZipIsIncomplete() =>
+        WithFixtureDirectory(directory =>
+        {
+            byte[] prefix = Encoding.ASCII.GetBytes("ordinary-prefix");
+            byte[] bytes = new byte[prefix.Length + 22];
+            prefix.CopyTo(bytes, 0);
+            BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(prefix.Length), 0x06054B50);
+            BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(prefix.Length + 16), 1);
+            string path = Path.Combine(directory, "malformed.bin");
+            File.WriteAllBytes(path, bytes);
+
+            ScanResult result = Inspect(path);
+            return result.Files.Count == 1 &&
+                   result.Files[0].Indicators.Any(indicator => indicator.Code.Equals("invalid-embedded-archive", StringComparison.Ordinal)) &&
+                   result.Files[0].InspectionLimited &&
+                   result.IsPartial;
+        });
+
+    /// <summary>
+    /// Prepends more than the ordinary sample window to a ZIP without repairing its relative offsets, then
+    /// puts a capability token across an entry-content chunk boundary. Passing proves that the prefix is not
+    /// a type-evasion trick, the body is streamed without extraction, and a double extension remains visible.
+    /// </summary>
+    private static bool TestPrefixedArchiveBodyInspection() =>
+        WithFixtureDirectory(directory =>
+        {
+            byte[] marker = Encoding.ASCII.GetBytes("WriteProcessMemory");
+            byte[] entryBytes = Enumerable.Repeat((byte)'A', 256 * 1024 + marker.Length).ToArray();
+            marker.CopyTo(entryBytes, 256 * 1024 - 8);
+
+            using var zipBytes = new MemoryStream();
+            using (var archive = new ZipArchive(zipBytes, ZipArchiveMode.Create, leaveOpen: true))
+            {
+                ZipArchiveEntry entry = archive.CreateEntry("invoice.pdf.ps1. ", CompressionLevel.Fastest);
+                using Stream entryStream = entry.Open();
+                entryStream.Write(entryBytes);
+            }
+
+            byte[] prefix = Enumerable.Repeat((byte)'P', 8 * 1024 * 1024 + 17).ToArray();
+            byte[] zipPayload = zipBytes.ToArray();
+            byte[] combined = new byte[prefix.Length + zipPayload.Length];
+            prefix.CopyTo(combined, 0);
+            zipPayload.CopyTo(combined, prefix.Length);
+            string archivePath = Path.Combine(directory, "prefixed.bin");
+            File.WriteAllBytes(archivePath, combined);
+
+            ScanResult result = Inspect(archivePath);
+            if (result.Files.Count != 1) return false;
+
+            FileAnalysis file = result.Files[0];
+            bool Has(string code) => file.Indicators.Any(indicator => indicator.Code.Equals(code, StringComparison.Ordinal));
+            string report = ReportBuilder.Build(result, "en");
+            using JsonDocument document = JsonDocument.Parse(ReportBuilder.BuildJson(result, "en"));
+            JsonElement root = document.RootElement;
+            JsonElement jsonResult = root.GetProperty("result");
+            JsonElement jsonFile = root.GetProperty("files")[0];
+            return file.FileType.Equals(FileInspector.ZipPackageType, StringComparison.Ordinal) &&
+                   file.ArchiveHasPrefix &&
+                   file.ArchivePrefixBytes == prefix.Length &&
+                   file.ArchiveContentScanApplicable &&
+                   file.ArchiveContentTotalKnown &&
+                   file.ArchiveContentEligibleBytes == entryBytes.Length &&
+                   file.ArchiveContentScannedBytes == entryBytes.Length &&
+                   Has("archive-prefix") &&
+                   Has("archive-double-extension") &&
+                   Has("archive-windows-name-normalization") &&
+                   Has("archive-entry-process-injection") &&
+                   file.InspectionLimited &&
+                   result.IsPartial &&
+                   result.CompletenessCode.Equals("INCOMPLETE", StringComparison.Ordinal) &&
+                   report.Contains($"ZIP entry-content scan: {FileAnalysis.FormatSize(entryBytes.Length)} / {FileAnalysis.FormatSize(entryBytes.Length)}", StringComparison.Ordinal) &&
+                   root.GetProperty("schema").GetString() is "pc-black-box-report-v4" &&
+                   jsonResult.GetProperty("archiveContentEligibleBytes").GetInt64() == entryBytes.Length &&
+                   jsonResult.GetProperty("archiveContentScannedBytes").GetInt64() == entryBytes.Length &&
+                   jsonResult.GetProperty("archiveContentTotalKnown").GetBoolean() &&
+                   jsonFile.GetProperty("archiveHasPrefix").GetBoolean() &&
+                   jsonFile.GetProperty("archivePrefixBytes").GetInt64() == prefix.Length &&
+                   !File.Exists(Path.Combine(directory, "invoice.pdf.ps1"));
+        });
+
+    private static bool TestDisguisedNestedFormatsStayIncomplete() =>
+        WithFixtureDirectory(directory =>
+        {
+            byte[] ole = [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1, 0, 0, 0, 0];
+            byte[] iso = new byte[0x8006];
+            "CD001"u8.CopyTo(iso.AsSpan(0x8001));
+            byte[] pe = [0x4D, 0x5A, 0, 0, 0, 0];
+
+            bool InspectPayload(string name, byte[] payload, string expectedCode)
+            {
+                string path = Path.Combine(directory, name + ".zip");
+                using (var archive = ZipFile.Open(path, ZipArchiveMode.Create))
+                {
+                    using Stream entry = archive.CreateEntry("payload.dat", CompressionLevel.NoCompression).Open();
+                    entry.Write(payload);
+                }
+
+                ScanResult result = Inspect(path);
+                return result.Files.Count == 1 &&
+                       result.Files[0].Indicators.Any(indicator => indicator.Code.Equals(expectedCode, StringComparison.Ordinal)) &&
+                       result.Files[0].InspectionLimited &&
+                       result.IsPartial;
+            }
+
+            return InspectPayload("nested-ole", ole, "nested-archive-unopened") &&
+                   InspectPayload("nested-iso", iso, "nested-archive-unopened") &&
+                   InspectPayload("nested-pe", pe, "archive-entry-active-payload");
+        });
+
+    private static bool TestNestedArchiveNeverLooksComplete() =>
+        WithFixtureDirectory(directory =>
+        {
+            using var innerBytes = new MemoryStream();
+            using (var inner = new ZipArchive(innerBytes, ZipArchiveMode.Create, leaveOpen: true))
+            {
+                using Stream content = inner.CreateEntry("one.txt", CompressionLevel.NoCompression).Open();
+                content.WriteByte(1);
+            }
+
+            string outerPath = Path.Combine(directory, "outer.zip");
+            using (var outer = ZipFile.Open(outerPath, ZipArchiveMode.Create))
+            {
+                using (Stream nested = outer.CreateEntry("payload.dat", CompressionLevel.NoCompression).Open())
+                {
+                    byte[] innerArchive = innerBytes.ToArray();
+                    nested.WriteByte((byte)'P');
+                    nested.Write(innerArchive);
+                }
+            }
+
+            ScanResult result = Inspect(outerPath);
+            return result.Files.Count == 1 &&
+                   result.Files[0].Indicators.Any(indicator => indicator.Code.Equals("nested-archive-unopened", StringComparison.Ordinal)) &&
+                   result.Files[0].InspectionLimited &&
+                   result.IsPartial &&
+                   result.CompletenessCode.Equals("INCOMPLETE", StringComparison.Ordinal) &&
+                   !File.Exists(Path.Combine(directory, "payload.dat"));
+        });
+
+    private static bool TestLoneZipEndMarkerDoesNotClaimNestedArchive() =>
+        WithFixtureDirectory(directory =>
+        {
+            string path = Path.Combine(directory, "marker-only.zip");
+            using (var archive = ZipFile.Open(path, ZipArchiveMode.Create))
+            {
+                using Stream entry = archive.CreateEntry("notes.dat", CompressionLevel.NoCompression).Open();
+                entry.Write([0x50, 0x4B, 0x05, 0x06]);
+            }
+
+            ScanResult result = Inspect(path);
+            return result.Files.Count == 1 &&
+                   result.Files[0].Indicators.All(indicator => !indicator.Code.Equals("nested-archive-unopened", StringComparison.Ordinal));
+        });
+
+    private static bool TestPrefixedZip64IsRecognized() =>
+        WithFixtureDirectory(directory =>
+        {
+            byte[] prefix = Encoding.ASCII.GetBytes("zip64-prefix");
+            byte[] zip64 = CreateEmptyZip64ArchiveBytes();
+            byte[] combined = new byte[prefix.Length + zip64.Length];
+            prefix.CopyTo(combined, 0);
+            zip64.CopyTo(combined, prefix.Length);
+            string path = Path.Combine(directory, "prefixed-zip64.bin");
+            File.WriteAllBytes(path, combined);
+
+            ScanResult result = Inspect(path);
+            return result.Files.Count == 1 &&
+                   result.Files[0].FileType.Equals(FileInspector.ZipPackageType, StringComparison.Ordinal) &&
+                   result.Files[0].ArchiveHasPrefix &&
+                   result.Files[0].ArchivePrefixBytes == prefix.Length &&
+                   result.Files[0].Indicators.Any(indicator => indicator.Code.Equals("archive-prefix", StringComparison.Ordinal)) &&
+                   result.Files[0].Indicators.All(indicator => !indicator.Code.Equals("invalid-archive", StringComparison.Ordinal));
+        });
+
+    private static bool TestPrefixedExtendedZip64IsRecognized() =>
+        WithFixtureDirectory(directory =>
+        {
+            byte[] prefix = Encoding.ASCII.GetBytes("extended-zip64-prefix");
+            byte[] zip64 = CreateEmptyZip64ArchiveBytes(extensibleDataBytes: 8);
+            byte[] combined = new byte[prefix.Length + zip64.Length];
+            prefix.CopyTo(combined, 0);
+            zip64.CopyTo(combined, prefix.Length);
+            string path = Path.Combine(directory, "prefixed-extended-zip64.bin");
+            File.WriteAllBytes(path, combined);
+
+            ScanResult result = Inspect(path);
+            return result.Files.Count == 1 &&
+                   result.Files[0].FileType.Equals(FileInspector.ZipPackageType, StringComparison.Ordinal) &&
+                   result.Files[0].ArchiveHasPrefix &&
+                   result.Files[0].ArchivePrefixBytes == prefix.Length &&
+                   result.Files[0].Indicators.Any(indicator => indicator.Code.Equals("archive-prefix", StringComparison.Ordinal)) &&
+                   result.Files[0].Indicators.All(indicator => !indicator.Code.Equals("invalid-archive", StringComparison.Ordinal));
+        });
+
     /// <summary>Confirms an already-canceled inspection ends without opening the target.</summary>
     private static bool TestCanceledInspectionReadsNothing() =>
         WithFixtureDirectory(directory =>
@@ -807,19 +1205,27 @@ internal static class ProductSelfTest
 
     private static bool TestValidEmptyZip64Preflight()
     {
-        byte[] bytes = new byte[56 + 20 + 22];
-        Span<byte> zip64End = bytes.AsSpan(0, 56);
+        byte[] bytes = CreateEmptyZip64ArchiveBytes();
+        using var stream = new MemoryStream(bytes, writable: false);
+        return FileInspector.IsArchiveStructureWithinLimits(stream);
+    }
+
+    private static byte[] CreateEmptyZip64ArchiveBytes(int extensibleDataBytes = 0)
+    {
+        int zip64EndLength = checked(56 + extensibleDataBytes);
+        byte[] bytes = new byte[zip64EndLength + 20 + 22];
+        Span<byte> zip64End = bytes.AsSpan(0, zip64EndLength);
         BinaryPrimitives.WriteUInt32LittleEndian(zip64End, 0x06064B50);
-        BinaryPrimitives.WriteUInt64LittleEndian(zip64End[4..], 44);
+        BinaryPrimitives.WriteUInt64LittleEndian(zip64End[4..], checked((ulong)(44 + extensibleDataBytes)));
         BinaryPrimitives.WriteUInt16LittleEndian(zip64End[12..], 45);
         BinaryPrimitives.WriteUInt16LittleEndian(zip64End[14..], 45);
 
-        Span<byte> locator = bytes.AsSpan(56, 20);
+        Span<byte> locator = bytes.AsSpan(zip64EndLength, 20);
         BinaryPrimitives.WriteUInt32LittleEndian(locator, 0x07064B50);
         BinaryPrimitives.WriteUInt64LittleEndian(locator[8..], 0);
         BinaryPrimitives.WriteUInt32LittleEndian(locator[16..], 1);
 
-        Span<byte> endRecord = bytes.AsSpan(76, 22);
+        Span<byte> endRecord = bytes.AsSpan(zip64EndLength + 20, 22);
         BinaryPrimitives.WriteUInt32LittleEndian(endRecord, 0x06054B50);
         BinaryPrimitives.WriteUInt16LittleEndian(endRecord[4..], UInt16.MaxValue);
         BinaryPrimitives.WriteUInt16LittleEndian(endRecord[6..], UInt16.MaxValue);
@@ -827,9 +1233,16 @@ internal static class ProductSelfTest
         BinaryPrimitives.WriteUInt16LittleEndian(endRecord[10..], UInt16.MaxValue);
         BinaryPrimitives.WriteUInt32LittleEndian(endRecord[12..], UInt32.MaxValue);
         BinaryPrimitives.WriteUInt32LittleEndian(endRecord[16..], UInt32.MaxValue);
+        return bytes;
+    }
 
-        using var stream = new MemoryStream(bytes, writable: false);
-        return FileInspector.IsArchiveStructureWithinLimits(stream);
+    private static int FindSignatureOffset(ReadOnlySpan<byte> bytes, uint signature)
+    {
+        for (int index = 0; index <= bytes.Length - sizeof(uint); index++)
+        {
+            if (BinaryPrimitives.ReadUInt32LittleEndian(bytes[index..]) == signature) return index;
+        }
+        return -1;
     }
 
     private static void Require(bool condition, ref int checks)
