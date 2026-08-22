@@ -2,6 +2,9 @@
 
 ## 0.8.1 — 2026-08-22
 
+- Stopped rewarding an attacker for breaking the shortcut parser. A LinkInfo block larger than the extraction cap is legal and trivial to pad, and it made the walk abandon every field that follows — so a shortcut running an encoded command scored lower than one that parsed cleanly. The walk now steps over an oversized block and keeps reading, the header-derived flags are recorded even when the command line cannot be recovered, and a failed parse of active content is scored at review weight instead of the floor.
+- Applied the same rule to every container this product can name but cannot open. `RAR`, `7-Zip` and `GZip` were named and then silently skipped, so shipping a payload as `.7z` instead of `.zip` erased every archive finding and still reported `CLEAR` and complete. Those formats now report `container-unopened` and `INCOMPLETE`, and ISO 9660 and Cabinet images are recognized rather than passing as `Binary / unknown` — an ISO matters because Mark-of-the-Web does not reach the files inside it.
+
 - Said what the clipboard actually is. The copy action leaves the process, but Windows clipboard history retains copied text and can sync it to a Microsoft account, and this product cannot read that setting reliably — so the confirmation and the README name it instead of implying the string stops at the clipboard.
 - Ignored generated reports wherever they are saved, not only under `reports/`. A report lists inspected file names, source hosts, and digests, so it identifies more than any single hash; only the directory was covered before.
 
