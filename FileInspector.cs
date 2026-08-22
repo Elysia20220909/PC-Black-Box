@@ -427,9 +427,11 @@ public sealed class FileInspector
         if (StartsWith(bytes, [0x50, 0x4B, 0x03, 0x04]) || StartsWith(bytes, [0x50, 0x4B, 0x05, 0x06])) return "ZIP / package";
         if (StartsWith(bytes, Encoding.ASCII.GetBytes("%PDF"))) return "PDF";
         if (StartsWith(bytes, [0x7F, 0x45, 0x4C, 0x46])) return "ELF binary";
-        if (StartsWith(bytes, [0x52, 0x61, 0x72, 0x21])) return "RAR archive";
-        if (StartsWith(bytes, [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C])) return "7-Zip archive";
-        if (StartsWith(bytes, [0x1F, 0x8B])) return "GZip archive";
+        if (StartsWith(bytes, [0x52, 0x61, 0x72, 0x21])) return RarType;
+        if (StartsWith(bytes, [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C])) return SevenZipType;
+        if (StartsWith(bytes, [0x1F, 0x8B])) return GZipType;
+        if (StartsWith(bytes, [0x4D, 0x53, 0x43, 0x46])) return CabinetType;
+        if (LooksLikeIsoImage(bytes)) return IsoImageType;
         if (StartsWith(bytes, [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1])) return OleCompoundType;
         if (ShortcutInspector.LooksLikeShortcut(bytes)) return ShortcutType;
         if (ScriptExtensions.Contains(extension)) return "Script / active text";
@@ -439,6 +441,19 @@ public sealed class FileInspector
 
     internal const string ShortcutType = "Windows shortcut";
     internal const string OleCompoundType = "OLE compound";
+    internal const string RarType = "RAR archive";
+    internal const string SevenZipType = "7-Zip archive";
+    internal const string GZipType = "GZip archive";
+    internal const string CabinetType = "Cabinet archive";
+    internal const string IsoImageType = "ISO image";
+
+    /// <summary>
+    /// ISO 9660 declares itself at the start of sector 16 rather than at offset zero. Recognizing it matters
+    /// because Mark-of-the-Web does not propagate to the files inside a mounted image, which is the reason
+    /// this container is chosen for delivery in the first place.
+    /// </summary>
+    private static bool LooksLikeIsoImage(byte[] bytes) =>
+        bytes.Length >= 0x8006 && bytes.AsSpan(0x8001, 5).SequenceEqual("CD001"u8);
 
     private static bool StartsWith(byte[] bytes, byte[] prefix) => bytes.Length >= prefix.Length && bytes.AsSpan(0, prefix.Length).SequenceEqual(prefix);
 
@@ -695,7 +710,7 @@ public sealed class FileInspector
         catch (Exception exception) when (exception is IOException or ArgumentException or OverflowException)
         {
             analysis.InspectionLimited = true;
-            AddIndicator(analysis, new("watch", "shortcut-unreadable", "ショートカットの構造を読み取れませんでした", "The shortcut structure could not be read", 12));
+            AddIndicator(analysis, new("watch", "shortcut-unreadable", "ショートカットの構造を読み取れませんでした", "The shortcut structure could not be read", 25));
             return;
         }
 
@@ -705,7 +720,25 @@ public sealed class FileInspector
         if (details.Truncated)
         {
             analysis.InspectionLimited = true;
-            AddIndicator(analysis, new("watch", "shortcut-truncated", "ショートカットの構造が途中で終わっており、全体を読めていません", "The shortcut structure ends early, so it could not be read in full", 12));
+            AddIndicator(analysis, new("watch", "shortcut-truncated", "ショートカットの構造が途中で終わっており、全体を読めていません", "The shortcut structure ends early, so it could not be read in full", 25));
+        }
+
+        // These three come from the header and the flags, so they survive a command line that could not be
+        // recovered. They are checked before the early return for exactly that reason: a shortcut that
+        // defeats the string walk must not also shed the evidence the header still carries.
+        if (details.ShowCommand == ShowMinimizedNoActivate)
+        {
+            AddIndicator(analysis, new("watch", "shortcut-hidden-start", "ショートカットは最小化・非アクティブで起動する設定です", "The shortcut is set to start minimized and inactive", 20));
+        }
+
+        if (details.RunAsAdministrator)
+        {
+            AddIndicator(analysis, new("watch", "shortcut-run-as-admin", "ショートカットは昇格して実行するよう指定されています", "The shortcut is marked to run elevated", 10));
+        }
+
+        if (details.Arguments.Length > MaxOrdinaryShortcutArguments)
+        {
+            AddIndicator(analysis, new("watch", "shortcut-long-command", "ショートカットの引数が通常より長く、内容を隠している可能性があります", "The shortcut carries an unusually long command line", 15));
         }
 
         // The joined surface is prefixed with a space so a command line that begins with a switch still has
@@ -747,20 +780,6 @@ public sealed class FileInspector
             AddIndicator(analysis, new("watch", "regex-time-limit", "能力語の照合が時間上限に達しました", "Capability matching reached its time limit", 8));
         }
 
-        if (details.ShowCommand == ShowMinimizedNoActivate)
-        {
-            AddIndicator(analysis, new("watch", "shortcut-hidden-start", "ショートカットは最小化・非アクティブで起動する設定です", "The shortcut is set to start minimized and inactive", 20));
-        }
-
-        if (details.RunAsAdministrator)
-        {
-            AddIndicator(analysis, new("watch", "shortcut-run-as-admin", "ショートカットは昇格して実行するよう指定されています", "The shortcut is marked to run elevated", 10));
-        }
-
-        if (details.Arguments.Length > MaxOrdinaryShortcutArguments)
-        {
-            AddIndicator(analysis, new("watch", "shortcut-long-command", "ショートカットの引数が通常より長く、内容を隠している可能性があります", "The shortcut carries an unusually long command line", 15));
-        }
     }
 
     private static string FormatShortcutField(string value) =>
@@ -768,13 +787,23 @@ public sealed class FileInspector
 
     private static void InspectStructuredFormats(FileStream stream, FileAnalysis analysis, CancellationToken cancellationToken)
     {
+        // A container this product can name but cannot open is the same failure the OLE case was: refusing to
+        // look is not the same as having looked. Scoring it at the floor would let an attacker pick the
+        // wrapper we do not open — the .7z form of a payload must not be cheaper than the .zip form.
+        if (analysis.FileType is RarType or SevenZipType or GZipType or CabinetType or IsoImageType)
+        {
+            analysis.InspectionLimited = true;
+            AddIndicator(analysis, new("watch", "container-unopened", "この書庫・イメージ形式は中身を開けないため、内部は未確認です", "This archive or image format is not opened, so its contents are unexamined", 15));
+            return;
+        }
+
         if (analysis.FileType == OleCompoundType)
         {
             // The capability pass reads this file's strings, but the storage tree, the installer tables and
             // any VBA project inside are not parsed. Reporting that as a complete inspection would repeat
             // exactly the lie the first-8-MiB sample used to tell.
             analysis.InspectionLimited = true;
-            AddIndicator(analysis, new("watch", "ole-structure-unparsed", "MSIやOfficeなどOLE複合ファイルの内部構造は解析していません", "The internal structure of this OLE compound file (installer or Office document) was not parsed", 6));
+            AddIndicator(analysis, new("watch", "ole-structure-unparsed", "MSIやOfficeなどOLE複合ファイルの内部構造は解析していません", "The internal structure of this OLE compound file (installer or Office document) was not parsed", 10));
             return;
         }
 

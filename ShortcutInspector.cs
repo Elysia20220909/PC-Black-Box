@@ -139,12 +139,16 @@ internal static class ShortcutInspector
         if (start < 0 || start > filled - 0x1C) return false;
 
         uint declaredSize = BitConverter.ToUInt32(buffer, start);
-        if (declaredSize < 0x1C || declaredSize > MaxLinkInfoBytes || declaredSize > (uint)(filled - start)) return false;
+        if (declaredSize < 0x1C || declaredSize > (uint)(filled - start)) return false;
 
         int size = (int)declaredSize;
         uint headerSize = BitConverter.ToUInt32(buffer, start + 0x04);
         uint infoFlags = BitConverter.ToUInt32(buffer, start + 0x08);
-        if ((infoFlags & 0x1) != 0)
+
+        // A LinkInfo past the extraction cap is legal — padding NetName or DeviceName is enough to build one —
+        // so step over it and keep reading the command line that follows. Abandoning the walk here would make
+        // breaking this parser cheaper for an attacker than passing it.
+        if (declaredSize <= MaxLinkInfoBytes && (infoFlags & 0x1) != 0)
         {
             if (headerSize >= 0x24 && declaredSize >= 0x24)
             {
