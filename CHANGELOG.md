@@ -2,6 +2,9 @@
 
 ## 0.8.1 — 2026-08-22
 
+- Said what the clipboard actually is. The copy action leaves the process, but Windows clipboard history retains copied text and can sync it to a Microsoft account, and this product cannot read that setting reliably — so the confirmation and the README name it instead of implying the string stops at the clipboard.
+- Ignored generated reports wherever they are saved, not only under `reports/`. A report lists inspected file names, source hosts, and digests, so it identifies more than any single hash; only the directory was covered before.
+
 - Read Windows shortcuts instead of naming them. A `.lnk` was never opened: it sat outside the capability gate, so a shortcut wearing a document name and running `powershell -w hidden -enc <payload>` was reported as `LOW` and, worse, as a complete inspection. The command line is now recovered from the shortcut structure and judged like the script it is. The measured fixture moved from `LOW 18` to `HIGH 100`.
 - Reserved the danger-level shortcut finding for a command line that also carries another signal — an encoded command, a hidden window, a download, a double extension, or a Mark-of-the-Web. Measured against the 72 shortcuts in this machine’s system Start Menu, the first rule called 6 legitimate developer tools dangerous; the corroborated rule calls none of them dangerous while the malicious-shaped fixture stays at `HIGH 100`.
 - Added `encoded-command` and `hidden-window` capability patterns, so PowerShell’s abbreviated switches (`-e`, `-enc`, `-encodedcommand`) and hidden-window launches are matched wherever they appear, not only in shortcuts.
