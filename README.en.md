@@ -50,6 +50,8 @@ Use `JA / EN` to switch languages. Only that language preference is stored in `%
 - Mark-of-the-Web (Internet Zone) and source host
 - True format inferred from file magic
 - Double extensions, right-to-left override characters, and extension mismatches
+- Windows shortcuts: the target, arguments, working directory, hidden-window and elevation flags, read from the shortcut structure without resolving or launching it
+- OLE compound files (installers and legacy Office documents): recognized by content and read for strings, with the storage tree left unparsed and reported as incomplete
 - PE architecture, product/company metadata, and entropy sampled from the first 8 MiB
 - Streaming capability matching for scripts, Windows PE files, and PDFs within explicit limits, including downloads, persistence, Defender changes, process injection, deletion, and related behavior
 - Executable content, macros, path traversal, and extreme compression ratios inside ZIP and Office packages
@@ -69,7 +71,7 @@ Legitimate administration scripts, installers, and compression tools can trigger
 - No automatic network request is made.
 - No process injection, game-memory access, or packet capture is performed.
 - Files are not deleted, quarantined, moved, or repaired.
-- Reports omit absolute paths, Windows user names, IP addresses, Steam IDs, and credentials.
+- Reports omit **this machine’s** absolute paths, Windows user names, IP addresses, Steam IDs, and credentials. Strings held inside the target, such as a shortcut’s target and arguments, are shown as the evidence behind a finding.
 - No external hash lookup or browser launch is available; inspection remains fully offline.
 
 The design follows iOS-inspired security principles: least privilege, a closed data flow, explicit user actions, and fixed trust boundaries. It remains a conventional Windows desktop app and does not claim isolation equivalent to the iOS App Sandbox.
