@@ -23,6 +23,8 @@ public sealed class FileAnalysis
     public int? InternetZone { get; set; }
     public string SourceHost { get; set; } = "—";
     public int ArchiveEntries { get; set; }
+    public string ShortcutTarget { get; set; } = "—";
+    public string ShortcutArguments { get; set; } = "—";
     public bool InspectionLimited { get; set; }
     public bool CapabilityScanApplicable { get; set; }
     public long CapabilityScannedBytes { get; set; }

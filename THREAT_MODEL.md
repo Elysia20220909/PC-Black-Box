@@ -147,6 +147,9 @@ would break the running product, and a control that cannot stay on is worse than
   that an invalid archive promotes the production result to `INCOMPLETE`, that long display paths do not
   hide an active extension, that no archive entry escapes onto disk, and that an already-canceled inspection
   ends without reading the target.
+- `--self-test` must prove that a shortcut is judged by the command line inside it, that a shortcut whose
+  declared sizes do not fit ends the walk and reports the result as `INCOMPLETE` rather than throwing, and
+  that an OLE compound file is read for strings and never reported as a complete inspection.
 - Live process mitigation flags must match the required policy bits.
 - Regression fixtures must preserve signature, capability, hostile-archive, privacy, and path-boundary behavior.
 - Regression checks must preserve final-handle path matching, guarded directory writes, directory mutation detection, archive preflight, and cumulative observed-size limits.

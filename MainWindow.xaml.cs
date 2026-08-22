@@ -443,6 +443,14 @@ public partial class MainWindow : Window
         {
             details.AppendLine($"{(IsJapanese ? "内容走査" : "CONTENT"),-10} {FileAnalysis.FormatSize(file.CapabilityScannedBytes)} / {file.SizeText}");
         }
+        if (file.ShortcutTarget != "—")
+        {
+            details.AppendLine($"{(IsJapanese ? "起動先" : "TARGET"),-10} {file.ShortcutTarget}");
+        }
+        if (file.ShortcutArguments != "—")
+        {
+            details.AppendLine($"{(IsJapanese ? "引数" : "ARGS"),-10} {file.ShortcutArguments}");
+        }
         if (file.InspectionLimited)
         {
             details.AppendLine(IsJapanese ? "INCOMPLETE  未確認の範囲があります" : "INCOMPLETE  Some content remains unchecked");
