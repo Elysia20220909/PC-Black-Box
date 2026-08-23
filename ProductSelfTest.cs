@@ -112,6 +112,8 @@ internal static class ProductSelfTest
             Require(TestOleCompoundIsScannedAndNeverComplete(), ref checks);
             Require(TestOversizedLinkInfoStillYieldsTheCommandLine(), ref checks);
             Require(TestUnopenedContainerIsNeverClear(), ref checks);
+            Require(TestUnexaminedAspectsStayApart(), ref checks);
+            Require(TestUnreadableFileKeepsNoAspect(), ref checks);
             Require(TestArchiveFindingsWithoutExtraction(), ref checks);
             Require(TestCanceledInspectionReadsNothing(), ref checks);
             return new ProductSelfTestResult(true, checks);
@@ -614,6 +616,59 @@ internal static class ProductSelfTest
                    file.Indicators.Any(indicator => indicator.Code.Equals("container-unopened", StringComparison.Ordinal)) &&
                    result.CompletenessCode.Equals("INCOMPLETE", StringComparison.Ordinal) &&
                    !result.AssessmentCode.Equals("CLEAR", StringComparison.Ordinal);
+        });
+
+    /// <summary>
+    /// A container that was never opened must limit the structure aspect and nothing else. Collapsing the
+    /// four aspects into one word is what would make INCOMPLETE routine, and a routine warning is ignored.
+    /// </summary>
+    private static bool TestUnexaminedAspectsStayApart() =>
+        WithFixtureDirectory(directory =>
+        {
+            File.WriteAllBytes(Path.Combine(directory, "archive.7z"), [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C, 0x00, 0x04]);
+            File.WriteAllText(Path.Combine(directory, "notes.txt"), "ordinary text");
+
+            ScanResult result = Inspect(directory);
+            if (result.Files.Count != 2) return false;
+
+            using JsonDocument document = JsonDocument.Parse(ReportBuilder.BuildJson(result, "en"));
+            JsonElement unexamined = document.RootElement.GetProperty("result").GetProperty("unexamined");
+            string report = ReportBuilder.Build(result, "en");
+
+            return result.Limits == InspectionLimit.Structure &&
+                   result.TraversalComplete &&
+                   result.LimitedFileCount(InspectionLimit.Structure) == 1 &&
+                   result.LimitedFileCount(InspectionLimit.Content) == 0 &&
+                   result.LimitedFileCount(InspectionLimit.Digest) == 0 &&
+                   result.LimitedFileCount(InspectionLimit.Signature) == 0 &&
+                   unexamined.GetProperty("structure").GetInt32() == 1 &&
+                   unexamined.GetProperty("content").GetInt32() == 0 &&
+                   report.Contains("structure: incomplete on 1 file(s)", StringComparison.Ordinal) &&
+                   report.Contains("content: complete", StringComparison.Ordinal);
+        });
+
+    /// <summary>
+    /// A file that could not be opened received none of the four aspects, and must say so rather than
+    /// carrying the single unexamined flag its neighbours use for one missing parse.
+    /// </summary>
+    private static bool TestUnreadableFileKeepsNoAspect() =>
+        WithFixtureDirectory(directory =>
+        {
+            string path = Path.Combine(directory, "locked.bin");
+            File.WriteAllText(path, "held open with no sharing");
+
+            ScanResult result;
+            using (new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                result = Inspect(directory);
+            }
+
+            if (result.Files.Count != 1) return false;
+
+            FileAnalysis file = result.Files[0];
+            return file.Limits == InspectionLimit.Everything &&
+                   file.Indicators.Any(indicator => indicator.Code.Equals("file-read-failed", StringComparison.Ordinal)) &&
+                   result.CompletenessCode.Equals("INCOMPLETE", StringComparison.Ordinal);
         });
 
     /// <summary>

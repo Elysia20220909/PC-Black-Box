@@ -192,7 +192,7 @@ public partial class MainWindow : Window
         TimeValue.Text = $"{result.Duration.TotalSeconds:F1}s";
         ScanProgressBar.Value = 100;
         ProgressText.Text = result.IsPartial
-            ? (IsJapanese ? $"INCOMPLETE: 未確認の範囲があります — {result.PartialReason}" : $"INCOMPLETE: some content remains unchecked — {result.PartialReason}")
+            ? $"INCOMPLETE: {DescribeScope(result)} — {result.PartialReason}"
             : (IsJapanese ? "調査完了 — ファイルは実行・変更されていません" : "Inspection complete — no file was executed or modified");
         AssessmentText.Text = $"{result.AssessmentCode} / {result.RiskScore}";
         AssessmentText.Foreground = assessmentBrush;
@@ -215,6 +215,28 @@ public partial class MainWindow : Window
         SaveMarkdownButton.IsEnabled = true;
         SaveJsonButton.IsEnabled = true;
     }
+
+    /// <summary>
+    /// Says what fell short at the scan level. A walk that missed files and a file that was not fully read
+    /// are different shortfalls, and naming which one keeps INCOMPLETE from becoming a mood.
+    /// </summary>
+    private string DescribeScope(ScanResult result)
+    {
+        string aspects = DescribeLimits(result.Limits);
+        if (result.TraversalComplete)
+        {
+            return IsJapanese ? $"{aspects}が未確認です" : $"{aspects} not fully examined";
+        }
+
+        string traversal = IsJapanese ? "探索が未完了です" : "the walk did not reach every file";
+        if (result.Limits == InspectionLimit.None) return traversal;
+        return IsJapanese ? $"{traversal}。{aspects}も未確認です" : $"{traversal}, and {aspects} was not fully examined";
+    }
+
+    /// <summary>Names which aspects fell short, so the word INCOMPLETE carries information rather than mood.</summary>
+    private string DescribeLimits(InspectionLimit limits) => String.Join(
+        IsJapanese ? "・" : ", ",
+        InspectionAspects.All.Where(aspect => (limits & aspect) != 0).Select(aspect => InspectionAspects.Describe(aspect, IsJapanese)));
 
     private string BuildVerdict(ScanResult result)
     {
@@ -453,7 +475,7 @@ public partial class MainWindow : Window
         }
         if (file.InspectionLimited)
         {
-            details.AppendLine(IsJapanese ? "INCOMPLETE  未確認の範囲があります" : "INCOMPLETE  Some content remains unchecked");
+            details.AppendLine($"INCOMPLETE  {DescribeLimits(file.Limits)}");
         }
         details.AppendLine($"ZONE       {(file.InternetZone?.ToString() ?? "—")}  |  {(IsJapanese ? "入手元" : "SOURCE")} {file.SourceHost}");
         if (file.ArchiveEntries > 0) details.AppendLine($"{(IsJapanese ? "書庫" : "ARCHIVE"),-10} {file.ArchiveEntries} {(IsJapanese ? "項目" : "entries")}");

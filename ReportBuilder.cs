@@ -29,6 +29,7 @@ public static class ReportBuilder
         if (result.IsPartial)
         {
             builder.AppendLine($"- {(ja ? "範囲" : "Scope")}: **INCOMPLETE** — {Escape(result.PartialReason)}");
+            builder.AppendLine($"- {(ja ? "側面ごとの到達点" : "Coverage by aspect")}: {DescribeCoverage(result, ja)}");
         }
         builder.AppendLine();
 
@@ -91,7 +92,7 @@ public static class ReportBuilder
         builder.AppendLine("|---:|---|---:|---|---|---|---|---|");
         foreach (FileAnalysis file in result.Files.OrderByDescending(x => x.RiskScore).ThenBy(x => x.RelativePath, StringComparer.OrdinalIgnoreCase).Take(500))
         {
-            string coverage = file.InspectionLimited ? "INCOMPLETE" : "complete";
+            string coverage = DescribeFileCoverage(file);
             builder.AppendLine($"| {file.RiskScore} | `{Escape(file.RelativePath)}` | {file.SizeText} | {Escape(file.FileType)} | {Escape(file.SignatureStatus)} | `{file.Sha256}` | {coverage} | {Escape(file.SourceHost)} |");
         }
         if (result.Files.Count > 500)
@@ -115,6 +116,33 @@ public static class ReportBuilder
             : "The target was not executed. No file upload, external lookup, network request, process injection, or memory read is performed. The report omits this machine's absolute paths, Windows user names, IP addresses, Steam IDs, and credentials. Strings held inside the target, such as a shortcut's command line, are shown as evidence.");
         return builder.ToString();
     }
+
+    /// <summary>
+    /// States each aspect separately so the reader can tell "we hashed and read everything but never opened
+    /// the archive" from "we ran out of budget before the payload". One INCOMPLETE over both says neither.
+    /// </summary>
+    private static string DescribeCoverage(ScanResult result, bool ja)
+    {
+        string traversal = result.TraversalComplete
+            ? $"{(ja ? "探索" : "traversal")}: {(ja ? "完全" : "complete")}"
+            : $"**{(ja ? "探索" : "traversal")}: {(ja ? "未完了" : "incomplete")}**";
+
+        IEnumerable<string> parts = InspectionAspects.All.Select(aspect =>
+        {
+            string name = InspectionAspects.Describe(aspect, ja);
+            int limited = result.LimitedFileCount(aspect);
+            if (limited == 0) return $"{name}: {(ja ? "完全" : "complete")}";
+            return ja ? $"**{name}: 未確認 {limited}件**" : $"**{name}: incomplete on {limited} file(s)**";
+        });
+
+        return String.Join(ja ? " / " : "; ", parts.Prepend(traversal));
+    }
+
+    /// <summary>Names the aspects a file did not receive, because "INCOMPLETE" alone never said which.</summary>
+    private static string DescribeFileCoverage(FileAnalysis file) =>
+        file.Limits == InspectionLimit.None
+            ? "complete"
+            : String.Join("+", InspectionAspects.All.Where(aspect => (file.Limits & aspect) != 0).Select(InspectionAspects.Code));
 
     public static string BuildJson(ScanResult result, string language)
     {
@@ -148,6 +176,8 @@ public static class ReportBuilder
                 result.IsPartial,
                 partialReason = Clean(result.PartialReason),
                 sha256BytesRead = result.TotalBytes,
+                result.TraversalComplete,
+                unexamined = InspectionAspects.All.ToDictionary(InspectionAspects.Code, result.LimitedFileCount),
                 capabilityEligibleBytes = result.CapabilityEligibleBytes,
                 capabilityScannedBytes = result.CapabilityScannedBytes,
                 durationSeconds = Math.Round(result.Duration.TotalSeconds, 3)
@@ -168,6 +198,7 @@ public static class ReportBuilder
                 shortcutTarget = file.ShortcutTarget == "—" ? null : Clean(file.ShortcutTarget),
                 shortcutArguments = file.ShortcutArguments == "—" ? null : Clean(file.ShortcutArguments),
                 file.InspectionLimited,
+                unexamined = InspectionAspects.All.Where(aspect => (file.Limits & aspect) != 0).Select(InspectionAspects.Code).ToArray(),
                 file.CapabilityScanApplicable,
                 file.CapabilityScannedBytes,
                 riskScore = file.RiskScore,

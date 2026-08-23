@@ -60,7 +60,18 @@ Folder inspection stops at 2,500 files, 10,000 directories, depth 128, 20,000 en
 
 ## Assessment model
 
-`CLEAR / LOW / REVIEW / HIGH` is review priority, while `COMPLETE / INCOMPLETE` describes inspection completeness. Known risk and unchecked scope are retained separately and can appear together, for example `HIGH+INCOMPLETE`. None is a malware verdict or safety guarantee.
+`CLEAR / LOW / REVIEW / HIGH` is review priority, while `COMPLETE / INCOMPLETE` describes inspection completeness.
+
+Completeness is reported across **four aspects**, because there are four things this product does to a file.
+
+| Aspect | What it does | How it falls short |
+|---|---|---|
+| Digest | SHA-256 over every byte | the file could not be opened safely |
+| Content | streaming capability matching | a byte or time budget was reached |
+| Signature | offline Authenticode verification | the 300-file-per-inspection limit was passed |
+| Structure | reading ZIP, shortcut and similar structures | an archive that is not opened, OLE internals that are not parsed |
+
+"Everything was hashed and every string was read, but the archive was never opened" and "the budget ran out before the payload" are different results. One `INCOMPLETE` over both is a word the reader learns to skip. Known risk and unchecked scope are retained separately and can appear together, for example `HIGH+INCOMPLETE`. None is a malware verdict or safety guarantee.
 
 Legitimate administration scripts, installers, and compression tools can trigger warnings. Conversely, unknown code may show no static indicator. Combine this result with the expected purpose, download source, signature, and tools such as Windows Defender.
 

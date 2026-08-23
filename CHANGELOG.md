@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.2 — 2026-08-22
+
+- Split completeness into the four aspects the inspection actually performs — digest, content, signature, structure — and reported them separately in the window, the Markdown report, and the JSON. Recognizing unopened containers in 0.8.1 was correct and made almost every real folder report `INCOMPLETE`; a warning that is always on is a warning that is read as decoration. A scan can now say that every byte was hashed and every string was read while two archives were never opened, which is a different sentence with a different answer.
+- Made a limit and its reason inseparable in code: `LimitInspection` records the aspect and emits the operator-facing indicator in one call, so an aspect cannot be marked unexamined without the report saying why.
+- Fixed an archive finding that fired on the wrong cause. `archive-limit` claimed the entry list was truncated at 10,000 entries whenever *any* limit had been recorded for that file, including limits from unrelated aspects; it now reports only actual truncation.
+- Named the missing aspects per file in the report inventory (`structure`, `content+structure`) instead of a bare `INCOMPLETE`.
+
 ## 0.8.1 — 2026-08-22
 
 - Stopped rewarding an attacker for breaking the shortcut parser. A LinkInfo block larger than the extraction cap is legal and trivial to pad, and it made the walk abandon every field that follows — so a shortcut running an encoded command scored lower than one that parsed cleanly. The walk now steps over an oversized block and keeps reading, the header-derived flags are recorded even when the command line cannot be recovered, and a failed parse of active content is scored at review weight instead of the floor.

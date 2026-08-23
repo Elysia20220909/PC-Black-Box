@@ -150,6 +150,10 @@ would break the running product, and a control that cannot stay on is worse than
 - `--self-test` must prove that a shortcut is judged by the command line inside it, that a shortcut whose
   declared sizes do not fit ends the walk and reports the result as `INCOMPLETE` rather than throwing, and
   that an OLE compound file is read for strings and never reported as a complete inspection.
+- `--self-test` must prove the four completeness aspects stay apart: a container that was never opened
+  limits structure alone while digest, content and signature remain complete, and a file that could not be
+  opened limits all four. Collapsing them is what makes `INCOMPLETE` routine, and a routine warning is one
+  the operator stops reading.
 - Live process mitigation flags must match the required policy bits.
 - Regression fixtures must preserve signature, capability, hostile-archive, privacy, and path-boundary behavior.
 - Regression checks must preserve final-handle path matching, guarded directory writes, directory mutation detection, archive preflight, and cumulative observed-size limits.

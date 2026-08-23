@@ -385,8 +385,7 @@ public sealed class FileInspector
             }
             else
             {
-                analysis.InspectionLimited = true;
-                AddIndicator(analysis, new("info", "signature-limit", "署名確認の安全上限を超えたため未確認です", "Signature verification was skipped after the safety limit", 2));
+                LimitInspection(analysis, InspectionLimit.Signature, new("info", "signature-limit", "署名確認の安全上限を超えたため未確認です", "Signature verification was skipped after the safety limit", 2));
             }
         }
 
@@ -591,8 +590,7 @@ public sealed class FileInspector
         long targetBytes = Math.Min(stream.Length, Math.Min(MaxCapabilityBytesPerFile, remainingScanBytes));
         if (targetBytes == 0)
         {
-            analysis.InspectionLimited = true;
-            AddIndicator(analysis, new("watch", "capability-scan-budget", "能力語の内容走査が1回あたりの上限に達しました", "Capability content scanning reached the per-inspection budget", 8));
+            LimitInspection(analysis, InspectionLimit.Content, new("watch", "capability-scan-budget", "能力語の内容走査が1回あたりの上限に達しました", "Capability content scanning reached the per-inspection budget", 8));
             return;
         }
 
@@ -610,8 +608,7 @@ public sealed class FileInspector
                 cancellationToken.ThrowIfCancellationRequested();
                 if (timer.Elapsed >= MaxCapabilityTimePerFile || budget.Elapsed + timer.Elapsed >= MaxCapabilityTimePerScan)
                 {
-                    analysis.InspectionLimited = true;
-                    AddIndicator(analysis, new("watch", "capability-scan-time", "能力語の内容走査が時間上限に達しました", "Capability content scanning reached its time limit", 8));
+                    LimitInspection(analysis, InspectionLimit.Content, new("watch", "capability-scan-time", "能力語の内容走査が時間上限に達しました", "Capability content scanning reached its time limit", 8));
                     return;
                 }
 
@@ -640,8 +637,7 @@ public sealed class FileInspector
                     }
                     catch (RegexMatchTimeoutException)
                     {
-                        analysis.InspectionLimited = true;
-                        AddIndicator(analysis, new("watch", "regex-time-limit", "能力語の照合が時間上限に達しました", "Capability matching reached its time limit", 8));
+                        LimitInspection(analysis, InspectionLimit.Content, new("watch", "regex-time-limit", "能力語の照合が時間上限に達しました", "Capability matching reached its time limit", 8));
                         return;
                     }
                     if (!matched) continue;
@@ -665,8 +661,7 @@ public sealed class FileInspector
                     }
                     catch (RegexMatchTimeoutException)
                     {
-                        analysis.InspectionLimited = true;
-                        AddIndicator(analysis, new("watch", "regex-time-limit", "PDF能力語の照合が時間上限に達しました", "PDF capability matching reached its time limit", 8));
+                        LimitInspection(analysis, InspectionLimit.Content, new("watch", "regex-time-limit", "PDF能力語の照合が時間上限に達しました", "PDF capability matching reached its time limit", 8));
                         return;
                     }
                 }
@@ -677,7 +672,7 @@ public sealed class FileInspector
 
             if (analysis.CapabilityScannedBytes < stream.Length)
             {
-                analysis.InspectionLimited = true;
+                analysis.Limits |= InspectionLimit.Content;
                 if (analysis.CapabilityScannedBytes >= MaxCapabilityBytesPerFile)
                 {
                     AddIndicator(analysis, new("watch", "capability-file-limit", $"能力語の内容走査は1ファイル{FileAnalysis.FormatSize(MaxCapabilityBytesPerFile)}までです", $"Capability content scanning is limited to {FileAnalysis.FormatSize(MaxCapabilityBytesPerFile)} per file", 8));
@@ -709,8 +704,7 @@ public sealed class FileInspector
         }
         catch (Exception exception) when (exception is IOException or ArgumentException or OverflowException)
         {
-            analysis.InspectionLimited = true;
-            AddIndicator(analysis, new("watch", "shortcut-unreadable", "ショートカットの構造を読み取れませんでした", "The shortcut structure could not be read", 25));
+            LimitInspection(analysis, InspectionLimit.Structure, new("watch", "shortcut-unreadable", "ショートカットの構造を読み取れませんでした", "The shortcut structure could not be read", 25));
             return;
         }
 
@@ -719,8 +713,7 @@ public sealed class FileInspector
 
         if (details.Truncated)
         {
-            analysis.InspectionLimited = true;
-            AddIndicator(analysis, new("watch", "shortcut-truncated", "ショートカットの構造が途中で終わっており、全体を読めていません", "The shortcut structure ends early, so it could not be read in full", 25));
+            LimitInspection(analysis, InspectionLimit.Structure, new("watch", "shortcut-truncated", "ショートカットの構造が途中で終わっており、全体を読めていません", "The shortcut structure ends early, so it could not be read in full", 25));
         }
 
         // These three come from the header and the flags, so they survive a command line that could not be
@@ -776,8 +769,7 @@ public sealed class FileInspector
         }
         catch (RegexMatchTimeoutException)
         {
-            analysis.InspectionLimited = true;
-            AddIndicator(analysis, new("watch", "regex-time-limit", "能力語の照合が時間上限に達しました", "Capability matching reached its time limit", 8));
+            LimitInspection(analysis, InspectionLimit.Content, new("watch", "regex-time-limit", "能力語の照合が時間上限に達しました", "Capability matching reached its time limit", 8));
         }
 
     }
@@ -792,8 +784,7 @@ public sealed class FileInspector
         // wrapper we do not open — the .7z form of a payload must not be cheaper than the .zip form.
         if (analysis.FileType is RarType or SevenZipType or GZipType or CabinetType or IsoImageType)
         {
-            analysis.InspectionLimited = true;
-            AddIndicator(analysis, new("watch", "container-unopened", "この書庫・イメージ形式は中身を開けないため、内部は未確認です", "This archive or image format is not opened, so its contents are unexamined", 15));
+            LimitInspection(analysis, InspectionLimit.Structure, new("watch", "container-unopened", "この書庫・イメージ形式は中身を開けないため、内部は未確認です", "This archive or image format is not opened, so its contents are unexamined", 15));
             return;
         }
 
@@ -802,16 +793,14 @@ public sealed class FileInspector
             // The capability pass reads this file's strings, but the storage tree, the installer tables and
             // any VBA project inside are not parsed. Reporting that as a complete inspection would repeat
             // exactly the lie the first-8-MiB sample used to tell.
-            analysis.InspectionLimited = true;
-            AddIndicator(analysis, new("watch", "ole-structure-unparsed", "MSIやOfficeなどOLE複合ファイルの内部構造は解析していません", "The internal structure of this OLE compound file (installer or Office document) was not parsed", 10));
+            LimitInspection(analysis, InspectionLimit.Structure, new("watch", "ole-structure-unparsed", "MSIやOfficeなどOLE複合ファイルの内部構造は解析していません", "The internal structure of this OLE compound file (installer or Office document) was not parsed", 10));
             return;
         }
 
         if (analysis.FileType != "ZIP / package") return;
         if (analysis.Size > SecurityPolicy.MaxArchiveInspectionBytes)
         {
-            analysis.InspectionLimited = true;
-            AddIndicator(analysis, new("watch", "archive-size-limit", $"ZIP内部確認は{FileAnalysis.FormatSize(SecurityPolicy.MaxArchiveInspectionBytes)}までです", $"ZIP metadata inspection is limited to {FileAnalysis.FormatSize(SecurityPolicy.MaxArchiveInspectionBytes)}", 12));
+            LimitInspection(analysis, InspectionLimit.Structure, new("watch", "archive-size-limit", $"ZIP内部確認は{FileAnalysis.FormatSize(SecurityPolicy.MaxArchiveInspectionBytes)}までです", $"ZIP metadata inspection is limited to {FileAnalysis.FormatSize(SecurityPolicy.MaxArchiveInspectionBytes)}", 12));
             return;
         }
 
@@ -830,6 +819,7 @@ public sealed class FileInspector
             bool oversizedName = false;
             bool macro = false;
             bool extremeRatio = false;
+            bool entriesTruncated = false;
             int count = 0;
             long declaredBytes = 0;
 
@@ -839,7 +829,7 @@ public sealed class FileInspector
                 count++;
                 if (count > MaxArchiveEntries)
                 {
-                    analysis.InspectionLimited = true;
+                    entriesTruncated = true;
                     break;
                 }
 
@@ -879,27 +869,23 @@ public sealed class FileInspector
             if (macro) AddIndicator(analysis, new("watch", "office-macro", "Officeマクロを含みます", "The package contains an Office macro", 28));
             if (activeEntries > 0) AddIndicator(analysis, new("watch", "archive-active-content", $"圧縮ファイル内に実行可能な内容が{activeEntries}件あります", $"The archive contains {activeEntries} active-content item(s)", Math.Min(25, 8 + activeEntries * 2)));
             if (nestedArchives > 0) AddIndicator(analysis, new("info", "nested-archive", $"内部に別の圧縮ファイルが{nestedArchives}件あります", $"The archive contains {nestedArchives} nested archive(s)", 3));
-            if (analysis.InspectionLimited) AddIndicator(analysis, new("watch", "archive-limit", $"内部一覧は{MaxArchiveEntries}件で打ち切りました", $"Archive inspection stopped at {MaxArchiveEntries} entries", 10));
+            if (entriesTruncated) LimitInspection(analysis, InspectionLimit.Structure, new("watch", "archive-limit", $"内部一覧は{MaxArchiveEntries}件で打ち切りました", $"Archive inspection stopped at {MaxArchiveEntries} entries", 10));
         }
         catch (ArchiveSafetyLimitException)
         {
-            analysis.InspectionLimited = true;
-            AddIndicator(analysis, new("watch", "archive-directory-limit", "ZIP中央ディレクトリが安全上限を超えたため、標準解析へ渡さず停止しました", "The ZIP central directory exceeded the safety boundary and was rejected before standard parsing", 25));
+            LimitInspection(analysis, InspectionLimit.Structure, new("watch", "archive-directory-limit", "ZIP中央ディレクトリが安全上限を超えたため、標準解析へ渡さず停止しました", "The ZIP central directory exceeded the safety boundary and was rejected before standard parsing", 25));
         }
         catch (InvalidDataException)
         {
-            analysis.InspectionLimited = true;
-            AddIndicator(analysis, new("watch", "invalid-archive", "ZIP形式として正常に読み取れませんでした", "The package could not be read as a valid ZIP archive", 20));
+            LimitInspection(analysis, InspectionLimit.Structure, new("watch", "invalid-archive", "ZIP形式として正常に読み取れませんでした", "The package could not be read as a valid ZIP archive", 20));
         }
         catch (OverflowException)
         {
-            analysis.InspectionLimited = true;
-            AddIndicator(analysis, new("watch", "invalid-archive", "ZIP形式の数値境界が不正です", "The package contains invalid ZIP numeric boundaries", 20));
+            LimitInspection(analysis, InspectionLimit.Structure, new("watch", "invalid-archive", "ZIP形式の数値境界が不正です", "The package contains invalid ZIP numeric boundaries", 20));
         }
         catch (IOException)
         {
-            analysis.InspectionLimited = true;
-            AddIndicator(analysis, new("watch", "archive-read-error", "圧縮ファイルの内部確認を完了できませんでした", "Archive content inspection could not be completed", 12));
+            LimitInspection(analysis, InspectionLimit.Structure, new("watch", "archive-read-error", "圧縮ファイルの内部確認を完了できませんでした", "Archive content inspection could not be completed", 12));
         }
     }
 
@@ -1188,10 +1174,10 @@ public sealed class FileInspector
 
     private static void MarkChangedDuringScan(FileAnalysis analysis)
     {
-        analysis.InspectionLimited = true;
+        // Everything read before the change describes a file that no longer exists, so no aspect survives it.
         analysis.SignatureStatus = "Indeterminate";
         analysis.Signer = "—";
-        AddIndicator(analysis, new("danger", "changed-during-scan", "調査中にファイルが変更されたため、結果を信頼できません", "The file changed during inspection, so the result is not trustworthy", 60));
+        LimitInspection(analysis, InspectionLimit.Everything, new("danger", "changed-during-scan", "調査中にファイルが変更されたため、結果を信頼できません", "The file changed during inspection, so the result is not trustworthy", 60));
     }
 
     private static FileAnalysis CreateUnreadableAnalysis(string path, string root, bool singleFile)
@@ -1206,10 +1192,9 @@ public sealed class FileInspector
             RelativePath = SecurityPolicy.SanitizeText(rawRelativePath, 1024),
             Size = 0,
             ObservedLength = -1,
-            SignatureStatus = "Indeterminate",
-            InspectionLimited = true
+            SignatureStatus = "Indeterminate"
         };
-        AddIndicator(analysis, new("watch", "file-read-failed", "ファイルを安全に読み取れなかったため、内容を判定できません", "The file could not be read safely, so its content is indeterminate", 30));
+        LimitInspection(analysis, InspectionLimit.Everything, new("watch", "file-read-failed", "ファイルを安全に読み取れなかったため、内容を判定できません", "The file could not be read safely, so its content is indeterminate", 30));
         return analysis;
     }
 
@@ -1231,10 +1216,17 @@ public sealed class FileInspector
 
     internal static void PromoteInspectionLimits(ScanResult result)
     {
-        if (result.Files.Any(file => file.InspectionLimited))
-        {
-            MarkPartial(result, "One or more files reached an inspection limit, so the result is incomplete.");
-        }
+        // Anything that made the result partial before this point was a fact about the walk — a skipped
+        // reparse point, a directory that changed, a safety limit on enumeration — not about a file.
+        result.TraversalComplete = !result.IsPartial;
+
+        InspectionLimit limits = result.Limits;
+        if (limits == InspectionLimit.None) return;
+
+        string aspects = String.Join(", ", InspectionAspects.All
+            .Where(aspect => (limits & aspect) != 0)
+            .Select(aspect => InspectionAspects.Describe(aspect, japanese: false)));
+        MarkPartial(result, $"Not every file was fully examined ({aspects}).");
     }
 
     private static void ApplySignatureRisk(FileAnalysis analysis)
@@ -1263,6 +1255,17 @@ public sealed class FileInspector
 
     private static bool ShouldCheckSignature(FileAnalysis analysis) =>
         analysis.FileType == "Windows PE" || SignatureExtensions.Contains(GetInspectionExtension(analysis));
+
+    /// <summary>
+    /// Records that one aspect of a file was not examined, together with the reason the operator will read.
+    /// The two happen in one call on purpose: a limit the report never mentions is indistinguishable from a
+    /// clean result, and that silence is the failure this product exists to prevent.
+    /// </summary>
+    private static void LimitInspection(FileAnalysis analysis, InspectionLimit aspect, Indicator reason)
+    {
+        analysis.Limits |= aspect;
+        AddIndicator(analysis, reason);
+    }
 
     private static void AddIndicator(FileAnalysis analysis, Indicator indicator)
     {
