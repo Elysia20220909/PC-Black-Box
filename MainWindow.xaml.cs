@@ -452,6 +452,13 @@ public partial class MainWindow : Window
                     : $"{FileAnalysis.FormatSize(file.ArchiveContentScannedBytes)} scanned / total unknown";
             details.AppendLine($"{(IsJapanese ? "ZIP本文" : "ZIP BODY"),-10} {coverage}");
         }
+        if (file.NestedArchivesInspected > 0)
+        {
+            details.AppendLine($"{(IsJapanese ? "入れ子ZIP" : "NESTED ZIP"),-10} " +
+                (IsJapanese
+                    ? $"{file.NestedArchivesInspected}件 / {file.NestedArchiveEntriesInspected}項目 / 深さ{file.ArchiveMaxDepthInspected}"
+                    : $"{file.NestedArchivesInspected} archive(s) / {file.NestedArchiveEntriesInspected} entries / depth {file.ArchiveMaxDepthInspected}"));
+        }
         if (file.ShortcutTarget != "—")
         {
             details.AppendLine($"{(IsJapanese ? "起動先" : "TARGET"),-10} {file.ShortcutTarget}");

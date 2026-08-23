@@ -33,6 +33,13 @@ public static class ReportBuilder
                     : $"{FileAnalysis.FormatSize(result.ArchiveContentScannedBytes)} scanned / total unknown";
             builder.AppendLine($"- {(ja ? "ZIP内部本文の走査" : "ZIP entry-content scan")}: {archiveCoverage}");
         }
+        if (result.NestedArchivesInspected > 0)
+        {
+            builder.AppendLine($"- {(ja ? "入れ子ZIPの再帰調査" : "Nested ZIP recursion")}: " +
+                (ja
+                    ? $"{result.NestedArchivesInspected}件 / 内部{result.NestedArchiveEntriesInspected}項目 / 最大深さ{result.ArchiveMaxDepthInspected} / {FileAnalysis.FormatSize(result.NestedArchiveBytesInspected)}"
+                    : $"{result.NestedArchivesInspected} archive(s) / {result.NestedArchiveEntriesInspected} inner entries / depth {result.ArchiveMaxDepthInspected} / {FileAnalysis.FormatSize(result.NestedArchiveBytesInspected)}"));
+        }
         builder.AppendLine($"- {(ja ? "有効な署名" : "Valid signatures")}: {result.SignedCount}");
         builder.AppendLine($"- {(ja ? "アクティブコンテンツ" : "Active-content files")}: {result.ActiveContentCount}");
         if (result.IsPartial)
@@ -130,7 +137,7 @@ public static class ReportBuilder
         bool ja = !language.Equals("en", StringComparison.OrdinalIgnoreCase);
         var payload = new
         {
-            schema = "pc-black-box-report-v4",
+            schema = "pc-black-box-report-v5",
             generatedAt = DateTimeOffset.UtcNow,
             target = Clean(result.TargetName),
             security = new
@@ -163,6 +170,10 @@ public static class ReportBuilder
                 archiveContentTotalKnown = result.ArchiveContentTotalKnown,
                 archiveContentEligibleBytes = result.ArchiveContentTotalKnown ? result.ArchiveContentEligibleBytes : (long?)null,
                 archiveContentScannedBytes = result.ArchiveContentScannedBytes,
+                nestedArchivesInspected = result.NestedArchivesInspected,
+                nestedArchiveEntriesInspected = result.NestedArchiveEntriesInspected,
+                archiveMaxDepthInspected = result.ArchiveMaxDepthInspected,
+                nestedArchiveBytesInspected = result.NestedArchiveBytesInspected,
                 durationSeconds = Math.Round(result.Duration.TotalSeconds, 3)
             },
             files = result.Files.Select(file => new
@@ -185,6 +196,10 @@ public static class ReportBuilder
                 archiveContentTotalKnown = file.ArchiveContentTotalKnown,
                 archiveContentEligibleBytes = file.ArchiveContentTotalKnown ? file.ArchiveContentEligibleBytes : (long?)null,
                 archiveContentScannedBytes = file.ArchiveContentScannedBytes,
+                nestedArchivesInspected = file.NestedArchivesInspected,
+                nestedArchiveEntriesInspected = file.NestedArchiveEntriesInspected,
+                archiveMaxDepthInspected = file.ArchiveMaxDepthInspected,
+                nestedArchiveBytesInspected = file.NestedArchiveBytesInspected,
                 shortcutTarget = file.ShortcutTarget == "—" ? null : Clean(file.ShortcutTarget),
                 shortcutArguments = file.ShortcutArguments == "—" ? null : Clean(file.ShortcutArguments),
                 file.InspectionLimited,

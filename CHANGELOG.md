@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.10.0 — 2026-08-23
+
+- Added bounded recursive inspection for valid ZIP and ZIP-based package entries. Nested archives are held only in memory, never extracted or launched, and are recognized from either a ZIP-family name or a validated local-header/end-record pair.
+- Shared one fail-closed budget across the full archive tree: depth 3, 32 nested archives, 20,000 recursive entries, 32 MiB per nested archive, 128 MiB of nested buffers, 256 MiB of entry bodies and 30 seconds per top-level archive. Existing 1-GiB/120-second inspection-wide limits remain in force.
+- Kept unsupported, malformed, unreadable and over-limit nested content honest. RAR, 7-Zip, GZip, Cabinet, OLE and ISO interiors remain unopened; any unexamined interior preserves `INCOMPLETE` and an unknown archive-body denominator. A valid prefixed nested ZIP is still inspected, while its prefix is reported as unparsed.
+- Carried logical evidence paths such as `payload.dat!payload.ps1` through capability findings and added nested archive count, inner-entry count, maximum depth and inspected nested bytes to the window, Markdown and JSON reports. The JSON schema is now v5.
+- Replaced the old “nested ZIP is always unopened” fixture with target-free checks for disguised, misnamed and prefixed valid nested ZIPs, cross-level active-content accounting, depth, count and byte boundaries, malformed nested data, full recursive coverage, and the continued absence of extracted files. The product self-test now contains 88 checks.
+
 ## 0.9.0 — 2026-08-22
 
 - Stopped treating bytes before a ZIP payload as a type-evasion win. For ordinary ZIP and bounded ZIP64 terminal records, including records with extensible data, the physical record position and its relative offset recover the payload start; bounded preflight and the standard parser then operate through a read-only offset view. The archive body is still inspected, while the prefix itself is reported as unparsed and keeps the result `INCOMPLETE`. No entry is extracted or launched.

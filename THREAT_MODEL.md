@@ -24,7 +24,7 @@ PC Black Box gives the owner prioritized evidence about an untrusted local downl
 - Directory identity and write time are checked after enumeration and again after file inspection.
 - All loops, input sizes, filesystem entries, directory depth, retained paths, archive metadata, signature checks, text lengths, and regular-expression evaluation are bounded.
 - ZIP central-directory structure must pass bounded preflight before the standard archive parser can allocate entry objects.
-- ZIP entry bodies are read only through bounded streams and are never extracted to disk; declared size is reconciled with observed EOF, while unread bytes, unparsed prefixes, polyglot ambiguity, and nested archives remain explicitly incomplete.
+- ZIP entry bodies are read only through bounded streams and are never extracted to disk; declared size is reconciled with observed EOF. Valid nested ZIPs are recursively inspected in memory under shared depth, count, byte, entry, and time budgets, while unsupported, malformed, unread, or over-limit containers remain explicitly incomplete.
 - Reports exclude absolute paths and personal identifiers and are never written inside the inspected target.
 - No administrator privilege, UIAccess, external lookup, or child process is required. An elevated
   launch is refused rather than accommodated.
@@ -96,7 +96,7 @@ and reported as `unavailable` where it does not. Reinforcements are displayed, n
 - A local race that grows files after enumeration to exceed the cumulative read limit.
 - A folder that uses empty, unreadable, or linked entries and extreme path depth to exhaust traversal resources.
 - A ZIP that declares excessive entries or metadata, underreports central records, or embeds a fake EOCD to desynchronize parsers.
-- A ZIP that prepends junk before the real payload, underreports an entry body as zero, hides active content behind a Windows-normalized double extension, overlaps another primary format, prefixes a nested archive, or places a capability term across a decompression-chunk boundary.
+- A ZIP that prepends junk before the real payload, underreports an entry body as zero, hides active content behind a Windows-normalized double extension, overlaps another primary format, prefixes or deeply nests another ZIP, floods recursive containers, or places a capability term across a decompression-chunk boundary.
 - A local low-integrity or network location attempting to inject a native image.
 - A malicious working directory attempting DLL preloading.
 - A same-user process that tries to read inspected bytes out of this process's memory, patch its code,
@@ -150,8 +150,10 @@ would break the running product, and a control that cannot stay on is worse than
   hide an active extension, that no archive entry escapes onto disk, and that an already-canceled inspection
   ends without reading the target.
 - `--self-test` must recover a prefixed ZIP payload without extracting it, detect an internal double
-  extension, retain a capability term that crosses a ZIP entry-content chunk boundary, and keep a nested
-  ZIP incomplete even when its entry name has no archive extension.
+  extension, retain a capability term that crosses a ZIP entry-content chunk boundary, recursively inspect
+  a valid nested ZIP even when its entry name has no archive extension, and preserve its full logical path.
+- `--self-test` must reject a fourth nested ZIP level, the thirty-third nested ZIP, an over-buffer nested
+  ZIP, and a malformed named nested ZIP as `INCOMPLETE`, while proving that no nested entry is written beside the fixture.
 - `--self-test` must scan an entry whose central directory declares zero bytes, preserve the primary PDF
   side of a PDF+ZIP polyglot, keep a malformed ZIP-like tail incomplete, recover both fixed and extensible-data
   prefixed ZIP64 records, keep disguised nested OLE/ISO/PE content incomplete, and never render an unknown

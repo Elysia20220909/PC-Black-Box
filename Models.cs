@@ -30,6 +30,10 @@ public sealed class FileAnalysis
     public bool ArchiveContentTotalKnown { get; set; }
     public long ArchiveContentEligibleBytes { get; set; }
     public long ArchiveContentScannedBytes { get; set; }
+    public int NestedArchivesInspected { get; set; }
+    public int NestedArchiveEntriesInspected { get; set; }
+    public int ArchiveMaxDepthInspected { get; set; }
+    public long NestedArchiveBytesInspected { get; set; }
     public string ShortcutTarget { get; set; } = "—";
     public string ShortcutArguments { get; set; } = "—";
     public bool InspectionLimited { get; set; }
@@ -84,6 +88,10 @@ public sealed class ScanResult
         ArchiveContentScanApplicable && Files.Where(x => x.ArchiveContentScanApplicable).All(x => x.ArchiveContentTotalKnown);
     public long ArchiveContentEligibleBytes => SaturatingSum(Files.Select(x => x.ArchiveContentEligibleBytes));
     public long ArchiveContentScannedBytes => SaturatingSum(Files.Select(x => x.ArchiveContentScannedBytes));
+    public int NestedArchivesInspected => Files.Sum(x => x.NestedArchivesInspected);
+    public int NestedArchiveEntriesInspected => Files.Sum(x => x.NestedArchiveEntriesInspected);
+    public int ArchiveMaxDepthInspected => Files.Count == 0 ? 0 : Files.Max(x => x.ArchiveMaxDepthInspected);
+    public long NestedArchiveBytesInspected => SaturatingSum(Files.Select(x => x.NestedArchiveBytesInspected));
     public int RiskScore => Files.Count == 0 ? 0 : Files.Max(x => x.RiskScore);
     public string RiskCode => RiskScore >= 60 ? "HIGH" : RiskScore >= 25 ? "REVIEW" : Files.Any(x => x.Indicators.Count > 0) ? "LOW" : "CLEAR";
     public string CompletenessCode => IsPartial ? "INCOMPLETE" : "COMPLETE";

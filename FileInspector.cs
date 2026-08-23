@@ -52,6 +52,11 @@ public sealed class FileInspector
     internal const long MaxArchiveContentBytesPerEntry = 64L * 1024 * 1024;
     internal const long MaxArchiveContentBytesPerFile = 256L * 1024 * 1024;
     internal const long MaxArchiveContentBytesPerScan = 1024L * 1024 * 1024;
+    internal const int MaxNestedArchiveDepth = 3;
+    internal const int MaxNestedArchivesPerFile = 32;
+    internal const int MaxRecursiveArchiveEntriesPerFile = 20000;
+    internal const long MaxNestedArchiveBytes = 32L * 1024 * 1024;
+    internal const long MaxNestedArchiveBytesPerFile = 128L * 1024 * 1024;
     internal static readonly TimeSpan MaxArchiveContentTimePerFile = TimeSpan.FromSeconds(30);
     internal static readonly TimeSpan MaxArchiveContentTimePerScan = TimeSpan.FromSeconds(120);
     private static readonly TimeSpan RegexMatchTimeout = TimeSpan.FromSeconds(1);
@@ -920,107 +925,14 @@ public sealed class FileInspector
             return;
         }
 
+        var context = new ArchiveRecursionContext(analysis, archiveContentBudget, cancellationToken);
         try
         {
-            bool beginsWithZipPayload = BeginsWithZipPayload(stream);
-            using OffsetReadStream archiveStream = OpenValidatedZipPayload(stream, cancellationToken, out long prefixBytes);
-            analysis.ArchivePrefixBytes = prefixBytes;
-            analysis.ArchiveHasPrefix = prefixBytes > 0 || !beginsWithZipPayload;
-            if (analysis.ArchiveHasPrefix)
-            {
-                analysis.InspectionLimited = true;
-                AddIndicator(analysis, prefixBytes > 0
-                    ? new("watch", "archive-prefix", $"ZIP本体の前に{FileAnalysis.FormatSize(prefixBytes)}の未解釈データがあります", $"The ZIP payload has {FileAnalysis.FormatSize(prefixBytes)} of unparsed prefixed data", 22)
-                    : new("watch", "archive-prefix", "ZIP項目より前に未解釈データがあります", "Unparsed data appears before the ZIP entries", 22));
-            }
-
-            using var archive = new ZipArchive(archiveStream, ZipArchiveMode.Read, leaveOpen: true);
-            int activeEntries = 0;
-            int nestedArchives = 0;
-            bool traversal = false;
-            bool alternateStream = false;
-            bool linkEntry = false;
-            bool deceptiveName = false;
-            bool doubleExtension = false;
-            bool oversizedName = false;
-            bool normalizedName = false;
-            bool directoryData = false;
-            bool macro = false;
-            bool extremeRatio = false;
-            int count = 0;
-            long declaredBytes = 0;
-            var contentEntries = new List<ZipArchiveEntry>();
-
-            foreach (ZipArchiveEntry entry in archive.Entries)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                count++;
-                if (count > MaxArchiveEntries)
-                {
-                    analysis.InspectionLimited = true;
-                    AddIndicator(analysis, new("watch", "archive-limit", $"内部一覧は{MaxArchiveEntries}件で打ち切りました", $"Archive inspection stopped at {MaxArchiveEntries} entries", 10));
-                    break;
-                }
-
-                string entryPath = entry.FullName.Replace('\\', '/');
-                bool directoryEntry = entryPath.EndsWith("/", StringComparison.Ordinal);
-                contentEntries.Add(entry);
-                if (directoryEntry && entry.Length > 0) directoryData = true;
-                if (entry.Length > SecurityPolicy.MaxArchiveDeclaredBytes - declaredBytes)
-                {
-                    declaredBytes = SecurityPolicy.MaxArchiveDeclaredBytes + 1;
-                }
-                else
-                {
-                    declaredBytes += entry.Length;
-                }
-                if (IsExtremeCompressionEntry(entry)) extremeRatio = true;
-
-                if (entryPath.Length > MaxArchiveEntryNameChars)
-                {
-                    oversizedName = true;
-                    analysis.InspectionLimited = true;
-                    continue;
-                }
-                string[] segments = entryPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
-                if (entryPath.StartsWith('/') || ArchiveDrivePathPattern.IsMatch(entryPath) || segments.Any(segment => segment == "..")) traversal = true;
-                if (segments.Any(segment => segment.Contains(':'))) alternateStream = true;
-                if (SecurityPolicy.ContainsDirectionalOrInvisibleControl(entryPath)) deceptiveName = true;
-                string entryLeaf = Path.GetFileName(entryPath);
-                string normalizedLeaf = entryLeaf.TrimEnd(' ', '.');
-                if (!entryLeaf.Equals(normalizedLeaf, StringComparison.Ordinal)) normalizedName = true;
-                if (HasDoubleExtension(entryLeaf)) doubleExtension = true;
-                uint unixType = (unchecked((uint)entry.ExternalAttributes) >> 16) & 0xF000;
-                if (unixType == 0xA000 || (((FileAttributes)entry.ExternalAttributes) & FileAttributes.ReparsePoint) != 0) linkEntry = true;
-                string entryExtension = Path.GetExtension(normalizedLeaf);
-                if (IsActiveContentExtension(entryExtension)) activeEntries++;
-                if (IsNestedContainerExtension(entryExtension)) nestedArchives++;
-                if (entryPath.TrimEnd(' ', '.').EndsWith("vbaProject.bin", StringComparison.OrdinalIgnoreCase)) macro = true;
-            }
-
-            analysis.ArchiveEntries = Math.Min(count, MaxArchiveEntries);
-            if (traversal) AddIndicator(analysis, new("danger", "archive-traversal", "圧縮ファイルに展開先を逸脱するパスがあります", "The archive contains a path that can escape the extraction directory", 45));
-            if (alternateStream) AddIndicator(analysis, new("danger", "archive-ads", "圧縮ファイル内に代替データストリーム形式の名前があります", "The archive contains a name that can target an alternate data stream", 40));
-            if (linkEntry) AddIndicator(analysis, new("danger", "archive-link", "圧縮ファイル内にリンクまたは再解析ポイント形式の項目があります", "The archive contains a link or reparse-point entry", 40));
-            if (deceptiveName) AddIndicator(analysis, new("watch", "archive-unicode-control", "圧縮ファイル内の名前に不可視制御文字があります", "An archive entry name contains an invisible control character", 25));
-            if (doubleExtension) AddIndicator(analysis, new("danger", "archive-double-extension", "圧縮ファイル内に文書や画像を装う二重拡張子があります", "An archive entry uses a double extension to look like a document or image", 40));
-            if (oversizedName) AddIndicator(analysis, new("watch", "archive-name-limit", "安全上限を超える長い項目名があります", "An archive entry name exceeds the safety limit", 15));
-            if (normalizedName) AddIndicator(analysis, new("watch", "archive-windows-name-normalization", "Windowsで末尾の空白やドットが除かれる項目名があります", "An archive entry name loses trailing spaces or dots on Windows", 20));
-            if (directoryData) AddIndicator(analysis, new("watch", "archive-directory-data", "ディレクトリ名のZIP項目に本文データがあります", "A directory-named ZIP entry contains body data", 20));
-            if (extremeRatio || declaredBytes > SecurityPolicy.MaxArchiveDeclaredBytes)
-            {
-                analysis.InspectionLimited = true;
-                AddIndicator(analysis, new("danger", "archive-ratio", "展開後サイズまたは圧縮率が安全上限を超えています", "The declared expanded size or compression ratio exceeds the safety limit", 40));
-            }
-            if (macro) AddIndicator(analysis, new("watch", "office-macro", "Officeマクロを含みます", "The package contains an Office macro", 28));
-            if (activeEntries > 0) AddIndicator(analysis, new("watch", "archive-active-content", $"圧縮ファイル内に実行可能な内容が{activeEntries}件あります", $"The archive contains {activeEntries} active-content item(s)", Math.Min(25, 8 + activeEntries * 2)));
-            if (nestedArchives > 0)
-            {
-                analysis.InspectionLimited = true;
-                AddIndicator(analysis, new("watch", "nested-archive-unopened", $"内部の圧縮ファイル{nestedArchives}件は再帰展開していないため、その中身は未確認です", $"The {nestedArchives} nested archive(s) were not recursively opened, so their contents remain unchecked", 15));
-            }
-
-            InspectArchiveEntryBodies(contentEntries, archiveStream, analysis, archiveContentBudget, cancellationToken);
+            InspectZipPayload(stream, analysis, context, depth: 0, logicalArchivePath: String.Empty, topLevel: true);
+        }
+        catch (ArchiveContentTimeLimitException)
+        {
+            context.ReportTimeLimit();
         }
         catch (ArchiveSafetyLimitException)
         {
@@ -1042,6 +954,151 @@ public sealed class FileInspector
             analysis.InspectionLimited = true;
             AddIndicator(analysis, new("watch", "archive-read-error", "圧縮ファイルの内部確認を完了できませんでした", "Archive content inspection could not be completed", 12));
         }
+        finally
+        {
+            context.Complete();
+        }
+    }
+
+    /// <summary>
+    /// Reuses the same bounded preflight for every ZIP layer. Nested bytes stay in memory and are handed
+    /// back to this method as a read-only stream; no layer gains an extraction or execution path.
+    /// </summary>
+    private static void InspectZipPayload(
+        Stream source,
+        FileAnalysis analysis,
+        ArchiveRecursionContext context,
+        int depth,
+        string logicalArchivePath,
+        bool topLevel)
+    {
+        context.ThrowIfTimeExpired();
+        bool beginsWithZipPayload = BeginsWithZipPayload(source);
+        using OffsetReadStream archiveStream = OpenValidatedZipPayload(source, context.CancellationToken, out long prefixBytes);
+        bool hasPrefix = prefixBytes > 0 || !beginsWithZipPayload;
+        if (topLevel)
+        {
+            analysis.ArchivePrefixBytes = prefixBytes;
+            analysis.ArchiveHasPrefix = hasPrefix;
+            if (hasPrefix)
+            {
+                analysis.InspectionLimited = true;
+                AddIndicator(analysis, prefixBytes > 0
+                    ? new("watch", "archive-prefix", $"ZIP本体の前に{FileAnalysis.FormatSize(prefixBytes)}の未解釈データがあります", $"The ZIP payload has {FileAnalysis.FormatSize(prefixBytes)} of unparsed prefixed data", 22)
+                    : new("watch", "archive-prefix", "ZIP項目より前に未解釈データがあります", "Unparsed data appears before the ZIP entries", 22));
+            }
+        }
+        else if (hasPrefix)
+        {
+            string safePath = SecurityPolicy.SanitizeText(logicalArchivePath, 512);
+            analysis.InspectionLimited = true;
+            AddIndicator(analysis, new(
+                "watch",
+                "nested-archive-prefix",
+                $"入れ子ZIP「{safePath}」の本体より前に未解釈データがあります",
+                $"Nested ZIP '{safePath}' contains unparsed data before its ZIP payload",
+                18));
+        }
+
+        using var archive = new ZipArchive(archiveStream, ZipArchiveMode.Read, leaveOpen: true);
+        if (!topLevel)
+        {
+            context.RecordNestedArchive(depth, source.Length);
+        }
+        InspectZipEntries(archive, archiveStream, analysis, context, depth, logicalArchivePath, topLevel);
+    }
+
+    private static void InspectZipEntries(
+        ZipArchive archive,
+        OffsetReadStream archiveStream,
+        FileAnalysis analysis,
+        ArchiveRecursionContext context,
+        int depth,
+        string logicalArchivePath,
+        bool topLevel)
+    {
+        int activeEntries = 0;
+        bool traversal = false;
+        bool alternateStream = false;
+        bool linkEntry = false;
+        bool deceptiveName = false;
+        bool doubleExtension = false;
+        bool oversizedName = false;
+        bool normalizedName = false;
+        bool directoryData = false;
+        bool macro = false;
+        bool extremeRatio = false;
+        int count = 0;
+        long declaredBytes = 0;
+        var contentEntries = new List<ZipArchiveEntry>();
+
+        foreach (ZipArchiveEntry entry in archive.Entries)
+        {
+            context.ThrowIfTimeExpired();
+            count++;
+            if (count > MaxArchiveEntries)
+            {
+                context.MarkUnknown();
+                analysis.InspectionLimited = true;
+                AddIndicator(analysis, new("watch", "archive-limit", $"1つのZIP内部一覧は{MaxArchiveEntries}件で打ち切ります", $"Each ZIP entry list is limited to {MaxArchiveEntries} entries", 10));
+                break;
+            }
+            if (!context.TryVisitEntry()) break;
+
+            if (depth > 0) analysis.NestedArchiveEntriesInspected++;
+            string entryPath = entry.FullName.Replace('\\', '/');
+            bool directoryEntry = entryPath.EndsWith("/", StringComparison.Ordinal);
+            contentEntries.Add(entry);
+            if (directoryEntry && entry.Length > 0) directoryData = true;
+            if (entry.Length > SecurityPolicy.MaxArchiveDeclaredBytes - declaredBytes)
+            {
+                declaredBytes = SecurityPolicy.MaxArchiveDeclaredBytes + 1;
+            }
+            else
+            {
+                declaredBytes += entry.Length;
+            }
+            if (IsExtremeCompressionEntry(entry)) extremeRatio = true;
+
+            if (entryPath.Length > MaxArchiveEntryNameChars)
+            {
+                oversizedName = true;
+                analysis.InspectionLimited = true;
+                continue;
+            }
+            string[] segments = entryPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            if (entryPath.StartsWith('/') || ArchiveDrivePathPattern.IsMatch(entryPath) || segments.Any(segment => segment == "..")) traversal = true;
+            if (segments.Any(segment => segment.Contains(':'))) alternateStream = true;
+            if (SecurityPolicy.ContainsDirectionalOrInvisibleControl(entryPath)) deceptiveName = true;
+            string entryLeaf = Path.GetFileName(entryPath);
+            string normalizedLeaf = entryLeaf.TrimEnd(' ', '.');
+            if (!entryLeaf.Equals(normalizedLeaf, StringComparison.Ordinal)) normalizedName = true;
+            if (HasDoubleExtension(entryLeaf)) doubleExtension = true;
+            uint unixType = (unchecked((uint)entry.ExternalAttributes) >> 16) & 0xF000;
+            if (unixType == 0xA000 || (((FileAttributes)entry.ExternalAttributes) & FileAttributes.ReparsePoint) != 0) linkEntry = true;
+            string entryExtension = Path.GetExtension(normalizedLeaf);
+            if (IsActiveContentExtension(entryExtension)) activeEntries++;
+            if (entryPath.TrimEnd(' ', '.').EndsWith("vbaProject.bin", StringComparison.OrdinalIgnoreCase)) macro = true;
+        }
+
+        if (topLevel) analysis.ArchiveEntries = Math.Min(count, MaxArchiveEntries);
+        if (traversal) AddIndicator(analysis, new("danger", "archive-traversal", "圧縮ファイルに展開先を逸脱するパスがあります", "The archive contains a path that can escape the extraction directory", 45));
+        if (alternateStream) AddIndicator(analysis, new("danger", "archive-ads", "圧縮ファイル内に代替データストリーム形式の名前があります", "The archive contains a name that can target an alternate data stream", 40));
+        if (linkEntry) AddIndicator(analysis, new("danger", "archive-link", "圧縮ファイル内にリンクまたは再解析ポイント形式の項目があります", "The archive contains a link or reparse-point entry", 40));
+        if (deceptiveName) AddIndicator(analysis, new("watch", "archive-unicode-control", "圧縮ファイル内の名前に不可視制御文字があります", "An archive entry name contains an invisible control character", 25));
+        if (doubleExtension) AddIndicator(analysis, new("danger", "archive-double-extension", "圧縮ファイル内に文書や画像を装う二重拡張子があります", "An archive entry uses a double extension to look like a document or image", 40));
+        if (oversizedName) AddIndicator(analysis, new("watch", "archive-name-limit", "安全上限を超える長い項目名があります", "An archive entry name exceeds the safety limit", 15));
+        if (normalizedName) AddIndicator(analysis, new("watch", "archive-windows-name-normalization", "Windowsで末尾の空白やドットが除かれる項目名があります", "An archive entry name loses trailing spaces or dots on Windows", 20));
+        if (directoryData) AddIndicator(analysis, new("watch", "archive-directory-data", "ディレクトリ名のZIP項目に本文データがあります", "A directory-named ZIP entry contains body data", 20));
+        if (extremeRatio || declaredBytes > SecurityPolicy.MaxArchiveDeclaredBytes)
+        {
+            context.MarkUnknown();
+            analysis.InspectionLimited = true;
+            AddIndicator(analysis, new("danger", "archive-ratio", "展開後サイズまたは圧縮率が安全上限を超えています", "The declared expanded size or compression ratio exceeds the safety limit", 40));
+        }
+        if (macro) AddIndicator(analysis, new("watch", "office-macro", "Officeマクロを含みます", "The package contains an Office macro", 28));
+        context.RecordActiveEntries(activeEntries);
+        InspectArchiveEntryBodies(contentEntries, archiveStream, analysis, context, depth, logicalArchivePath);
     }
 
     private static OffsetReadStream OpenValidatedZipPayload(Stream stream, CancellationToken cancellationToken, out long prefixBytes)
@@ -1224,13 +1281,12 @@ public sealed class FileInspector
         IReadOnlyCollection<ZipArchiveEntry> entries,
         OffsetReadStream archiveStream,
         FileAnalysis analysis,
-        ArchiveContentScanBudget budget,
-        CancellationToken cancellationToken)
+        ArchiveRecursionContext context,
+        int depth,
+        string logicalArchivePath)
     {
-        analysis.ArchiveContentScanApplicable = entries.Count > 0;
-        analysis.ArchiveContentTotalKnown = false;
-        analysis.ArchiveContentEligibleBytes = 0;
         if (entries.Count == 0) return;
+        context.MarkEntryBodiesSeen();
 
         List<ZipArchiveEntry> orderedEntries = entries
             .OrderByDescending(ArchiveEntryPriority)
@@ -1238,47 +1294,29 @@ public sealed class FileInspector
             .ThenBy(entry => entry.FullName, StringComparer.OrdinalIgnoreCase)
             .ToList();
         byte[] buffer = new byte[ArchiveContentChunkBytes + ArchiveContentOverlapBytes];
-        var matchedCapabilityScores = new Dictionary<string, int>(StringComparer.Ordinal);
-        bool pdfActiveMatched = false;
         bool readFailed = false;
         bool contentLimited = false;
-        bool allEntriesReachedEof = true;
-        Stopwatch timer = Stopwatch.StartNew();
-        archiveStream.SetReadGuard(
-            () =>
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (timer.Elapsed >= MaxArchiveContentTimePerFile || budget.Elapsed + timer.Elapsed >= MaxArchiveContentTimePerScan)
-                {
-                    throw new ArchiveContentTimeLimitException();
-                }
-            },
-            ArchiveCompressedReadChunkBytes);
+        archiveStream.SetReadGuard(context.ThrowIfTimeExpired, ArchiveCompressedReadChunkBytes);
 
         try
         {
             foreach (ZipArchiveEntry entry in orderedEntries)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (timer.Elapsed >= MaxArchiveContentTimePerFile || budget.Elapsed + timer.Elapsed >= MaxArchiveContentTimePerScan)
-                {
-                    MarkArchiveContentLimited(analysis, "archive-content-time", "ZIP内部本文の走査が時間上限に達しました", "ZIP entry-content scanning reached its time limit");
-                    return;
-                }
+                context.ThrowIfTimeExpired();
 
                 if (IsExtremeCompressionEntry(entry))
                 {
-                    allEntriesReachedEof = false;
+                    context.MarkUnknown();
                     contentLimited = true;
                     continue;
                 }
 
                 long remainingFileBytes = Math.Max(0, MaxArchiveContentBytesPerFile - analysis.ArchiveContentScannedBytes);
-                long remainingScanBytes = Math.Max(0, MaxArchiveContentBytesPerScan - budget.BytesScanned);
+                long remainingScanBytes = Math.Max(0, MaxArchiveContentBytesPerScan - context.Budget.BytesScanned);
                 long entryLimit = Math.Min(MaxArchiveContentBytesPerEntry, Math.Min(remainingFileBytes, remainingScanBytes));
                 if (entryLimit == 0)
                 {
-                    allEntriesReachedEof = false;
+                    context.MarkUnknown();
                     contentLimited = true;
                     break;
                 }
@@ -1288,23 +1326,20 @@ public sealed class FileInspector
                 var nestedProbe = new NestedContainerProbe();
                 bool reachedEof = false;
                 bool entryReadFailed = false;
+                string logicalEntryPath = BuildArchiveEntryPath(logicalArchivePath, entry.FullName);
+                using var nestedCapture = new NestedArchiveCapture(MaxNestedArchiveBytes);
                 try
                 {
                     using Stream entryStream = entry.Open();
                     while (true)
                     {
-                        cancellationToken.ThrowIfCancellationRequested();
-                        if (timer.Elapsed >= MaxArchiveContentTimePerFile || budget.Elapsed + timer.Elapsed >= MaxArchiveContentTimePerScan)
-                        {
-                            MarkArchiveContentLimited(analysis, "archive-content-time", "ZIP内部本文の走査が時間上限に達しました", "ZIP entry-content scanning reached its time limit");
-                            return;
-                        }
+                        context.ThrowIfTimeExpired();
 
                         long entryRemaining = entryLimit - entryScanned;
                         if (entryRemaining <= 0)
                         {
                             long remainingFileProbe = MaxArchiveContentBytesPerFile - analysis.ArchiveContentScannedBytes;
-                            long remainingScanProbe = MaxArchiveContentBytesPerScan - budget.BytesScanned;
+                            long remainingScanProbe = MaxArchiveContentBytesPerScan - context.Budget.BytesScanned;
                             if (remainingFileProbe <= 0 || remainingScanProbe <= 0) break;
 
                             int probe = entryStream.ReadByte();
@@ -1320,12 +1355,12 @@ public sealed class FileInspector
                                     overlap,
                                     1,
                                     entry,
-                                    matchedCapabilityScores,
+                                    logicalEntryPath,
                                     analysis,
-                                    budget,
+                                    context,
+                                    nestedCapture,
                                     ref entryScanned,
-                                    ref nestedProbe,
-                                    ref pdfActiveMatched);
+                                    ref nestedProbe);
                             }
                             break;
                         }
@@ -1343,17 +1378,17 @@ public sealed class FileInspector
                             overlap,
                             read,
                             entry,
-                            matchedCapabilityScores,
+                            logicalEntryPath,
                             analysis,
-                            budget,
+                            context,
+                            nestedCapture,
                             ref entryScanned,
-                            ref nestedProbe,
-                            ref pdfActiveMatched);
+                            ref nestedProbe);
                     }
                 }
                 catch (ArchiveContentTimeLimitException)
                 {
-                    MarkArchiveContentLimited(analysis, "archive-content-time", "ZIP内部本文の走査が時間上限に達しました", "ZIP entry-content scanning reached its time limit");
+                    context.ReportTimeLimit();
                     return;
                 }
                 catch (Exception exception) when (exception is InvalidDataException or IOException or NotSupportedException)
@@ -1369,7 +1404,7 @@ public sealed class FileInspector
 
                 if (entryReadFailed)
                 {
-                    allEntriesReachedEof = false;
+                    context.MarkUnknown();
                     contentLimited = true;
                     continue;
                 }
@@ -1381,27 +1416,52 @@ public sealed class FileInspector
                 }
                 if (!reachedEof)
                 {
-                    allEntriesReachedEof = false;
+                    context.MarkUnknown();
                     contentLimited = true;
+                    if (ZipPackageExtensions.Contains(GetArchiveEntryExtension(entry.FullName)) || nestedProbe.PotentialZip)
+                    {
+                        MarkNestedArchiveLimited(analysis, context, "nested-archive-buffer-limit", logicalEntryPath,
+                            "入れ子ZIPを完全に読み取れず、内部解析を開始できませんでした",
+                            "A nested ZIP could not be read completely, so its internal inspection did not start");
+                    }
+                    continue;
                 }
-            }
 
-            if (allEntriesReachedEof)
-            {
-                analysis.ArchiveContentEligibleBytes = analysis.ArchiveContentScannedBytes;
-                analysis.ArchiveContentTotalKnown = true;
+                string entryExtension = GetArchiveEntryExtension(entry.FullName);
+                bool zipCandidate = ZipPackageExtensions.Contains(entryExtension) || nestedProbe.ZipDetected;
+                bool unsupportedContent = nestedProbe.OtherHeaderSeen ||
+                    (IsUnsupportedNestedContainerExtension(entryExtension) && !zipCandidate);
+                if (unsupportedContent)
+                {
+                    context.MarkUnknown();
+                    analysis.InspectionLimited = true;
+                    AddIndicator(analysis, new("watch", "nested-archive-unopened", "ZIP内部に未対応の書庫・イメージ形式があり、その中身は未確認です", "A ZIP entry contains an unsupported archive or image format whose contents remain unchecked", 15));
+                }
+
+                if (zipCandidate)
+                {
+                    if (nestedCapture.IsTruncated)
+                    {
+                        MarkNestedArchiveLimited(analysis, context, "nested-archive-buffer-limit", logicalEntryPath,
+                            $"入れ子ZIPは1件{FileAnalysis.FormatSize(MaxNestedArchiveBytes)}までメモリ内で解析します",
+                            $"A nested ZIP is inspected in memory up to {FileAnalysis.FormatSize(MaxNestedArchiveBytes)}");
+                    }
+                    else
+                    {
+                        TryInspectNestedArchive(nestedCapture, analysis, context, depth + 1, logicalEntryPath);
+                    }
+                }
             }
         }
         catch (RegexMatchTimeoutException)
         {
+            context.MarkUnknown();
             MarkArchiveContentLimited(analysis, "archive-regex-time-limit", "ZIP内部本文の能力語照合が時間上限に達しました", "ZIP entry capability matching reached its time limit");
             return;
         }
         finally
         {
             archiveStream.ClearReadGuard();
-            timer.Stop();
-            budget.Elapsed += timer.Elapsed;
         }
 
         if (readFailed)
@@ -1410,7 +1470,7 @@ public sealed class FileInspector
         }
         if (contentLimited)
         {
-            if (budget.BytesScanned >= MaxArchiveContentBytesPerScan)
+            if (context.Budget.BytesScanned >= MaxArchiveContentBytesPerScan)
             {
                 MarkArchiveContentLimited(
                     analysis,
@@ -1434,24 +1494,20 @@ public sealed class FileInspector
         int overlap,
         int read,
         ZipArchiveEntry entry,
-        Dictionary<string, int> matchedCapabilityScores,
+        string logicalEntryPath,
         FileAnalysis analysis,
-        ArchiveContentScanBudget budget,
+        ArchiveRecursionContext context,
+        NestedArchiveCapture nestedCapture,
         ref long entryScanned,
-        ref NestedContainerProbe nestedProbe,
-        ref bool pdfActiveMatched)
+        ref NestedContainerProbe nestedProbe)
     {
         long chunkStart = Math.Max(0, entryScanned - overlap);
+        nestedCapture.Append(buffer.AsSpan(overlap, read));
         entryScanned += read;
         analysis.ArchiveContentScannedBytes += read;
-        budget.BytesScanned += read;
+        context.Budget.BytesScanned += read;
         int available = overlap + read;
         UpdateNestedContainerProbe(buffer.AsSpan(0, available), chunkStart, ref nestedProbe);
-        if (nestedProbe.IsDetected)
-        {
-            analysis.InspectionLimited = true;
-            AddIndicator(analysis, new("watch", "nested-archive-unopened", "ZIP内部に別の書庫・イメージ形式があり、その中身は再帰的に開いていません", "A ZIP entry contains another archive or image format that was not recursively opened", 15));
-        }
         if (nestedProbe.ActivePayloadSeen)
         {
             analysis.InspectionLimited = true;
@@ -1460,10 +1516,10 @@ public sealed class FileInspector
         MatchArchiveCapabilityChunk(
             buffer,
             available,
-            entry,
-            matchedCapabilityScores,
+            logicalEntryPath,
+            context,
             analysis,
-            ref pdfActiveMatched);
+            GetArchiveEntryExtension(entry.FullName));
         int nextOverlap = Math.Min(ArchiveContentOverlapBytes, available);
         Buffer.BlockCopy(buffer, available - nextOverlap, buffer, 0, nextOverlap);
         return nextOverlap;
@@ -1472,10 +1528,10 @@ public sealed class FileInspector
     private static void MatchArchiveCapabilityChunk(
         byte[] buffer,
         int available,
-        ZipArchiveEntry entry,
-        Dictionary<string, int> matchedCapabilityScores,
+        string logicalEntryPath,
+        ArchiveRecursionContext context,
         FileAnalysis analysis,
-        ref bool pdfActiveMatched)
+        string extension)
     {
         string ascii = Encoding.Latin1.GetString(buffer, 0, available);
         int evenUnicodeBytes = available & ~1;
@@ -1483,18 +1539,17 @@ public sealed class FileInspector
         int oddUnicodeBytes = (available - 1) & ~1;
         string unicodeOdd = oddUnicodeBytes >= 2 ? Encoding.Unicode.GetString(buffer, 1, oddUnicodeBytes) : String.Empty;
         string searchable = ascii + "\n" + unicodeEven + "\n" + unicodeOdd;
-        string safeEntryName = SecurityPolicy.SanitizeText(entry.FullName.Replace('\\', '/'), 512);
-        string extension = GetArchiveEntryExtension(entry.FullName);
+        string safeEntryName = SecurityPolicy.SanitizeText(logicalEntryPath, 512);
         bool fullWeight = ScriptExtensions.Contains(extension) || extension.Equals(".lnk", StringComparison.OrdinalIgnoreCase);
 
         foreach (var capability in CapabilityPatterns)
         {
-            if (matchedCapabilityScores.TryGetValue(capability.Code, out int previousScore) && previousScore >= capability.Score) continue;
+            if (context.MatchedCapabilityScores.TryGetValue(capability.Code, out int previousScore) && previousScore >= capability.Score) continue;
             if (!capability.Pattern.IsMatch(searchable)) continue;
             int score = fullWeight ? capability.Score : Math.Max(4, capability.Score / 2);
             if (previousScore >= score) continue;
 
-            matchedCapabilityScores[capability.Code] = score;
+            context.MatchedCapabilityScores[capability.Code] = score;
             string indicatorCode = "archive-entry-" + capability.Code;
             analysis.Indicators.RemoveAll(indicator => indicator.Code.Equals(indicatorCode, StringComparison.OrdinalIgnoreCase));
             AddIndicator(analysis, new(
@@ -1509,22 +1564,82 @@ public sealed class FileInspector
                 score));
         }
 
-        if (!pdfActiveMatched && extension.Equals(".pdf", StringComparison.OrdinalIgnoreCase) && PdfActivePattern.IsMatch(ascii))
+        if (!context.PdfActiveMatched && extension.Equals(".pdf", StringComparison.OrdinalIgnoreCase) && PdfActivePattern.IsMatch(ascii))
         {
-            pdfActiveMatched = true;
+            context.PdfActiveMatched = true;
             AddIndicator(analysis, new("watch", "archive-entry-pdf-active-action", $"ZIP内のPDF「{safeEntryName}」にJavaScriptまたは自動起動アクションの兆候があります", $"PDF archive entry '{safeEntryName}' contains an indicator of JavaScript or an automatic launch action", 28));
         }
+    }
+
+    private static void TryInspectNestedArchive(
+        NestedArchiveCapture capture,
+        FileAnalysis analysis,
+        ArchiveRecursionContext context,
+        int depth,
+        string logicalEntryPath)
+    {
+        if (!context.TryReserveNestedArchive(depth, capture.Length, logicalEntryPath)) return;
+
+        try
+        {
+            using Stream nestedStream = capture.OpenRead();
+            InspectZipPayload(nestedStream, analysis, context, depth, logicalEntryPath, topLevel: false);
+        }
+        catch (ArchiveContentTimeLimitException)
+        {
+            context.ReportTimeLimit();
+        }
+        catch (ArchiveSafetyLimitException)
+        {
+            MarkNestedArchiveLimited(analysis, context, "nested-archive-directory-limit", logicalEntryPath,
+                "入れ子ZIPの中央ディレクトリが安全上限を超えました",
+                "A nested ZIP central directory exceeded the safety boundary");
+        }
+        catch (Exception exception) when (exception is InvalidDataException or OverflowException)
+        {
+            MarkNestedArchiveLimited(analysis, context, "invalid-nested-archive", logicalEntryPath,
+                "入れ子ZIPを正常なZIP形式として読み取れませんでした",
+                "A nested ZIP could not be read as a valid ZIP archive");
+        }
+        catch (Exception exception) when (exception is IOException or NotSupportedException)
+        {
+            MarkNestedArchiveLimited(analysis, context, "nested-archive-read-error", logicalEntryPath,
+                "入れ子ZIPの内部確認を完了できませんでした",
+                "Nested ZIP inspection could not be completed");
+        }
+    }
+
+    private static void MarkNestedArchiveLimited(
+        FileAnalysis analysis,
+        ArchiveRecursionContext context,
+        string code,
+        string logicalEntryPath,
+        string japanese,
+        string english)
+    {
+        context.MarkUnknown();
+        analysis.InspectionLimited = true;
+        string safePath = SecurityPolicy.SanitizeText(logicalEntryPath, 512);
+        AddIndicator(analysis, new("watch", code, $"{japanese}: 「{safePath}」", $"{english}: '{safePath}'", 15));
+    }
+
+    private static string BuildArchiveEntryPath(string logicalArchivePath, string entryName)
+    {
+        string normalizedEntry = entryName.Replace('\\', '/');
+        return String.IsNullOrEmpty(logicalArchivePath)
+            ? normalizedEntry
+            : logicalArchivePath + "!" + normalizedEntry;
     }
 
     private static int ArchiveEntryPriority(ZipArchiveEntry entry)
     {
         string extension = GetArchiveEntryExtension(entry.FullName);
+        if (ZipPackageExtensions.Contains(extension)) return 3;
         if (IsActiveContentExtension(extension) || extension.Equals(".pdf", StringComparison.OrdinalIgnoreCase)) return 2;
         return extension.ToLowerInvariant() is ".txt" or ".xml" or ".json" or ".config" or ".ini" or ".yml" or ".yaml" ? 1 : 0;
     }
 
-    private static bool IsNestedContainerExtension(string extension) =>
-        ZipPackageExtensions.Contains(extension) ||
+    private static bool IsUnsupportedNestedContainerExtension(string extension) =>
         extension.ToLowerInvariant() is ".rar" or ".7z" or ".gz" or ".iso" or ".img" or ".cab";
 
     private static string GetArchiveEntryExtension(string entryPath) =>
@@ -1972,13 +2087,184 @@ public sealed class FileInspector
         public TimeSpan Elapsed { get; set; }
     }
 
+    /// <summary>
+    /// Owns the one set of mutable limits and coverage evidence for a top-level ZIP and its descendants.
+    /// Keeping these values together prevents each child archive from resetting a budget or claiming its
+    /// local EOF as proof that the entire tree was covered.
+    /// </summary>
+    private sealed class ArchiveRecursionContext
+    {
+        private readonly FileAnalysis _analysis;
+        private readonly Stopwatch _timer = Stopwatch.StartNew();
+        private int _entriesVisited;
+        private int _activeEntries;
+        private int _nestedArchiveReservations;
+        private long _nestedArchiveBytesReserved;
+        private bool _completed;
+
+        public ArchiveRecursionContext(
+            FileAnalysis analysis,
+            ArchiveContentScanBudget budget,
+            CancellationToken cancellationToken)
+        {
+            _analysis = analysis;
+            Budget = budget;
+            CancellationToken = cancellationToken;
+        }
+
+        public ArchiveContentScanBudget Budget { get; }
+        public CancellationToken CancellationToken { get; }
+        public Dictionary<string, int> MatchedCapabilityScores { get; } = new(StringComparer.Ordinal);
+        public bool PdfActiveMatched { get; set; }
+        public bool EntryBodiesSeen { get; private set; }
+        public bool AllEntryBodiesKnown { get; private set; } = true;
+        public bool TimeLimitReached { get; private set; }
+
+        public void ThrowIfTimeExpired()
+        {
+            CancellationToken.ThrowIfCancellationRequested();
+            if (TimeLimitReached ||
+                _timer.Elapsed >= MaxArchiveContentTimePerFile ||
+                Budget.Elapsed + _timer.Elapsed >= MaxArchiveContentTimePerScan)
+            {
+                TimeLimitReached = true;
+                MarkUnknown();
+                throw new ArchiveContentTimeLimitException();
+            }
+        }
+
+        public bool TryVisitEntry()
+        {
+            if (_entriesVisited >= MaxRecursiveArchiveEntriesPerFile)
+            {
+                MarkUnknown();
+                _analysis.InspectionLimited = true;
+                AddIndicator(_analysis, new(
+                    "watch",
+                    "nested-archive-entry-limit",
+                    $"再帰ZIP調査は1ファイル合計{MaxRecursiveArchiveEntriesPerFile}項目までです",
+                    $"Recursive ZIP inspection is limited to {MaxRecursiveArchiveEntriesPerFile} entries per file",
+                    12));
+                return false;
+            }
+
+            _entriesVisited++;
+            return true;
+        }
+
+        public bool TryReserveNestedArchive(int depth, long bytes, string logicalEntryPath)
+        {
+            if (depth > MaxNestedArchiveDepth)
+            {
+                MarkNestedArchiveLimited(_analysis, this, "nested-archive-depth-limit", logicalEntryPath,
+                    $"入れ子ZIPは深さ{MaxNestedArchiveDepth}まで解析します",
+                    $"Nested ZIP inspection is limited to depth {MaxNestedArchiveDepth}");
+                return false;
+            }
+            if (_nestedArchiveReservations >= MaxNestedArchivesPerFile)
+            {
+                MarkNestedArchiveLimited(_analysis, this, "nested-archive-count-limit", logicalEntryPath,
+                    $"入れ子ZIPは1ファイル{MaxNestedArchivesPerFile}件まで解析します",
+                    $"Nested ZIP inspection is limited to {MaxNestedArchivesPerFile} archives per file");
+                return false;
+            }
+            if (bytes > MaxNestedArchiveBytes || bytes > MaxNestedArchiveBytesPerFile - _nestedArchiveBytesReserved)
+            {
+                MarkNestedArchiveLimited(_analysis, this, "nested-archive-byte-limit", logicalEntryPath,
+                    $"入れ子ZIPの保持量は1件{FileAnalysis.FormatSize(MaxNestedArchiveBytes)}、1ファイル合計{FileAnalysis.FormatSize(MaxNestedArchiveBytesPerFile)}までです",
+                    $"Nested ZIP buffering is limited to {FileAnalysis.FormatSize(MaxNestedArchiveBytes)} per archive and {FileAnalysis.FormatSize(MaxNestedArchiveBytesPerFile)} per file");
+                return false;
+            }
+
+            _nestedArchiveReservations++;
+            _nestedArchiveBytesReserved += bytes;
+            return true;
+        }
+
+        public void RecordNestedArchive(int depth, long bytes)
+        {
+            _analysis.NestedArchivesInspected++;
+            _analysis.ArchiveMaxDepthInspected = Math.Max(_analysis.ArchiveMaxDepthInspected, depth);
+            _analysis.NestedArchiveBytesInspected = SaturatingAdd(_analysis.NestedArchiveBytesInspected, bytes);
+        }
+
+        public void RecordActiveEntries(int count)
+        {
+            if (count <= 0) return;
+            _activeEntries = Math.Min(MaxRecursiveArchiveEntriesPerFile, _activeEntries + count);
+            _analysis.Indicators.RemoveAll(indicator => indicator.Code.Equals("archive-active-content", StringComparison.OrdinalIgnoreCase));
+            AddIndicator(_analysis, new(
+                "watch",
+                "archive-active-content",
+                $"圧縮ファイル内に実行可能な内容が{_activeEntries}件あります",
+                $"The archive contains {_activeEntries} active-content item(s)",
+                Math.Min(25, 8 + _activeEntries * 2)));
+        }
+
+        public void MarkEntryBodiesSeen() => EntryBodiesSeen = true;
+
+        public void MarkUnknown() => AllEntryBodiesKnown = false;
+
+        public void ReportTimeLimit()
+        {
+            TimeLimitReached = true;
+            MarkUnknown();
+            MarkArchiveContentLimited(_analysis, "archive-content-time", "再帰ZIP本文の走査が時間上限に達しました", "Recursive ZIP entry-content scanning reached its time limit");
+        }
+
+        public void Complete()
+        {
+            if (_completed) return;
+            _completed = true;
+            _timer.Stop();
+            Budget.Elapsed += _timer.Elapsed;
+            _analysis.ArchiveContentScanApplicable = EntryBodiesSeen;
+            _analysis.ArchiveContentTotalKnown = EntryBodiesSeen && AllEntryBodiesKnown;
+            _analysis.ArchiveContentEligibleBytes = _analysis.ArchiveContentTotalKnown
+                ? _analysis.ArchiveContentScannedBytes
+                : 0;
+        }
+
+        private static long SaturatingAdd(long left, long right) =>
+            right > Int64.MaxValue - left ? Int64.MaxValue : left + right;
+    }
+
+    /// <summary>Holds at most one bounded entry body in memory long enough to validate it as a child ZIP.</summary>
+    private sealed class NestedArchiveCapture(long byteLimit) : IDisposable
+    {
+        private readonly MemoryStream _buffer = new();
+
+        public long Length => _buffer.Length;
+        public bool IsTruncated { get; private set; }
+
+        public void Append(ReadOnlySpan<byte> bytes)
+        {
+            long remaining = byteLimit - _buffer.Length;
+            if (remaining > 0)
+            {
+                _buffer.Write(bytes[..checked((int)Math.Min(bytes.Length, remaining))]);
+            }
+            if (bytes.Length > remaining) IsTruncated = true;
+        }
+
+        public Stream OpenRead() => new MemoryStream(
+            _buffer.GetBuffer(),
+            0,
+            checked((int)_buffer.Length),
+            writable: false,
+            publiclyVisible: false);
+
+        public void Dispose() => _buffer.Dispose();
+    }
+
     private struct NestedContainerProbe
     {
         public bool ZipHeaderSeen { get; set; }
         public bool ZipEndSeen { get; set; }
         public bool OtherHeaderSeen { get; set; }
         public bool ActivePayloadSeen { get; set; }
-        public readonly bool IsDetected => (ZipHeaderSeen && ZipEndSeen) || OtherHeaderSeen;
+        public readonly bool ZipDetected => ZipHeaderSeen && ZipEndSeen;
+        public readonly bool PotentialZip => ZipHeaderSeen || ZipEndSeen;
     }
 
     private sealed class OffsetReadStream(Stream source, long offset) : Stream
