@@ -117,7 +117,12 @@ internal static class ProductSelfTest
             Require(TestOleCompoundIsScannedAndNeverComplete(), ref checks);
             Require(TestOversizedLinkInfoStillYieldsTheCommandLine(), ref checks);
             Require(TestUnopenedContainerIsNeverClear(), ref checks);
+            Require(TestUnexaminedAspectsStayApart(), ref checks);
+            Require(TestUnreadableFileKeepsNoAspect(), ref checks);
             Require(TestArchiveFindingsWithoutExtraction(), ref checks);
+            Require(TestHonestActiveEntryDoesNotClaimHiddenPayload(), ref checks);
+            Require(TestContentBudgetReportsUnreadEntryTail(), ref checks);
+            Require(TestEmbeddedArchiveRiskNeedsCorroboration(), ref checks);
             Require(TestArchiveCapabilityFindingUpgradesToActiveEntry(), ref checks);
             Require(TestDirectoryNamedArchiveEntryBodyIsScanned(), ref checks);
             Require(TestUnderreportedArchiveEntryBodyIsStillScanned(), ref checks);
@@ -238,7 +243,7 @@ internal static class ProductSelfTest
         return markdown.IndexOf(result.TargetPath, StringComparison.OrdinalIgnoreCase) < 0 &&
                json.IndexOf(result.TargetPath, StringComparison.OrdinalIgnoreCase) < 0 &&
                markdown.Contains("folder/name'\uFFFD\uFFFD.ps1", StringComparison.Ordinal) &&
-               document.RootElement.GetProperty("schema").GetString() is "pc-black-box-report-v5" &&
+               document.RootElement.GetProperty("schema").GetString() is "pc-black-box-report-v6" &&
                document.RootElement.GetProperty("files")[0].GetProperty("path").GetString()
                    is "folder|name`\uFFFD\uFFFD.ps1";
     }
@@ -472,7 +477,7 @@ internal static class ProductSelfTest
             ArchiveContentScanApplicable = true,
             ArchiveContentTotalKnown = false,
             ArchiveContentScannedBytes = FileInspector.MaxArchiveContentBytesPerEntry,
-            InspectionLimited = true
+            Limits = InspectionLimit.Content
         });
 
         string report = ReportBuilder.Build(result, "en");
@@ -724,6 +729,60 @@ internal static class ProductSelfTest
         });
 
     /// <summary>
+    /// A container that was never opened must limit the structure aspect and nothing else. Collapsing the
+    /// four aspects into one word is what would make INCOMPLETE routine, and a routine warning is ignored.
+    /// </summary>
+    private static bool TestUnexaminedAspectsStayApart() =>
+        WithFixtureDirectory(directory =>
+        {
+            File.WriteAllBytes(Path.Combine(directory, "archive.7z"), [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C, 0x00, 0x04]);
+            File.WriteAllText(Path.Combine(directory, "notes.txt"), "ordinary text");
+
+            ScanResult result = Inspect(directory);
+            if (result.Files.Count != 2) return false;
+
+            using JsonDocument document = JsonDocument.Parse(ReportBuilder.BuildJson(result, "en"));
+            JsonElement unexamined = document.RootElement.GetProperty("result").GetProperty("unexamined");
+            string report = ReportBuilder.Build(result, "en");
+
+            return result.Limits == InspectionLimit.Structure &&
+                   result.TraversalComplete &&
+                   result.LimitedFileCount(InspectionLimit.Structure) == 1 &&
+                   result.LimitedFileCount(InspectionLimit.Content) == 0 &&
+                   result.LimitedFileCount(InspectionLimit.Digest) == 0 &&
+                   result.LimitedFileCount(InspectionLimit.Signature) == 0 &&
+                   unexamined.GetProperty("structure").GetInt32() == 1 &&
+                   unexamined.GetProperty("content").GetInt32() == 0 &&
+                   report.Contains("structure: incomplete on 1 file(s)", StringComparison.Ordinal) &&
+                   report.Contains("capability content: complete", StringComparison.Ordinal);
+        });
+
+    /// <summary>
+    /// A file that could not be opened received none of the four aspects, and must say so rather than
+    /// carrying the single unexamined flag its neighbours use for one missing parse.
+    /// </summary>
+    private static bool TestUnreadableFileKeepsNoAspect() =>
+        WithFixtureDirectory(directory =>
+        {
+            string path = Path.Combine(directory, "locked.bin");
+            File.WriteAllText(path, "held open with no sharing");
+
+            ScanResult result;
+            using (new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                result = Inspect(directory);
+            }
+
+            if (result.Files.Count != 1) return false;
+
+            FileAnalysis file = result.Files[0];
+            return file.Limits == InspectionLimit.Everything &&
+                   result.TraversalComplete &&
+                   file.Indicators.Any(indicator => indicator.Code.Equals("file-read-failed", StringComparison.Ordinal)) &&
+                   result.CompletenessCode.Equals("INCOMPLETE", StringComparison.Ordinal);
+        });
+
+    /// <summary>
     /// Reports an escaping path and active content inside an archive from the central directory alone:
     /// nothing is extracted, so the escaping entry must not appear next to the archive.
     /// </summary>
@@ -746,6 +805,107 @@ internal static class ProductSelfTest
                    !File.Exists(Path.Combine(directory, "escape.ps1")) &&
                    !File.Exists(Path.Combine(Path.GetDirectoryName(directory)!, "escape.ps1"));
         });
+
+    /// <summary>
+    /// An executable that says .exe in its own name is still counted as active content, but it must not
+    /// receive the separate finding whose evidence is specifically a hidden name/body mismatch.
+    /// </summary>
+    private static bool TestHonestActiveEntryDoesNotClaimHiddenPayload() =>
+        WithFixtureDirectory(directory =>
+        {
+            string path = Path.Combine(directory, "honest-active.zip");
+            using (var archive = ZipFile.Open(path, ZipArchiveMode.Create))
+            {
+                using Stream entry = archive.CreateEntry("setup.exe", CompressionLevel.NoCompression).Open();
+                entry.Write([0x4D, 0x5A, 0x00, 0x00]);
+            }
+
+            FileAnalysis file = Inspect(path).Files.Single();
+            return file.Indicators.Any(indicator => indicator.Code.Equals("archive-active-content", StringComparison.Ordinal)) &&
+                   file.Indicators.All(indicator => !indicator.Code.Equals("archive-entry-active-payload", StringComparison.Ordinal));
+        });
+
+    /// <summary>
+    /// Four 64-MiB bodies consume the per-file archive budget. The fifth body must remain visible as an
+    /// unread tail, including the fact that its name declares another container. Highly compressible test
+    /// data keeps the fixture small on disk while exercising the production byte boundary.
+    /// </summary>
+    private static bool TestContentBudgetReportsUnreadEntryTail() =>
+        WithFixtureDirectory(directory =>
+        {
+            string path = Path.Combine(directory, "content-budget-tail.zip");
+            byte[] block = new byte[1024 * 1024];
+            using (var archive = ZipFile.Open(path, ZipArchiveMode.Create))
+            {
+                for (int entryIndex = 0; entryIndex < 5; entryIndex++)
+                {
+                    using Stream entry = archive.CreateEntry($"nested-{entryIndex}.zip", CompressionLevel.Fastest).Open();
+                    for (int blockIndex = 0; blockIndex < 64; blockIndex++)
+                    {
+                        entry.Write(block);
+                    }
+                }
+            }
+
+            ScanResult result = Inspect(path);
+            FileAnalysis file = result.Files.Single();
+            Indicator? tail = file.Indicators.SingleOrDefault(indicator =>
+                indicator.Code.Equals("archive-entry-bodies-unexamined", StringComparison.Ordinal));
+            return tail is not null &&
+                   tail.English.Contains("1 remaining entry", StringComparison.Ordinal) &&
+                   tail.English.Contains("1 container-named entry", StringComparison.Ordinal) &&
+                   (file.Limits & (InspectionLimit.Content | InspectionLimit.Structure)) ==
+                       (InspectionLimit.Content | InspectionLimit.Structure) &&
+                   file.ArchiveContentScannedBytes == FileInspector.MaxArchiveContentBytesPerFile &&
+                   !file.ArchiveContentTotalKnown &&
+                   result.IsPartial;
+        });
+
+    private static bool TestEmbeddedArchiveRiskNeedsCorroboration()
+    {
+        static FileAnalysis Polyglot(string signatureStatus)
+        {
+            var analysis = new FileAnalysis
+            {
+                FileType = "Windows PE",
+                SignatureStatus = signatureStatus,
+                EmbeddedZipPayload = true,
+                Limits = InspectionLimit.Structure
+            };
+            analysis.Indicators.Add(new(
+                "watch",
+                "archive-prefix",
+                "ZIP本体の前に未解釈データがあります",
+                "The ZIP payload has unparsed prefixed data",
+                22));
+            return analysis;
+        }
+
+        FileAnalysis signed = Polyglot("Valid");
+        signed.InternetZone = 3;
+        FileInspector.ApplySignatureRisk(signed);
+        Indicator? signedFinding = signed.Indicators.SingleOrDefault(indicator =>
+            indicator.Code.Equals("archive-polyglot", StringComparison.Ordinal));
+
+        FileAnalysis unsigned = Polyglot("NotSigned");
+        FileInspector.ApplySignatureRisk(unsigned);
+        Indicator? unsignedFinding = unsigned.Indicators.SingleOrDefault(indicator =>
+            indicator.Code.Equals("archive-polyglot", StringComparison.Ordinal));
+
+        FileAnalysis corroborated = Polyglot("Valid");
+        corroborated.Indicators.Add(new("danger", "process-injection", "注入", "Injection", 35));
+        FileInspector.ApplySignatureRisk(corroborated);
+        Indicator? corroboratedFinding = corroborated.Indicators.SingleOrDefault(indicator =>
+            indicator.Code.Equals("archive-polyglot", StringComparison.Ordinal));
+
+        return signedFinding is { Severity: "info", Score: 0 } &&
+               signed.RiskScore == 22 &&
+               signed.Limits == InspectionLimit.Structure &&
+               unsignedFinding is { Severity: "danger", Score: 30 } &&
+               unsigned.RiskScore == 52 &&
+               corroboratedFinding is { Severity: "danger", Score: 30 } &&
+               corroborated.RiskScore == 87;
+    }
 
     private static bool TestArchiveCapabilityFindingUpgradesToActiveEntry() =>
         WithFixtureDirectory(directory =>
@@ -924,7 +1084,7 @@ internal static class ProductSelfTest
                    result.IsPartial &&
                    result.CompletenessCode.Equals("INCOMPLETE", StringComparison.Ordinal) &&
                    report.Contains($"ZIP entry-content scan: {FileAnalysis.FormatSize(entryBytes.Length)} / {FileAnalysis.FormatSize(entryBytes.Length)}", StringComparison.Ordinal) &&
-                   root.GetProperty("schema").GetString() is "pc-black-box-report-v5" &&
+                   root.GetProperty("schema").GetString() is "pc-black-box-report-v6" &&
                    jsonResult.GetProperty("archiveContentEligibleBytes").GetInt64() == entryBytes.Length &&
                    jsonResult.GetProperty("archiveContentScannedBytes").GetInt64() == entryBytes.Length &&
                    jsonResult.GetProperty("archiveContentTotalKnown").GetBoolean() &&
@@ -998,7 +1158,7 @@ internal static class ProductSelfTest
                    !result.IsPartial &&
                    result.CompletenessCode.Equals("COMPLETE", StringComparison.Ordinal) &&
                    report.Contains("Nested ZIP recursion: 1 archive(s) / 1 inner entries / depth 1", StringComparison.Ordinal) &&
-                   document.RootElement.GetProperty("schema").GetString() is "pc-black-box-report-v5" &&
+                   document.RootElement.GetProperty("schema").GetString() is "pc-black-box-report-v6" &&
                    jsonResult.GetProperty("nestedArchivesInspected").GetInt32() == 1 &&
                    jsonFile.GetProperty("archiveMaxDepthInspected").GetInt32() == 1 &&
                    !File.Exists(Path.Combine(directory, "payload.dat")) &&

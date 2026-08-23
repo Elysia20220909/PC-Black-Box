@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.11.0 — 2026-08-24
+
+- Split incomplete coverage into traversal, digest, capability-content, signature, and structure aspects in the window, Markdown, JSON, and per-file inventory. A limit and its operator-facing reason are now recorded together.
+- Kept traversal independent from a file that was reached but could not be read, so the report names the missing file aspects without falsely claiming that folder discovery failed.
+- Preserved evidence when archive-content budgets run out by reporting the number of entry bodies left unread and the container-named entries among them, instead of silently dropping the tail of that ZIP layer.
+- Reserved the hidden-executable-body finding for a PE body whose entry name does not already declare active content, while retaining ordinary active-entry counting for honestly named executables.
+- Kept a validly signed self-extracting PE at informational polyglot weight even when it carries the normal Internet Zone mark of a download; another danger-level indicator is required to escalate it.
+- Documented the native .NET decompression component that receives untrusted deflate data and retained the bounded-read, fail-closed parser boundary. The JSON schema is now v6.
+
 ## 0.10.0 — 2026-08-23
 
 - Added bounded recursive inspection for valid ZIP and ZIP-based package entries. Nested archives are held only in memory, never extracted or launched, and are recognized from either a ZIP-family name or a validated local-header/end-record pair.
