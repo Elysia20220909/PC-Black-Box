@@ -10,6 +10,7 @@ PC Black Box gives the owner prioritized evidence about an untrusted local downl
 |---|---|---|
 | Application | Signed source history and the running managed code | Selected file names, bytes, metadata, archive entries, and signer text |
 | Operating system | Windows process-mitigation state read back through Kernel32 | Paths on network, device, alternate-stream, or reparse namespaces |
+| Archive runtime | The serviced .NET runtime and its native `System.IO.Compression.Native.dll` loaded through restricted DLL discovery | Every compressed byte presented to the inflater |
 | Output | Sanitized in-memory result and exclusively created local report | Existing report files, reparse destinations, absolute paths, and control characters |
 | Network | No network function is required for inspection | Remote reputation, cloud scanning, download, upload, and browser launch |
 
@@ -25,6 +26,7 @@ PC Black Box gives the owner prioritized evidence about an untrusted local downl
 - All loops, input sizes, filesystem entries, directory depth, retained paths, archive metadata, signature checks, text lengths, and regular-expression evaluation are bounded.
 - ZIP central-directory structure must pass bounded preflight before the standard archive parser can allocate entry objects.
 - ZIP entry bodies are read only through bounded streams and are never extracted to disk; declared size is reconciled with observed EOF. Valid nested ZIPs are recursively inspected in memory under shared depth, count, byte, entry, and time budgets, while unsupported, malformed, unread, or over-limit containers remain explicitly incomplete.
+- Decompression may enter the framework's native inflater only after DLL discovery has excluded the target and current directory. Compressed input, expanded output, and elapsed time remain bounded at the managed edge; native inflater correctness is a trusted runtime dependency rather than a claim made by this source tree.
 - Reports exclude absolute paths and personal identifiers and are never written inside the inspected target.
 - No administrator privilege, UIAccess, external lookup, or child process is required. An elevated
   launch is refused rather than accommodated.
@@ -79,6 +81,10 @@ and reported as `unavailable` where it does not. Reinforcements are displayed, n
 - This managed-runtime control is intentionally narrower than an AppContainer or Windows Filtering
   Platform capability boundary. Native WinSock or HTTP P/Invoke added to this source could bypass it;
   such a change is outside the accepted repository scope and must fail review.
+- ZIP decompression relies on the supported .NET runtime's native `System.IO.Compression.Native.dll`.
+  The application verifies where native images may be loaded from and bounds every call around the
+  inflater, but it cannot independently prove the memory safety of that runtime component. Applying .NET
+  servicing updates is part of the deployment boundary.
 - A process DACL affects later access checks. Windows does not revoke a full-access handle already
   returned to a launcher or held before lockdown, so a hostile launcher is outside this boundary.
 - The inspection path refuses to run unless the required tier is enforced, and a standard test host
@@ -97,6 +103,7 @@ and reported as `unavailable` where it does not. Reinforcements are displayed, n
 - A folder that uses empty, unreadable, or linked entries and extreme path depth to exhaust traversal resources.
 - A ZIP that declares excessive entries or metadata, underreports central records, or embeds a fake EOCD to desynchronize parsers.
 - A ZIP that prepends junk before the real payload, underreports an entry body as zero, hides active content behind a Windows-normalized double extension, overlaps another primary format, prefixes or deeply nests another ZIP, floods recursive containers, or places a capability term across a decompression-chunk boundary.
+- A malformed compressed stream crafted to exercise the managed archive parser or its native inflater.
 - A local low-integrity or network location attempting to inject a native image.
 - A malicious working directory attempting DLL preloading.
 - A same-user process that tries to read inspected bytes out of this process's memory, patch its code,
@@ -162,6 +169,11 @@ would break the running product, and a control that cannot stay on is worse than
 - `--self-test` must prove that a shortcut is judged by the command line inside it, that a shortcut whose
   declared sizes do not fit ends the walk and reports the result as `INCOMPLETE` rather than throwing, and
   that an OLE compound file is read for strings and never reported as a complete inspection.
+- `--self-test` must prove the four completeness aspects stay apart: a container that was never opened
+  limits structure alone while digest, content and signature remain complete, and a file that could not be
+  opened limits all four without falsely claiming that traversal missed the file. It must also expose every
+  archive entry left unread after a shared content budget ends, avoid calling an honestly named executable
+  entry hidden, and require corroboration before a signed PE plus trailing ZIP receives danger weight.
 - Live process mitigation flags must match the required policy bits.
 - Regression fixtures must preserve signature, capability, hostile-archive, privacy, and path-boundary behavior.
 - Regression checks must preserve final-handle path matching, guarded directory writes, directory mutation detection, archive preflight, and cumulative observed-size limits.
