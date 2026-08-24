@@ -243,7 +243,7 @@ internal static class ProductSelfTest
         return markdown.IndexOf(result.TargetPath, StringComparison.OrdinalIgnoreCase) < 0 &&
                json.IndexOf(result.TargetPath, StringComparison.OrdinalIgnoreCase) < 0 &&
                markdown.Contains("folder/name'\uFFFD\uFFFD.ps1", StringComparison.Ordinal) &&
-               document.RootElement.GetProperty("schema").GetString() is "pc-black-box-report-v6" &&
+               document.RootElement.GetProperty("schema").GetString() is "pc-black-box-report-v7" &&
                document.RootElement.GetProperty("files")[0].GetProperty("path").GetString()
                    is "folder|name`\uFFFD\uFFFD.ps1";
     }
@@ -826,9 +826,9 @@ internal static class ProductSelfTest
         });
 
     /// <summary>
-    /// Four 64-MiB bodies consume the per-file archive budget. The fifth body must remain visible as an
-    /// unread tail, including the fact that its name declares another container. Highly compressible test
-    /// data keeps the fixture small on disk while exercising the production byte boundary.
+    /// Four 64-MiB bodies consume the per-file archive budget. The tail must remain visible as inventory,
+    /// including one extreme-ratio container body and one active-content-named body. Keeping the extreme
+    /// entry in the tail locks the budget check ahead of skip policies that would otherwise omit evidence.
     /// </summary>
     private static bool TestContentBudgetReportsUnreadEntryTail() =>
         WithFixtureDirectory(directory =>
@@ -839,11 +839,29 @@ internal static class ProductSelfTest
             {
                 for (int entryIndex = 0; entryIndex < 5; entryIndex++)
                 {
-                    using Stream entry = archive.CreateEntry($"nested-{entryIndex}.zip", CompressionLevel.Fastest).Open();
-                    for (int blockIndex = 0; blockIndex < 64; blockIndex++)
+                    CompressionLevel compression = entryIndex == 4
+                        ? CompressionLevel.SmallestSize
+                        : CompressionLevel.Fastest;
+                    using Stream entry = archive.CreateEntry($"nested-{entryIndex}.zip", compression).Open();
+                    int blockCount = entryIndex == 4 ? 101 : 64;
+                    for (int blockIndex = 0; blockIndex < blockCount; blockIndex++)
                     {
                         entry.Write(block);
                     }
+                }
+
+                using Stream active = archive.CreateEntry("payload.exe", CompressionLevel.NoCompression).Open();
+                active.Write([0x4D, 0x5A, 0x00, 0x00]);
+            }
+
+            using (ZipArchive fixture = ZipFile.OpenRead(path))
+            {
+                ZipArchiveEntry? extreme = fixture.GetEntry("nested-4.zip");
+                if (extreme is null ||
+                    extreme.Length <= 100L * 1024 * 1024 ||
+                    extreme.Length / Math.Max(1d, extreme.CompressedLength) <= 1000d)
+                {
+                    return false;
                 }
             }
 
@@ -851,13 +869,32 @@ internal static class ProductSelfTest
             FileAnalysis file = result.Files.Single();
             Indicator? tail = file.Indicators.SingleOrDefault(indicator =>
                 indicator.Code.Equals("archive-entry-bodies-unexamined", StringComparison.Ordinal));
+            string report = ReportBuilder.Build(result, "en");
+            using JsonDocument document = JsonDocument.Parse(ReportBuilder.BuildJson(result, "en"));
+            JsonElement jsonResult = document.RootElement.GetProperty("result");
+            JsonElement jsonFile = document.RootElement.GetProperty("files")[0];
             return tail is not null &&
-                   tail.English.Contains("1 remaining entry", StringComparison.Ordinal) &&
+                   tail.English.Contains("2 remaining entries", StringComparison.Ordinal) &&
+                   tail.English.Contains("1 active-content-named entry", StringComparison.Ordinal) &&
                    tail.English.Contains("1 container-named entry", StringComparison.Ordinal) &&
+                   file.ArchiveBudgetTailEntryBodies == 2 &&
+                   file.ArchiveBudgetTailActiveEntries == 1 &&
+                   file.ArchiveBudgetTailContainerEntries == 1 &&
+                   result.ArchiveBudgetTailEntryBodies == 2 &&
+                   result.ArchiveBudgetTailActiveEntries == 1 &&
+                   result.ArchiveBudgetTailContainerEntries == 1 &&
                    (file.Limits & (InspectionLimit.Content | InspectionLimit.Structure)) ==
                        (InspectionLimit.Content | InspectionLimit.Structure) &&
                    file.ArchiveContentScannedBytes == FileInspector.MaxArchiveContentBytesPerFile &&
                    !file.ArchiveContentTotalKnown &&
+                   report.Contains("ZIP entry bodies left after the budget: 2 (active-content-named: 1; container-named: 1)", StringComparison.Ordinal) &&
+                   document.RootElement.GetProperty("schema").GetString() is "pc-black-box-report-v7" &&
+                   jsonResult.GetProperty("archiveBudgetTailEntryBodies").GetInt32() == 2 &&
+                   jsonResult.GetProperty("archiveBudgetTailActiveEntries").GetInt32() == 1 &&
+                   jsonResult.GetProperty("archiveBudgetTailContainerEntries").GetInt32() == 1 &&
+                   jsonFile.GetProperty("archiveBudgetTailEntryBodies").GetInt32() == 2 &&
+                   jsonFile.GetProperty("archiveBudgetTailActiveEntries").GetInt32() == 1 &&
+                   jsonFile.GetProperty("archiveBudgetTailContainerEntries").GetInt32() == 1 &&
                    result.IsPartial;
         });
 
@@ -1084,7 +1121,7 @@ internal static class ProductSelfTest
                    result.IsPartial &&
                    result.CompletenessCode.Equals("INCOMPLETE", StringComparison.Ordinal) &&
                    report.Contains($"ZIP entry-content scan: {FileAnalysis.FormatSize(entryBytes.Length)} / {FileAnalysis.FormatSize(entryBytes.Length)}", StringComparison.Ordinal) &&
-                   root.GetProperty("schema").GetString() is "pc-black-box-report-v6" &&
+                   root.GetProperty("schema").GetString() is "pc-black-box-report-v7" &&
                    jsonResult.GetProperty("archiveContentEligibleBytes").GetInt64() == entryBytes.Length &&
                    jsonResult.GetProperty("archiveContentScannedBytes").GetInt64() == entryBytes.Length &&
                    jsonResult.GetProperty("archiveContentTotalKnown").GetBoolean() &&
@@ -1158,7 +1195,7 @@ internal static class ProductSelfTest
                    !result.IsPartial &&
                    result.CompletenessCode.Equals("COMPLETE", StringComparison.Ordinal) &&
                    report.Contains("Nested ZIP recursion: 1 archive(s) / 1 inner entries / depth 1", StringComparison.Ordinal) &&
-                   document.RootElement.GetProperty("schema").GetString() is "pc-black-box-report-v6" &&
+                   document.RootElement.GetProperty("schema").GetString() is "pc-black-box-report-v7" &&
                    jsonResult.GetProperty("nestedArchivesInspected").GetInt32() == 1 &&
                    jsonFile.GetProperty("archiveMaxDepthInspected").GetInt32() == 1 &&
                    !File.Exists(Path.Combine(directory, "payload.dat")) &&

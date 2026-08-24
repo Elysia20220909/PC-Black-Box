@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.12.0 — 2026-08-24
+
+- Promoted an exhausted ZIP-body budget from a prose-only warning to structured tail inventory. The window, Markdown, and JSON now retain the entry bodies left after that budget and the subsets whose names declare active content or another container.
+- Kept the classification deliberately name-based: it preserves actionable metadata without claiming that an unread body was identified or safe. Aggregate and per-file evidence are both emitted, and the JSON schema is now v7.
+- Extended the production byte-boundary fixture so one extreme-ratio container-named body and one active-content-named body remain after the 256-MiB budget. The regression keeps budget exhaustion ahead of skip policies, then verifies both counts through the model, warning, Markdown, and JSON surfaces.
+
 ## 0.11.0 — 2026-08-24
 
 - Split incomplete coverage into traversal, digest, capability-content, signature, and structure aspects in the window, Markdown, JSON, and per-file inventory. A limit and its operator-facing reason are now recorded together.

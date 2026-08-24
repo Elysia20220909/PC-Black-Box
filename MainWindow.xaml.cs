@@ -478,6 +478,13 @@ public partial class MainWindow : Window
                     : $"{FileAnalysis.FormatSize(file.ArchiveContentScannedBytes)} scanned / total unknown";
             details.AppendLine($"{(IsJapanese ? "ZIP本文" : "ZIP BODY"),-10} {coverage}");
         }
+        if (file.ArchiveBudgetTailEntryBodies > 0)
+        {
+            details.AppendLine($"{(IsJapanese ? "ZIP予算後" : "ZIP TAIL"),-10} " +
+                (IsJapanese
+                    ? $"未確認 {file.ArchiveBudgetTailEntryBodies}項目（アクティブ名 {file.ArchiveBudgetTailActiveEntries} / 書庫・イメージ名 {file.ArchiveBudgetTailContainerEntries}）"
+                    : $"{file.ArchiveBudgetTailEntryBodies} unexamined (active-named {file.ArchiveBudgetTailActiveEntries} / container-named {file.ArchiveBudgetTailContainerEntries})"));
+        }
         if (file.NestedArchivesInspected > 0)
         {
             details.AppendLine($"{(IsJapanese ? "入れ子ZIP" : "NESTED ZIP"),-10} " +

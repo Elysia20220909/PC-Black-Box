@@ -1290,13 +1290,6 @@ public sealed class FileInspector
                 ZipArchiveEntry entry = orderedEntries[entryIndex];
                 context.ThrowIfTimeExpired();
 
-                if (IsExtremeCompressionEntry(entry))
-                {
-                    context.MarkUnknown();
-                    contentLimited = true;
-                    continue;
-                }
-
                 long remainingFileBytes = Math.Max(0, MaxArchiveContentBytesPerFile - analysis.ArchiveContentScannedBytes);
                 long remainingScanBytes = Math.Max(0, MaxArchiveContentBytesPerScan - context.Budget.BytesScanned);
                 long entryLimit = Math.Min(MaxArchiveContentBytesPerEntry, Math.Min(remainingFileBytes, remainingScanBytes));
@@ -1305,6 +1298,13 @@ public sealed class FileInspector
                     ReportUnexaminedArchiveEntries(orderedEntries, entryIndex, logicalArchivePath, analysis, context);
                     contentLimited = true;
                     break;
+                }
+
+                if (IsExtremeCompressionEntry(entry))
+                {
+                    context.MarkUnknown();
+                    contentLimited = true;
+                    continue;
                 }
 
                 long entryScanned = 0;
@@ -1475,8 +1475,8 @@ public sealed class FileInspector
 
     /// <summary>
     /// A byte budget can stop before this layer's remaining bodies are opened. Keep that tail visible:
-    /// metadata already tells us how many entries remain and which names openly declare another container,
-    /// while hidden containers are still possible in every unread body.
+    /// metadata already tells us how many entries remain and which names openly declare active content or
+    /// another container, while disguised content is still possible in every unread body.
     /// </summary>
     private static void ReportUnexaminedArchiveEntries(
         IReadOnlyList<ZipArchiveEntry> orderedEntries,
@@ -1486,32 +1486,56 @@ public sealed class FileInspector
         ArchiveRecursionContext context)
     {
         int remainingEntries = orderedEntries.Count - firstUnexaminedIndex;
+        int namedActiveEntries = 0;
         int namedContainers = 0;
         for (int index = firstUnexaminedIndex; index < orderedEntries.Count; index++)
         {
             string extension = GetArchiveEntryExtension(orderedEntries[index].FullName);
+            if (IsActiveContentExtension(extension))
+            {
+                namedActiveEntries++;
+            }
             if (ZipPackageExtensions.Contains(extension) || IsUnsupportedNestedContainerExtension(extension))
             {
                 namedContainers++;
             }
         }
 
+        analysis.ArchiveBudgetTailEntryBodies = SaturatingAddCount(analysis.ArchiveBudgetTailEntryBodies, remainingEntries);
+        analysis.ArchiveBudgetTailActiveEntries = SaturatingAddCount(analysis.ArchiveBudgetTailActiveEntries, namedActiveEntries);
+        analysis.ArchiveBudgetTailContainerEntries = SaturatingAddCount(analysis.ArchiveBudgetTailContainerEntries, namedContainers);
+
         string safeArchivePath = String.IsNullOrEmpty(logicalArchivePath)
             ? String.Empty
             : SecurityPolicy.SanitizeText(logicalArchivePath, 512);
         string japaneseScope = String.IsNullOrEmpty(safeArchivePath) ? "このZIP層" : $"入れ子ZIP「{safeArchivePath}」";
         string englishScope = String.IsNullOrEmpty(safeArchivePath) ? "this ZIP layer" : $"nested ZIP '{safeArchivePath}'";
-        string japaneseContainers = namedContainers == 0 ? String.Empty : $"（書庫・イメージ名の項目{namedContainers}件を含む）";
-        string englishContainers = namedContainers == 0 ? String.Empty : $", including {namedContainers} container-named entr{(namedContainers == 1 ? "y" : "ies")}";
+        List<string> japaneseKinds = [];
+        List<string> englishKinds = [];
+        if (namedActiveEntries > 0)
+        {
+            japaneseKinds.Add($"アクティブコンテンツ名{namedActiveEntries}件");
+            englishKinds.Add($"{namedActiveEntries} active-content-named entr{(namedActiveEntries == 1 ? "y" : "ies")}");
+        }
+        if (namedContainers > 0)
+        {
+            japaneseKinds.Add($"書庫・イメージ名{namedContainers}件");
+            englishKinds.Add($"{namedContainers} container-named entr{(namedContainers == 1 ? "y" : "ies")}");
+        }
+        string japaneseEvidence = japaneseKinds.Count == 0 ? String.Empty : $"（{String.Join("、", japaneseKinds)}を含む）";
+        string englishEvidence = englishKinds.Count == 0 ? String.Empty : $", including {String.Join(" and ", englishKinds)}";
 
         context.MarkUnknown();
         LimitInspection(analysis, InspectionLimit.Content | InspectionLimit.Structure, new(
             "watch",
             "archive-entry-bodies-unexamined",
-            $"本文予算を使い切り、{japaneseScope}の残り{remainingEntries}項目{japaneseContainers}は未確認です",
-            $"The content budget ended before {remainingEntries} remaining entr{(remainingEntries == 1 ? "y" : "ies")} in {englishScope} could be examined{englishContainers}",
+            $"本文予算を使い切り、{japaneseScope}の残り{remainingEntries}項目{japaneseEvidence}は未確認です",
+            $"The content budget ended before {remainingEntries} remaining entr{(remainingEntries == 1 ? "y" : "ies")} in {englishScope} could be examined{englishEvidence}",
             15));
     }
+
+    private static int SaturatingAddCount(int left, int right) =>
+        right > Int32.MaxValue - left ? Int32.MaxValue : left + right;
 
     private static int ProcessArchiveEntryChunk(
         byte[] buffer,

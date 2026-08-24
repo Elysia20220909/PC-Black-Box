@@ -33,6 +33,12 @@ public static class ReportBuilder
                     : $"{FileAnalysis.FormatSize(result.ArchiveContentScannedBytes)} scanned / total unknown";
             builder.AppendLine($"- {(ja ? "ZIP内部本文の走査" : "ZIP entry-content scan")}: {archiveCoverage}");
         }
+        if (result.ArchiveBudgetTailEntryBodies > 0)
+        {
+            builder.AppendLine(ja
+                ? $"- ZIP予算後の未確認本文: {result.ArchiveBudgetTailEntryBodies}項目（アクティブコンテンツ名: {result.ArchiveBudgetTailActiveEntries} / 書庫・イメージ名: {result.ArchiveBudgetTailContainerEntries}）"
+                : $"- ZIP entry bodies left after the budget: {result.ArchiveBudgetTailEntryBodies} (active-content-named: {result.ArchiveBudgetTailActiveEntries}; container-named: {result.ArchiveBudgetTailContainerEntries})");
+        }
         if (result.NestedArchivesInspected > 0)
         {
             builder.AppendLine($"- {(ja ? "入れ子ZIPの再帰調査" : "Nested ZIP recursion")}: " +
@@ -165,7 +171,7 @@ public static class ReportBuilder
         bool ja = !language.Equals("en", StringComparison.OrdinalIgnoreCase);
         var payload = new
         {
-            schema = "pc-black-box-report-v6",
+            schema = "pc-black-box-report-v7",
             generatedAt = DateTimeOffset.UtcNow,
             target = Clean(result.TargetName),
             security = new
@@ -200,6 +206,9 @@ public static class ReportBuilder
                 archiveContentTotalKnown = result.ArchiveContentTotalKnown,
                 archiveContentEligibleBytes = result.ArchiveContentTotalKnown ? result.ArchiveContentEligibleBytes : (long?)null,
                 archiveContentScannedBytes = result.ArchiveContentScannedBytes,
+                archiveBudgetTailEntryBodies = result.ArchiveBudgetTailEntryBodies,
+                archiveBudgetTailActiveEntries = result.ArchiveBudgetTailActiveEntries,
+                archiveBudgetTailContainerEntries = result.ArchiveBudgetTailContainerEntries,
                 nestedArchivesInspected = result.NestedArchivesInspected,
                 nestedArchiveEntriesInspected = result.NestedArchiveEntriesInspected,
                 archiveMaxDepthInspected = result.ArchiveMaxDepthInspected,
@@ -226,6 +235,9 @@ public static class ReportBuilder
                 archiveContentTotalKnown = file.ArchiveContentTotalKnown,
                 archiveContentEligibleBytes = file.ArchiveContentTotalKnown ? file.ArchiveContentEligibleBytes : (long?)null,
                 archiveContentScannedBytes = file.ArchiveContentScannedBytes,
+                archiveBudgetTailEntryBodies = file.ArchiveBudgetTailEntryBodies,
+                archiveBudgetTailActiveEntries = file.ArchiveBudgetTailActiveEntries,
+                archiveBudgetTailContainerEntries = file.ArchiveBudgetTailContainerEntries,
                 nestedArchivesInspected = file.NestedArchivesInspected,
                 nestedArchiveEntriesInspected = file.NestedArchiveEntriesInspected,
                 archiveMaxDepthInspected = file.ArchiveMaxDepthInspected,
