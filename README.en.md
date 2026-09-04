@@ -1,8 +1,25 @@
 # PC Black Box
 
-PC Black Box is a Windows static-inspection tool for examining downloaded files and folders without executing them.
+[日本語](README.md) / [Changelog](CHANGELOG.md) / [Security policy](SECURITY.md) / [Threat model](THREAT_MODEL.md)
 
-Its compact black, white, and yellow interface carries forward the at-a-glance operating style of Marathon Network Blocker. Administrator privileges are not requested.
+PC Black Box is a static inspection tool for checking downloaded files and folders on Windows before opening them.
+
+It organizes evidence about a file's identity, signature, origin, internal structure, and capability-related text without executing, uploading, or modifying the target. Its result is neither a malware verdict nor proof of safety. Risk shows what deserves attention, while completeness shows how much of the target was actually examined.
+
+> This repository is private and source-only. It provides no installer or distribution binary. Run it from source as a standard user; an elevated launch is refused before inspection.
+
+## What it does / does not do
+
+| What PC Black Box does | Boundary |
+|---|---|
+| Performs read-only static inspection of local files | Does not launch the target or load it as code |
+| Prioritizes evidence from signatures, origin, formats, structures, and capability terms | Does not decide whether a file is malware |
+| Creates local Markdown / JSON reports | Does not upload the file or report |
+| Copies SHA-256 and an external lookup URL to the clipboard | Does not open the URL or communicate automatically |
+| Preserves unexamined scope as `INCOMPLETE` | Does not assume that unread content is safe |
+| Gives the operator evidence for a decision | Does not delete, quarantine, move, or repair files |
+
+PC Black Box is not a dynamic sandbox, antivirus engine, or cloud reputation service. It is a conventional Windows desktop application and does not provide AppContainer or Windows Filtering Platform isolation at the operating-system level.
 
 ## Setup
 
@@ -13,7 +30,7 @@ You need:
 - Access to this private repository
 - [GitHub CLI](https://cli.github.com/)
 
-Run the following commands in PowerShell:
+Run the following in a non-elevated PowerShell session. Do not use an administrator terminal.
 
 ```powershell
 gh auth login
@@ -23,149 +40,221 @@ dotnet restore
 dotnet run --project .\Destiny2BlackBox.csproj
 ```
 
-Skip `gh auth login` if GitHub CLI is already authenticated.
+If GitHub CLI is already authenticated, you can omit `gh auth login`. These commands build and start the private source locally; they do not download a packaged executable.
 
-## Use
+## Basic use
 
-1. Start `PC Black Box.exe`.
-2. Drop a file or folder onto the window, or use a selection button.
-3. Select `INSPECT`.
-4. Review prioritized findings under `OVERVIEW`, file-level evidence under `FILES`, and the sanitized report under `REPORT`.
+- Drop a file or folder onto the window, or use a selection button.
+- Select `INSPECT`.
+- Use `OVERVIEW` for the overall assessment and leading findings.
+- Use `FILES` for signatures, origin, hashes, formats, and the evidence for each file.
+- Use `REPORT` to preview the report, copy it, or save it as Markdown / JSON.
+- Press `Esc` to stop an inspection in progress.
 
-Use `JA / EN` to switch languages. Only that language preference is stored in `%LOCALAPPDATA%\PCBlackBox\settings.json`.
+Use `JA / EN` to switch languages. The selected language is the only preference stored in `%LOCALAPPDATA%\PCBlackBox\settings.json`.
 
-## Productive review
+| Action | Key |
+|---|---|
+| Select a file | `Ctrl+O` |
+| Select a folder | `Ctrl+Shift+O` |
+| Search the file list | `Ctrl+F` |
+| Start inspection | `F5` or `Ctrl+Enter` |
+| Switch Overview / Files / Report | `Ctrl+1` / `Ctrl+2` / `Ctrl+3` |
+| Stop inspection | `Esc` |
 
-- Search file names, types, signatures, signers, sources, and findings instantly from the `FILES` page.
-- Filter by `HIGH`, `REVIEW`, `LOW`, or `CLEAR` while keeping the visible and total counts in view.
-- Select a finding card on `OVERVIEW`, or focus it with Tab and press Enter / Space, to open the matching file evidence directly.
-- Use `Ctrl+O` for a file, `Ctrl+Shift+O` for a folder, `Ctrl+F` to search, and `F5` or `Ctrl+Enter` to inspect.
-- Use `Ctrl+1 / 2 / 3` for Overview, Files, and Report; press `Esc` to cancel an active inspection.
-- `COPY SHA-256` and `COPY LOOKUP URL` in the file evidence pane only place text on the clipboard. The product never opens the URL and never connects; opening it is the operator's decision, and doing so discloses that hash to the service. The clipboard itself is outside this product: with Windows clipboard history enabled, the copied string is also retained by Windows and may sync to a Microsoft account.
+Select a finding card with the pointer, or focus it with Tab and press Enter / Space, to open its supporting file. The file list searches names, formats, signatures, signers, origin, and findings, and can be filtered by `HIGH / REVIEW / LOW / CLEAR`.
 
 ## What it inspects
 
-- SHA-256
-- Authenticode status and signer using only the local Windows trust cache, without online revocation requests
-- Mark-of-the-Web (Internet Zone) and source host
-- True format inferred from file magic
-- Double extensions, right-to-left override characters, and extension mismatches
-- Windows shortcuts: the target, arguments, working directory, hidden-window and elevation flags, read from the shortcut structure without resolving or launching it
-- OLE compound files (installers and legacy Office documents): recognized by content and read for strings, with the storage tree left unparsed and reported as incomplete
-- PE architecture, product/company metadata, and entropy sampled from the first 8 MiB
-- Streaming capability matching for scripts, Windows PE files, and PDFs within explicit limits, including downloads, persistence, Defender changes, process injection, deletion, and related behavior
-- Prefixed data, internal double extensions, executable content, macros, path traversal, and extreme compression ratios inside ZIP and Office packages
-- Capability terms such as downloads, persistence, Defender changes, and process injection in ZIP entries, including nested ZIPs inspected in memory to depth 3 without extracting them to disk
-
-Folder inspection stops at 2,500 files, 10,000 directories, depth 128, 20,000 enumerated entries, eight million retained path characters, or 12 GB. Ordinary-file capability scanning is capped at 1 GiB and 60 seconds per file, and 4 GiB and 180 seconds per inspection. ZIP entry-content scanning is capped at 64 MiB per entry, 256 MiB across each top-level file and its nested ZIPs, and 1 GiB per inspection, with at most one extra sentinel byte per capped entry to prove that data continues. Compressed input is limited to 64 KiB reads, and the 30-second/top-level-ZIP and 120-second/inspection clocks are checked before and after each input read. They still cannot forcibly interrupt one local OS read or inflater step already in progress. If observed EOF cannot establish the total body size, the product reports bytes scanned but labels the total unknown instead of inventing a denominator. Nested ZIP inspection is capped at depth 3, 32 nested archives and 20,000 recursive entries per file, with at most 32 MiB buffered per nested archive and 128 MiB in aggregate. Each ZIP is capped at 10,000 entries, a 64 MiB central directory and ZIP64 terminal extension, and 4,096 bytes per central entry name; the top-level archive input is capped at 2 GiB and signature checks stop at 300 files. Reparse points are not followed. Any limit, read failure, or analysis timeout makes the result `INCOMPLETE`, never `CLEAR`.
-
-When the ZIP body budget ends, the window, Markdown, and JSON retain the total number of unexamined bodies plus the entries whose names declare active content or another archive or image. This is a name-based inventory of unchecked scope; it does not claim that those bodies' formats or safety were verified.
-
-## Assessment model
-
-`CLEAR / LOW / REVIEW / HIGH` is review priority, while `COMPLETE / INCOMPLETE` describes inspection completeness.
-
-Completeness reports **traversal**—whether every file in the target was reached—separately from the **four file aspects** applied to each file that was reached.
-
-| Aspect | What it does | How it falls short |
+| Area | What is examined | Important boundary |
 |---|---|---|
-| Traversal | reaches every file held by the target | an enumeration limit, reparse point, or concurrent change |
-| Digest | SHA-256 over every byte | the file could not be opened safely |
-| Capability content | streaming capability matching on applicable formats | a byte or time budget was reached |
-| Signature | offline Authenticode verification | the 300-file-per-inspection limit was passed |
-| Structure | reading ZIP, shortcut and similar structures | an archive that is not opened, OLE internals that are not parsed |
+| Digest | SHA-256 over the entire file | Independent of the capability-content scan budgets |
+| Local trust | Authenticode status, signer, product, and company | Uses only the local Windows trust information and performs no online revocation lookup |
+| Origin | Mark-of-the-Web Internet Zone and source host | Does not infer missing origin metadata |
+| Actual format | Magic bytes, extension mismatch, and PE architecture | Does not trust the file name alone |
+| Name deception | Double extensions, right-to-left controls, invisible characters, and trailing spaces or periods removed by Windows | Separates the displayed name from the effective extension |
+| Windows shortcuts | Target, arguments, working directory, hidden launch, and elevation request | Reads the `.lnk` structure without resolving or launching it |
+| PE / scripts / PDF | Capability terms related to downloading, persistence, Defender changes, process injection, hidden execution, deletion, and similar actions | Streams content only up to explicit byte and time budgets |
+| OLE compound files | Identifies MSI / MSP / legacy Office content and scans its strings | Does not parse the internal storage tree, so the result is `INCOMPLETE` |
+| ZIP / Office packages | Prefix data, polyglots, internal double extensions, active content, macros, traversal paths, extreme compression ratios, and declared-size versus observed-EOF differences | Validates boundaries before using the standard parser and never extracts entries to disk |
+| Nested ZIPs | Recursively inspects valid ZIP structures, including ones hidden behind another extension | Holds them in memory and stops at depth 3; unsupported, malformed, encrypted, unreadable, or over-limit interiors remain `INCOMPLETE` |
 
-"Every file was reached and its digest and applicable capability content were read, but one archive was never opened" and "the walk never reached some files" are different results. The report names the missing aspect instead of painting both with one `INCOMPLETE`. Known risk and unchecked scope are also retained separately and can appear together, for example `HIGH+INCOMPLETE`. None is a malware verdict or safety guarantee.
+PE entropy is calculated from the first 8 MiB. This does not mean that SHA-256 or capability scanning for supported formats stops after the first 8 MiB.
 
-Legitimate administration scripts, installers, and compression tools can trigger warnings. Conversely, unknown code may show no static indicator. Combine this result with the expected purpose, download source, signature, and tools such as Windows Defender.
+## Reading the assessment
+
+PC Black Box evaluates risk and completeness independently.
+
+### Risk
+
+| Label | Score | Meaning |
+|---|---:|---|
+| `CLEAR` | 0 | No attention-worthy finding was found by the supported checks |
+| `LOW` | 1–24 | A low-weight finding needs context |
+| `REVIEW` | 25–59 | Evidence should be reviewed before execution |
+| `HIGH` | 60–100 | Strong evidence deserves priority review while the target remains closed |
+
+The score is a sum of finding weights used to order attention, not a probability of infection. Legitimate administration scripts, installers, and compression tools can produce warnings. Conversely, unknown code may leave no visible clue for static inspection.
+
+### Completeness
+
+| Aspect | Scope | Example cause of `INCOMPLETE` |
+|---|---|---|
+| Traversal | Whether every file in the selected target was reached | Enumeration limits, reparse points, or a directory changing during inspection |
+| Digest | Whether every byte of a reached file contributed to SHA-256 | The file could not be opened safely or changed while being read |
+| Capability content | Whether a supported format was scanned to its applicable boundary | Byte, elapsed-time, or match-time limits |
+| Signature | Whether every applicable signature was checked | More than 300 signature candidates in one inspection |
+| Structure | Whether the internal structure of ZIPs, shortcuts, and other containers was examined | An unreadable archive, malformed structure, or unparsed OLE interior |
+
+`COMPLETE` means that every supported check finished within its safety boundaries. It does not mean the target is safe.
+
+Known findings and unexamined scope remain visible together, producing labels such as `HIGH+INCOMPLETE`. If no risk finding exists but coverage is incomplete, the result is `INCOMPLETE` rather than `CLEAR`.
+
+## Main inspection limits
+
+The limits keep crafted inputs and very large folders from exhausting the inspector. Reaching any limit, encountering a read failure, or exceeding an analysis time boundary makes the affected scope `INCOMPLETE`; it is not shown as `CLEAR`.
+
+### Folders / ordinary files
+
+| Target | Limit |
+|---|---:|
+| Files | 2,500 |
+| Directories | 10,000 |
+| Directory depth | 128 |
+| Enumerated entries | 20,000 |
+| Retained path information | 8,388,608 characters |
+| Total target size | 12 GB |
+| Signature verification | 300 files per inspection |
+| Capability-content scanning | 1 GiB per file / 4 GiB per inspection |
+| Capability scan time | 60 seconds per file / 180 seconds per inspection |
+| PE entropy | First 8 MiB |
+
+Reparse points are not followed. Files and directories are checked through no-follow handles and final-path matching.
+
+### ZIP / ZIP-based packages
+
+| Target | Limit |
+|---|---:|
+| Top-level ZIP input | 2 GiB |
+| Entry listing per ZIP | 10,000 entries |
+| Central directory and ZIP64 terminal extensible data | 64 MiB |
+| Central entry name | 4,096 bytes |
+| Entry-body scanning | 64 MiB per entry / 256 MiB across a top-level ZIP and its nested tree / 1 GiB per inspection |
+| One compressed-input read | 64 KiB |
+| Nested ZIPs | Depth 3 / 32 per file / 20,000 recursive entries |
+| Nested ZIPs held in memory | 32 MiB each / 128 MiB per file |
+| ZIP body scan time | 30 seconds per top-level ZIP / 120 seconds per inspection |
+
+Only when needed to prove that a capped entry continues, the inspector reads at most one additional byte. Time limits are checked before and after each source read, but they cannot guarantee preemption of one local operating-system read or inflater call that is already running.
+
+If observed EOF cannot establish the total eligible ZIP-body size, PC Black Box reports the scanned amount without guessing a denominator and displays the total as unknown. When a shared body budget is exhausted, the window, Markdown, and JSON retain the number of unread entry bodies and the subsets whose names declare active content or another container. This is a name-based inventory of unexamined scope, not proof of a body's format or safety.
 
 ## Privacy and safety boundary
 
-- The target is never launched.
-- Files are not uploaded.
-- No automatic network request is made.
-- No process injection, game-memory access, or packet capture is performed.
+- The target is not executed or loaded as code.
+- Neither the target nor the report is uploaded.
+- No automatic network communication or browser launch is performed.
+- No process injection, game-memory reading, or packet capture is performed.
 - Files are not deleted, quarantined, moved, or repaired.
-- Reports omit **this machine’s** absolute paths, Windows user names, IP addresses, Steam IDs, and credentials. Strings held inside the target, such as a shortcut’s target and arguments, are shown as the evidence behind a finding.
-- Treat the report itself as sensitive. It lists the inspected file names, the hosts they came from, and their digests, which identifies more than any single hash does. Generated reports are gitignored; read one before sharing it.
-- No external hash lookup or browser launch is available; inspection remains fully offline.
+- Reports exclude this environment's absolute paths, Windows user name, IP addresses, Steam ID, and credentials.
 
-The design follows iOS-inspired security principles: least privilege, a closed data flow, explicit user actions, and fixed trust boundaries. It remains a conventional Windows desktop app and does not claim isolation equivalent to the iOS App Sandbox.
+Strings stored inside the target, such as a shortcut target or its arguments, can appear in a report as evidence. Reports also list inspected file names, source hosts, and SHA-256 values, so treat the report itself as sensitive. Generated reports are excluded by `.gitignore`, but review their contents before sharing them.
+
+`COPY SHA-256` and `COPY LOOKUP URL` only place text on the clipboard. PC Black Box neither opens the URL nor communicates with the service. If the operator opens that URL elsewhere, the SHA-256 is disclosed to VirusTotal. Windows also retains copied text when clipboard history is enabled and may synchronize it through a Microsoft account, depending on the system setting.
 
 ## Defense in depth
 
-- Sixteen required controls are applied before application initialization and verified through OS and runtime responses. Inspection fails closed unless every one of them is verified.
-- A process DACL denies later same-user requests to read or write this process's memory, start a thread inside it, or duplicate its handles. An `OWNER RIGHTS` entry removes the owner's implicit DACL-change right. Task Manager-equivalent query and termination access remain available.
-- The running process verifies that the standard .NET socket, name-resolution, HTTP, and related transport assemblies are absent; a later load terminates the process before the caller can use that transport.
-- The OS blocks child processes, legacy extension points, non-system fonts, and native images from remote or Low-integrity locations.
-- DEP, ASLR, Control Flow Guard, and SEHOP are mandatory, and invalid-handle use is made fatal.
-- Heap corruption terminates the process instead of continuing in an allocator state an attacker can steer.
-- P/Invoke and normal DLL discovery are restricted to the application directory and System32; the current directory is excluded.
-- The hot reload metadata-update path and the EventSource tracing surface are disabled in the shipped runtime configuration.
-- Inspection files are opened through handles that do not follow reparse points and do not share writes or replacement while parsing.
-- Every opened file and directory handle must resolve to the exact requested local path, blocking intermediate junction replacement.
-- Volume identity and a 128-bit file ID are rechecked alongside length and timestamp to detect same-name replacement.
-- The 12 GB folder limit is enforced again against cumulative stable-handle sizes, not only enumeration metadata.
-- Parent directories deny delete sharing during enumeration and settings or report writes to block destination replacement.
-- Every enumerated directory identity and write timestamp is revalidated after scanning; a mutation makes the folder result `INCOMPLETE`.
-- EOCD, ZIP64 end records, central headers, counts, lengths, and boundaries are validated before the standard ZIP parser is constructed, rejecting fake end records and central-directory floods fail-closed.
-- Capability matching streams with overlapping chunks up to explicit byte and time budgets and uses the linear-time regular-expression engine with a time limit to resist crafted denial-of-service inputs. Reaching a budget before the end makes the result `INCOMPLETE`.
+Inspection input is untrusted. Before normal application initialization, PC Black Box applies and reads back all sixteen required controls in `SECURITY-BASELINE-2`. If any required control cannot be verified, inspection does not begin.
 
-Four further defenses — redirection trust, security-domain isolation, page-combining disable, and speculative-store-bypass disable — are applied and read back where the OS build and the CPU offer them, alongside a read-only check of hardware-enforced shadow stacks (CET). Anything the platform does not offer is displayed as unavailable rather than quietly assumed.
+| Layer | Main protections |
+|---|---|
+| Privilege | Refuses elevated launch and blocks child-process creation |
+| Process | Uses a DACL to deny newly requested same-user memory read / write, thread creation, and handle duplication |
+| Memory / control flow | Requires DEP, ASLR, Control Flow Guard, SEHOP, strict handle checking, and termination on heap corruption |
+| DLL loading | Restricts P/Invoke and normal DLL discovery to the application directory and System32, excluding the current directory, UNC, and Low-integrity images |
+| Runtime | Disables the Hot Reload metadata-update path and EventSource tracing surface |
+| Managed network boundary | Verifies that standard .NET transport assemblies used by this source are absent and terminates the process before use if one is loaded later |
+| File I/O | Uses stable no-follow handles and rechecks final path, size, write time, volume number, and 128-bit file ID |
+| Saving / traversal | Denies delete sharing on parent directories and rechecks directory IDs and write times after enumeration |
+| Parsers | Preflights ZIP terminals and central directories, and bounds every count, length, input size, recursion path, and regular-expression evaluation |
 
-The UI and reports expose the verified baseline as a count such as `16/16`, followed by the number of platform reinforcements active on that system. `--security-status` prints one line per control so the posture can be reviewed independently. The trust boundaries and residual risks, including the mitigations that were considered and deliberately rejected, are recorded in [`THREAT_MODEL.md`](THREAT_MODEL.md).
+Where the operating system and processor support them, PC Black Box also applies and reads back redirection trust, security-domain isolation, page-combining disablement, and speculative-store-bypass disablement. Hardware shadow-stack state is observed read-only. An unavailable reinforcement is reported as `unavailable` rather than assumed to be active.
 
-These controls translate Apple's code-trust and strict-capability principles into defenses compatible with the current Windows/WPF design. They do not introduce AppContainer packaging or a signed distribution binary.
+The window and reports show the required baseline as `16/16` and then show the reinforcements active on that system. The complete control list, verification limits, residual boundaries, and rejected mitigations with their reasons are recorded in the [threat model](THREAT_MODEL.md).
+
+The design adapts ideas about code trust and strict capability boundaries emphasized by Apple to protections available in the current Windows / WPF architecture. It does not provide iOS App Sandbox equivalence or certification by an external organization.
 
 ## Current limitations
 
-- No dynamic behavior, sandbox execution, or live destination analysis.
-- The WPF process is not an AppContainer and does not provide the same OS isolation as the iOS App Sandbox.
-- An administrator, a kernel-level component, or a compromised Windows trust store remains above this boundary. The process lockdown stops a same-user program, not a privileged one.
-- The process DACL constrains access requested after it is installed; Windows cannot revoke a handle already held by the launcher or another process.
-- Managed transport monitoring is not an OS-level network capability denial through AppContainer or Windows Filtering Platform. Native networking added in a future change could bypass it and is outside the accepted scope.
-- 7-Zip and RAR are identified but not unpacked.
-- ZIP entries are streamed for capability terms and never extracted to disk. Valid nested ZIPs are recursively opened within the limits even when their extension is hidden, if their structure can be established. This is neither a malware-signature engine nor a runtime sandbox.
-- Nested 7-Zip, RAR, GZip, Cabinet, OLE and ISO content remains unopened. Malformed, encrypted, over-limit or unreadable nested ZIPs also remain unopened and make the result `INCOMPLETE`; prefixed bytes inside a nested ZIP remain explicitly unparsed.
-- Ordinary ZIP and ZIP64 terminal records within the safety limit recover relative offsets through prefixed data, including ZIP64 records with extensible data, so the body can still be inspected. The prefix itself remains unparsed, so the result is `INCOMPLETE`. ZIP-like tails whose offsets cannot be recovered remain `INCOMPLETE` instead of falling back to an ordinary file.
-- PDF, PE, script, and other primary formats can carry a trailing ZIP; both surfaces are inspected and reported as a polyglot. Central-directory body sizes are not trusted: direct entries are read to observed EOF, and a mismatch makes the result `INCOMPLETE`.
-- Split ZIPs, encrypted central directories, and ambiguous multiple-EOCD layouts are not internally inspected and are reported.
-- Capability terms inside script comments are still reported and require context.
-- A `CLEAR` result does not guarantee safety.
-- VirusTotal-style external reputation, multiple antivirus engines, cloud hash intelligence, and dynamic sandboxes are not included. The product goes as far as copying the SHA-256 and a lookup URL; the lookup itself happens elsewhere, at the operator’s hand.
+- Inspection is static. It does not run a behavioral sandbox or measure runtime network destinations.
+- The WPF process is not an AppContainer.
+- An administrator, kernel compromise, modified Windows trust store, malicious firmware, and physical access are outside the protection boundary.
+- The process DACL affects new access checks after lockdown. It cannot revoke a full-access handle retained by a launcher beforehand.
+- Monitoring standard .NET transport assemblies is not operating-system-level capability removal through AppContainer or Windows Filtering Platform. Future native networking code could bypass it, so such a change is outside the accepted source scope.
+- ZIP entries are scanned without disk extraction, and valid nested ZIPs are recursively examined within shared budgets. This is neither a malware-signature engine nor a runtime sandbox.
+- Nested 7-Zip / RAR / GZip / Cabinet / OLE / ISO content, malformed ZIPs, encrypted nested ZIPs, and over-limit or unreadable nested ZIPs are not opened and remain `INCOMPLETE`.
+- A bounded prefixed ZIP / ZIP64 payload is recovered and inspected, but the prefix remains unparsed and therefore `INCOMPLETE`.
+- A ZIP polyglot with PDF / PE / script or another primary format keeps both inspection surfaces. Declared entry-body sizes are not trusted; a difference from observed EOF is reported as `INCOMPLETE`.
+- Split ZIPs, encrypted central directories, and ambiguous multiple EOCD records are warned about without internal inspection.
+- Comments in scripts can match capability terms, so every finding needs context.
+- VirusTotal and other external reputation sources, multiple antivirus engines, cloud-known hashes, and dynamic analysis are not included.
+- `CLEAR` does not guarantee safety.
 
-The product has no NSA or equivalent external certification. “High assurance” here means layered, testable, fail-closed engineering based on public specifications.
+Claims such as “NSA-grade” would imply certification that this product does not have. Here, hardening means layered controls based on public specifications and a fail-closed design that refuses to inspect when its required posture cannot be verified.
 
-## Build
+## Development and verification
+
+Run every command in a non-elevated PowerShell session. An elevated launch is refused with a dedicated message and exit code 1.
+
+Release build:
 
 ```powershell
 dotnet build .\Destiny2BlackBox.csproj -c Release
 ```
 
-The app also supports non-interactive Markdown report generation:
+Generate a Markdown report without opening the window:
 
 ```powershell
 dotnet ".\bin\Release\net10.0-windows10.0.17763.0\PC Black Box.dll" --report "C:\path\to\target" ".\report.md"
 ```
 
-The security baseline can be checked without reading a target:
+Print the current security posture without reading a target:
 
 ```powershell
 dotnet ".\bin\Release\net10.0-windows10.0.17763.0\PC Black Box.dll" --security-status
 ```
 
-Re-run the DACL, combined side-channel mitigation, and managed-transport FailFast checks from an external process. This creates local Release build output only, not a distribution artifact.
-
-```powershell
-pwsh -NoProfile -File .\tests\Test-RuntimeBoundaries.ps1
-```
-
-Search, filtering, sanitization, and the security baseline can be tested without a target file. The check also creates, safely replaces, and removes an isolated temporary report, and exercises the inspection path itself against fixtures it creates and removes: digest fidelity, script-capability findings, archive traversal reported without extraction, and an already-canceled inspection that reads nothing.
+Verify search, filtering, sanitization, the baseline, and inspection paths with temporary fixtures created and removed by the product:
 
 ```powershell
 dotnet ".\bin\Release\net10.0-windows10.0.17763.0\PC Black Box.dll" --self-test
 ```
 
+Verify the DACL, platform reinforcements, and network-assembly FailFast behavior from an external process:
+
+```powershell
+pwsh -NoProfile -File .\tests\Test-RuntimeBoundaries.ps1
+```
+
+| Gate | Required result |
+|---|---|
+| Release build | 0 warnings / 0 errors |
+| `--security-status` | `enforced=true controls=16/16` |
+| `--self-test` | `PC_BLACK_BOX_SELF_TEST passed=true` |
+| `Test-RuntimeBoundaries.ps1` | `PC_BLACK_BOX_RUNTIME_BOUNDARY_TEST passed=true` |
+
+`--self-test` creates its own temporary folder and fixtures and removes them when it finishes. Local build output is created under `bin/` and is not registered as a distribution artifact.
+
+## Related documents
+
+- [CHANGELOG.md](CHANGELOG.md) — implementation changes by version
+- [SECURITY.md](SECURITY.md) — security policy and reporting process
+- [THREAT_MODEL.md](THREAT_MODEL.md) — trust boundaries, required controls, verification gates, and residual limits
+- [AGENTS.md](AGENTS.md) — collaboration rules for this repository
+- [README.md](README.md) — Japanese documentation
+
 ## Repository policy
 
-This is a private, source-only repository. Executables, installers, release archives, signing keys, local settings, packet captures, and generated reports are neither tracked nor distributed. Adding access or changing visibility requires the owner's explicit approval.
+This repository is private and source-only. Executables, installers, distribution ZIPs, signing keys, local settings, packet captures, and generated reports are neither committed nor distributed.
+
+Adding access, making the repository public, packaging, signing, releasing, or merging requires the owner's explicit approval.
