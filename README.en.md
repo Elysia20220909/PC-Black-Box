@@ -25,7 +25,7 @@ PC Black Box is not a dynamic sandbox, antivirus engine, or cloud reputation ser
 
 You need:
 
-- Windows 10 or Windows 11
+- Windows 10 version 1809 or later, or Windows 11
 - [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
 - Access to this private repository
 - [GitHub CLI](https://cli.github.com/)
@@ -173,7 +173,7 @@ Inspection input is untrusted. Before normal application initialization, PC Blac
 | Memory / control flow | Requires DEP, ASLR, Control Flow Guard, SEHOP, strict handle checking, and termination on heap corruption |
 | DLL loading | Restricts P/Invoke and normal DLL discovery to the application directory and System32, excluding the current directory, UNC, and Low-integrity images |
 | Runtime | Disables the Hot Reload metadata-update path and EventSource tracing surface |
-| Managed network boundary | Verifies that standard .NET transport assemblies used by this source are absent and terminates the process before use if one is loaded later |
+| Managed network boundary | Verifies that standard .NET assemblies capable of transport are absent and terminates the process before use if one is loaded later |
 | File I/O | Uses stable no-follow handles and rechecks final path, size, write time, volume number, and 128-bit file ID |
 | Saving / traversal | Denies delete sharing on parent directories and rechecks directory IDs and write times after enumeration |
 | Parsers | Preflights ZIP terminals and central directories, and bounds every count, length, input size, recursion path, and regular-expression evaluation |
