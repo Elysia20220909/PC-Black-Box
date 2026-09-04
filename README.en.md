@@ -25,8 +25,8 @@ PC Black Box is not a dynamic sandbox, antivirus engine, or cloud reputation ser
 
 You need:
 
-- Windows 10 version 1809 or later, or Windows 11
-- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
+- A Windows 11 release supported by [.NET 10](https://learn.microsoft.com/en-us/dotnet/core/install/windows#supported-versions), or a supported Windows 10 LTSC / Enterprise release
+- The [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) with the latest servicing update
 - Access to this private repository
 - [GitHub CLI](https://cli.github.com/)
 
@@ -44,7 +44,7 @@ If GitHub CLI is already authenticated, you can omit `gh auth login`. These comm
 
 ## Basic use
 
-- Drop a file or folder onto the window, or use a selection button.
+- Drop one file or folder onto the window, or use a selection button.
 - Select `INSPECT`.
 - Use `OVERVIEW` for the overall assessment and leading findings.
 - Use `FILES` for signatures, origin, hashes, formats, and the evidence for each file.
@@ -60,6 +60,7 @@ Use `JA / EN` to switch languages. The selected language is the only preference 
 | Search the file list | `Ctrl+F` |
 | Start inspection | `F5` or `Ctrl+Enter` |
 | Switch Overview / Files / Report | `Ctrl+1` / `Ctrl+2` / `Ctrl+3` |
+| Switch display language | `Alt+L` |
 | Stop inspection | `Esc` |
 
 Select a finding card with the pointer, or focus it with Tab and press Enter / Space, to open its supporting file. The file list searches names, formats, signatures, signers, origin, and findings, and can be filtered by `HIGH / REVIEW / LOW / CLEAR`.
@@ -69,13 +70,13 @@ Select a finding card with the pointer, or focus it with Tab and press Enter / S
 | Area | What is examined | Important boundary |
 |---|---|---|
 | Digest | SHA-256 over the entire file | Independent of the capability-content scan budgets |
-| Local trust | Authenticode status, signer, product, and company | Uses only the local Windows trust information and performs no online revocation lookup |
+| Local trust | Authenticode status, signer, product, and company | Uses Windows `WinVerifyTrust` with revocation checks disabled and URL retrieval limited to the local cache; does not establish current online revocation status |
 | Origin | Mark-of-the-Web Internet Zone and source host | Does not infer missing origin metadata |
 | Actual format | Magic bytes, extension mismatch, and PE architecture | Does not trust the file name alone |
 | Name deception | Double extensions, right-to-left controls, invisible characters, and trailing spaces or periods removed by Windows | Separates the displayed name from the effective extension |
 | Windows shortcuts | Target, arguments, working directory, hidden launch, and elevation request | Reads the `.lnk` structure without resolving or launching it |
 | PE / scripts / PDF | Capability terms related to downloading, persistence, Defender changes, process injection, hidden execution, deletion, and similar actions | Streams content only up to explicit byte and time budgets |
-| OLE compound files | Identifies MSI / MSP / legacy Office content and scans its strings | Does not parse the internal storage tree, so the result is `INCOMPLETE` |
+| OLE compound files | Recognizes the OLE format used by MSI / MSP / legacy Office files and scans strings in the raw bytes | Does not parse the storage tree, MSI tables, or VBA, so structure remains `INCOMPLETE` |
 | ZIP / Office packages | Prefix data, polyglots, internal double extensions, active content, macros, traversal paths, extreme compression ratios, and declared-size versus observed-EOF differences | Validates boundaries before using the standard parser and never extracts entries to disk |
 | Nested ZIPs | Recursively inspects valid ZIP structures, including ones hidden behind another extension | Holds them in memory and stops at depth 3; unsupported, malformed, encrypted, unreadable, or over-limit interiors remain `INCOMPLETE` |
 
@@ -131,6 +132,15 @@ The limits keep crafted inputs and very large folders from exhausting the inspec
 
 Reparse points are not followed. Files and directories are checked through no-follow handles and final-path matching.
 
+### Windows shortcuts
+
+| Target | Limit |
+|---|---:|
+| Shortcut body read | 4 MiB |
+| Each string | 8,192 characters |
+| LinkInfo content extraction | 64 KiB |
+| ExtraData | 64 blocks |
+
 ### ZIP / ZIP-based packages
 
 | Target | Limit |
@@ -138,7 +148,7 @@ Reparse points are not followed. Files and directories are checked through no-fo
 | Top-level ZIP input | 2 GiB |
 | Entry listing per ZIP | 10,000 entries |
 | Central directory and ZIP64 terminal extensible data | 64 MiB |
-| Central entry name | 4,096 bytes |
+| Central entry name / normalized path | 4,096 bytes / 2,048 characters |
 | Entry-body scanning | 64 MiB per entry / 256 MiB across a top-level ZIP and its nested tree / 1 GiB per inspection |
 | One compressed-input read | 64 KiB |
 | Nested ZIPs | Depth 3 / 32 per file / 20,000 recursive entries |
@@ -158,22 +168,22 @@ If observed EOF cannot establish the total eligible ZIP-body size, PC Black Box 
 - Files are not deleted, quarantined, moved, or repaired.
 - Reports exclude this environment's absolute paths, Windows user name, IP addresses, Steam ID, and credentials.
 
-Strings stored inside the target, such as a shortcut target or its arguments, can appear in a report as evidence. Reports also list inspected file names, source hosts, and SHA-256 values, so treat the report itself as sensitive. Generated reports are excluded by `.gitignore`, but review their contents before sharing them.
+Strings stored inside the target, such as a shortcut target or its arguments, can appear in a report as evidence. Reports also list inspected file names, source hosts, and SHA-256 values, so treat the report itself as sensitive. Reports using the GUI default name or matching `reports/`, `pc-black-box-*.md`, `pc-black-box-*.json`, `*.report.md`, or `*.report.json` are excluded by `.gitignore`. An arbitrary name might not be excluded, so review every report before adding it to Git or sharing it.
 
 `COPY SHA-256` and `COPY LOOKUP URL` only place text on the clipboard. PC Black Box neither opens the URL nor communicates with the service. If the operator opens that URL elsewhere, the SHA-256 is disclosed to VirusTotal. Windows also retains copied text when clipboard history is enabled and may synchronize it through a Microsoft account, depending on the system setting.
 
 ## Defense in depth
 
-Inspection input is untrusted. Before normal application initialization, PC Black Box applies and reads back all sixteen required controls in `SECURITY-BASELINE-2`. If any required control cannot be verified, inspection does not begin.
+Inspection input is untrusted. Before normal application initialization, PC Black Box configures or verifies all sixteen required items in `SECURITY-BASELINE-2` and uses each available confirmation mechanism to decide whether the required posture is established. Inspection does not begin if any item cannot be confirmed.
 
 | Layer | Main protections |
 |---|---|
 | Privilege | Refuses elevated launch and blocks child-process creation |
 | Process | Uses a DACL to deny newly requested same-user memory read / write, thread creation, and handle duplication |
 | Memory / control flow | Requires DEP, ASLR, Control Flow Guard, SEHOP, strict handle checking, and termination on heap corruption |
-| DLL loading | Restricts P/Invoke and normal DLL discovery to the application directory and System32, excluding the current directory, UNC, and Low-integrity images |
+| DLL loading | Limits the default P/Invoke search to System32. Restricts normal DLL discovery to the application directory and System32, excluding the current directory, UNC, and Low-integrity images |
 | Runtime | Disables the Hot Reload metadata-update path and EventSource tracing surface |
-| Managed network boundary | Verifies that standard .NET assemblies capable of transport are absent and terminates the process before use if one is loaded later |
+| Managed network boundary | Verifies that the fixed list of transport-capable standard .NET assemblies is absent and stops the process when a later load is detected |
 | File I/O | Uses stable no-follow handles and rechecks final path, size, write time, volume number, and 128-bit file ID |
 | Saving / traversal | Denies delete sharing on parent directories and rechecks directory IDs and write times after enumeration |
 | Parsers | Preflights ZIP terminals and central directories, and bounds every count, length, input size, recursion path, and regular-expression evaluation |
@@ -215,7 +225,7 @@ dotnet build .\Destiny2BlackBox.csproj -c Release
 Generate a Markdown report without opening the window:
 
 ```powershell
-dotnet ".\bin\Release\net10.0-windows10.0.17763.0\PC Black Box.dll" --report "C:\path\to\target" ".\report.md"
+dotnet ".\bin\Release\net10.0-windows10.0.17763.0\PC Black Box.dll" --report "C:\path\to\target" ".\inspection.report.md"
 ```
 
 Print the current security posture without reading a target:
