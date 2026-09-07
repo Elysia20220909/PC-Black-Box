@@ -30,6 +30,8 @@ public sealed class FileInspector
     private const uint Zip64EndOfCentralDirectoryLocatorSignature = 0x07064B50;
     private const uint EndOfCentralDirectorySignature = 0x06054B50;
     private const int MaxSignatureChecks = 300;
+    private const int ShowMinimizedNoActivate = 7;
+    private const int MaxOrdinaryShortcutArguments = 260;
     private const int SampleBytes = 8 * 1024 * 1024;
     private const int CapabilityChunkBytes = 1024 * 1024;
     private const int CapabilityOverlapBytes = 4096;
@@ -46,8 +48,10 @@ public sealed class FileInspector
     private static readonly TimeSpan RegexMatchTimeout = TimeSpan.FromSeconds(1);
     private static readonly Regex ZoneIdPattern = CreatePattern(@"^ZoneId=(?<value>\d+)", RegexOptions.IgnoreCase | RegexOptions.Multiline);
     private static readonly Regex HostUrlPattern = CreatePattern(@"^HostUrl=(?<value>.+)$", RegexOptions.IgnoreCase | RegexOptions.Multiline);
-    private static readonly Regex DoubleExtensionPattern = CreatePattern(@"\.(pdf|png|jpe?g|gif|docx?|xlsx?|pptx?|txt)\.(exe|scr|com|bat|cmd|ps1|vbs|js|hta)$", RegexOptions.IgnoreCase);
+    private static readonly Regex DoubleExtensionPattern = CreatePattern(@"\.(pdf|png|jpe?g|gif|docx?|xlsx?|pptx?|txt)\.(exe|scr|com|bat|cmd|ps1|vbs|vbe|js|jse|wsf|hta|lnk|url|msi|iso|img|pif|cpl|reg)$", RegexOptions.IgnoreCase);
     private static readonly Regex PdfActivePattern = CreatePattern(@"/(JavaScript|JS|OpenAction|Launch)\b", RegexOptions.IgnoreCase);
+    private static readonly Regex ShortcutInterpreterPattern = CreateCapabilityPattern(
+        @"(powershell(?:\.exe)?|pwsh(?:\.exe)?|\bcmd\.exe|wscript(?:\.exe)?|cscript(?:\.exe)?|mshta(?:\.exe)?|rundll32(?:\.exe)?|regsvr32(?:\.exe)?|msiexec(?:\.exe)?|certutil(?:\.exe)?|bitsadmin(?:\.exe)?|forfiles(?:\.exe)?|installutil(?:\.exe)?|msbuild(?:\.exe)?|curl\.exe|wget\.exe)");
     private static readonly Regex ArchiveDrivePathPattern = CreatePattern(@"^[A-Za-z]:/", RegexOptions.None);
 
     private static readonly HashSet<string> ActiveExtensions = new(StringComparer.OrdinalIgnoreCase)
@@ -73,6 +77,8 @@ public sealed class FileInspector
         ("credential-access", CreateCapabilityPattern(@"(Get-Credential|ConvertTo-SecureString|CredentialManager|mimikatz|lsass|Login Data|Cookies\\b)"), 25, "資格情報アクセスに関連する語句", "Terms associated with credential access"),
         ("persistence", CreateCapabilityPattern(@"(Register-ScheduledTask|New-ScheduledTask|schtasks(?:\.exe)?|New-Service|sc(?:\.exe)?\s{1,256}create|CurrentVersion\\Run|Startup\\)"), 22, "永続化に利用できる処理", "Capability that can establish persistence"),
         ("remote-download", CreateCapabilityPattern(@"(Invoke-WebRequest|Invoke-RestMethod|DownloadString|DownloadFile|Start-BitsTransfer|System\.Net\.WebClient|curl(?:\.exe)?\s{1,256}https?://|wget\s{1,256}https?://)"), 18, "外部からファイルやデータを取得する処理", "Capability to download files or data"),
+        ("encoded-command", CreateCapabilityPattern(@"[\s""'](?:-|/)e(?:n(?:c(?:o(?:d(?:e(?:d(?:c(?:o(?:m(?:m(?:a(?:n(?:d)?)?)?)?)?)?)?)?)?)?)?)?)?\s{1,8}[A-Za-z0-9+/=]{16,}"), 40, "Base64で符号化されたコマンドを実行する指定です", "A switch that runs a Base64-encoded command"),
+        ("hidden-window", CreateCapabilityPattern(@"((?:-|/)w(?:indowstyle)?\s{1,8}hidden|CreateNoWindow\s{0,8}=\s{0,8}true|WindowStyle\s{0,8}=\s{0,8}Hidden)"), 15, "実行中の画面を隠す指定です", "A switch that hides the window while it runs"),
         ("obfuscation", CreateCapabilityPattern(@"(FromBase64String|-EncodedCommand|\bIEX\b|Invoke-Expression|GZipStream|DeflateStream)"), 17, "難読化または動的実行に使われる処理", "Capability associated with obfuscation or dynamic execution"),
         ("shell-launch", CreateCapabilityPattern(@"(Start-Process|ProcessStartInfo|cmd(?:\.exe)?\s{1,256}/c|powershell(?:\.exe)?\s{1,256}-)"), 10, "別プロセスやシェルを起動する処理", "Capability to launch another process or shell"),
         ("destructive-file", CreateCapabilityPattern(@"(Remove-Item|DeleteFile|rmdir\s{1,256}/s|del\s{1,256}/[fq])"), 9, "ファイル削除能力", "File-deletion capability"),
@@ -364,6 +370,7 @@ public sealed class FileInspector
         ReadVersionAndPeMetadata(path, secureStream, analysis);
         ReadInternetZone(path, analysis);
         DetectNameAndTypeMismatch(analysis, sample, rawRelativePath);
+        if (analysis.FileType == ShortcutType) InspectShortcut(secureStream, analysis);
         DetectCapabilities(secureStream, analysis, capabilityBudget, cancellationToken);
         InspectStructuredFormats(secureStream, analysis, cancellationToken);
 
@@ -420,13 +427,33 @@ public sealed class FileInspector
         if (StartsWith(bytes, [0x50, 0x4B, 0x03, 0x04]) || StartsWith(bytes, [0x50, 0x4B, 0x05, 0x06])) return "ZIP / package";
         if (StartsWith(bytes, Encoding.ASCII.GetBytes("%PDF"))) return "PDF";
         if (StartsWith(bytes, [0x7F, 0x45, 0x4C, 0x46])) return "ELF binary";
-        if (StartsWith(bytes, [0x52, 0x61, 0x72, 0x21])) return "RAR archive";
-        if (StartsWith(bytes, [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C])) return "7-Zip archive";
-        if (StartsWith(bytes, [0x1F, 0x8B])) return "GZip archive";
+        if (StartsWith(bytes, [0x52, 0x61, 0x72, 0x21])) return RarType;
+        if (StartsWith(bytes, [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C])) return SevenZipType;
+        if (StartsWith(bytes, [0x1F, 0x8B])) return GZipType;
+        if (StartsWith(bytes, [0x4D, 0x53, 0x43, 0x46])) return CabinetType;
+        if (LooksLikeIsoImage(bytes)) return IsoImageType;
+        if (StartsWith(bytes, [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1])) return OleCompoundType;
+        if (ShortcutInspector.LooksLikeShortcut(bytes)) return ShortcutType;
         if (ScriptExtensions.Contains(extension)) return "Script / active text";
         if (LooksLikeText(bytes)) return "Text";
         return "Binary / unknown";
     }
+
+    internal const string ShortcutType = "Windows shortcut";
+    internal const string OleCompoundType = "OLE compound";
+    internal const string RarType = "RAR archive";
+    internal const string SevenZipType = "7-Zip archive";
+    internal const string GZipType = "GZip archive";
+    internal const string CabinetType = "Cabinet archive";
+    internal const string IsoImageType = "ISO image";
+
+    /// <summary>
+    /// ISO 9660 declares itself at the start of sector 16 rather than at offset zero. Recognizing it matters
+    /// because Mark-of-the-Web does not propagate to the files inside a mounted image, which is the reason
+    /// this container is chosen for delivery in the first place.
+    /// </summary>
+    private static bool LooksLikeIsoImage(byte[] bytes) =>
+        bytes.Length >= 0x8006 && bytes.AsSpan(0x8001, 5).SequenceEqual("CD001"u8);
 
     private static bool StartsWith(byte[] bytes, byte[] prefix) => bytes.Length >= prefix.Length && bytes.AsSpan(0, prefix.Length).SequenceEqual(prefix);
 
@@ -552,7 +579,10 @@ public sealed class FileInspector
         string extension = GetInspectionExtension(analysis);
         bool script = ScriptExtensions.Contains(extension);
         bool pe = analysis.FileType == "Windows PE";
-        if (!script && !pe && analysis.FileType != "PDF") return;
+        // A shortcut carries a command line and an OLE package carries its strings in the open, so both are
+        // read as content. Only formats whose bytes are compressed or unrecognized stay outside this pass.
+        bool structured = analysis.FileType is "PDF" or ShortcutType or OleCompoundType;
+        if (!script && !pe && !structured) return;
 
         analysis.CapabilityScanApplicable = true;
         if (stream.Length == 0) return;
@@ -617,7 +647,9 @@ public sealed class FileInspector
                     if (!matched) continue;
 
                     matchedCapabilities.Add(capability.Code);
-                    int score = script ? capability.Score : Math.Max(4, capability.Score / 2);
+                    int score = script || analysis.FileType == ShortcutType
+                        ? capability.Score
+                        : Math.Max(4, capability.Score / 2);
                     AddIndicator(analysis, new(score >= 30 ? "danger" : "watch", capability.Code, capability.Ja, capability.En, score));
                 }
 
@@ -663,8 +695,118 @@ public sealed class FileInspector
         }
     }
 
+    /// <summary>
+    /// Turns a shortcut into the only question that matters about one: what would it run, and with what.
+    /// The recovered command line is matched with the same capability patterns as a script, because a
+    /// command line is what a script is. Nothing here resolves, follows, or launches the target.
+    /// </summary>
+    private static void InspectShortcut(FileStream stream, FileAnalysis analysis)
+    {
+        ShortcutDetails details;
+        try
+        {
+            details = ShortcutInspector.Read(stream, analysis.Size);
+        }
+        catch (Exception exception) when (exception is IOException or ArgumentException or OverflowException)
+        {
+            analysis.InspectionLimited = true;
+            AddIndicator(analysis, new("watch", "shortcut-unreadable", "ショートカットの構造を読み取れませんでした", "The shortcut structure could not be read", 25));
+            return;
+        }
+
+        analysis.ShortcutTarget = FormatShortcutField(details.Target);
+        analysis.ShortcutArguments = FormatShortcutField(details.Arguments);
+
+        if (details.Truncated)
+        {
+            analysis.InspectionLimited = true;
+            AddIndicator(analysis, new("watch", "shortcut-truncated", "ショートカットの構造が途中で終わっており、全体を読めていません", "The shortcut structure ends early, so it could not be read in full", 25));
+        }
+
+        // These three come from the header and the flags, so they survive a command line that could not be
+        // recovered. They are checked before the early return for exactly that reason: a shortcut that
+        // defeats the string walk must not also shed the evidence the header still carries.
+        if (details.ShowCommand == ShowMinimizedNoActivate)
+        {
+            AddIndicator(analysis, new("watch", "shortcut-hidden-start", "ショートカットは最小化・非アクティブで起動する設定です", "The shortcut is set to start minimized and inactive", 20));
+        }
+
+        if (details.RunAsAdministrator)
+        {
+            AddIndicator(analysis, new("watch", "shortcut-run-as-admin", "ショートカットは昇格して実行するよう指定されています", "The shortcut is marked to run elevated", 10));
+        }
+
+        if (details.Arguments.Length > MaxOrdinaryShortcutArguments)
+        {
+            AddIndicator(analysis, new("watch", "shortcut-long-command", "ショートカットの引数が通常より長く、内容を隠している可能性があります", "The shortcut carries an unusually long command line", 15));
+        }
+
+        // The joined surface is prefixed with a space so a command line that begins with a switch still has
+        // the leading separator the capability patterns expect.
+        string surface = " " + details.CommandSurface;
+        if (surface.Length <= 1) return;
+
+        try
+        {
+            foreach (var capability in CapabilityPatterns)
+            {
+                if (!capability.Pattern.IsMatch(surface)) continue;
+                AddIndicator(analysis, new(capability.Score >= 30 ? "danger" : "watch", capability.Code, capability.Ja, capability.En, capability.Score));
+            }
+
+            if (ShortcutInterpreterPattern.IsMatch(surface))
+            {
+                // Legitimate developer tooling ships shortcuts that open a shell with arguments — measured on
+                // this machine, 6 of 72 Start Menu shortcuts do. Pointing at an interpreter is therefore only
+                // a starting point; the danger call is reserved for one that also carries another signal.
+                bool corroborated =
+                    analysis.InternetZone >= 3 ||
+                    details.Arguments.Length > MaxOrdinaryShortcutArguments ||
+                    analysis.Indicators.Any(existing => existing.Code is
+                        "encoded-command" or "hidden-window" or "remote-download" or "obfuscation" or
+                        "defender-change" or "persistence" or "process-injection" or "credential-access" or
+                        "double-extension" or "unicode-control");
+
+                AddIndicator(analysis, details.Arguments.Length == 0
+                    ? new("watch", "shortcut-interpreter", "ショートカットの起動先がスクリプト実行環境です", "The shortcut points at a script interpreter", 12)
+                    : corroborated
+                        ? new("danger", "shortcut-runs-interpreter", "ショートカットがスクリプト実行環境を起動し、その引数に別の危険指標もあります", "The shortcut launches a script interpreter, and its command line carries other risk indicators too", 45)
+                        : new("watch", "shortcut-interpreter-command", "ショートカットがスクリプト実行環境を引数付きで起動します", "The shortcut launches a script interpreter with arguments", 15));
+            }
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            analysis.InspectionLimited = true;
+            AddIndicator(analysis, new("watch", "regex-time-limit", "能力語の照合が時間上限に達しました", "Capability matching reached its time limit", 8));
+        }
+
+    }
+
+    private static string FormatShortcutField(string value) =>
+        String.IsNullOrWhiteSpace(value) ? "—" : SecurityPolicy.SanitizeText(value, 512);
+
     private static void InspectStructuredFormats(FileStream stream, FileAnalysis analysis, CancellationToken cancellationToken)
     {
+        // A container this product can name but cannot open is the same failure the OLE case was: refusing to
+        // look is not the same as having looked. Scoring it at the floor would let an attacker pick the
+        // wrapper we do not open — the .7z form of a payload must not be cheaper than the .zip form.
+        if (analysis.FileType is RarType or SevenZipType or GZipType or CabinetType or IsoImageType)
+        {
+            analysis.InspectionLimited = true;
+            AddIndicator(analysis, new("watch", "container-unopened", "この書庫・イメージ形式は中身を開けないため、内部は未確認です", "This archive or image format is not opened, so its contents are unexamined", 15));
+            return;
+        }
+
+        if (analysis.FileType == OleCompoundType)
+        {
+            // The capability pass reads this file's strings, but the storage tree, the installer tables and
+            // any VBA project inside are not parsed. Reporting that as a complete inspection would repeat
+            // exactly the lie the first-8-MiB sample used to tell.
+            analysis.InspectionLimited = true;
+            AddIndicator(analysis, new("watch", "ole-structure-unparsed", "MSIやOfficeなどOLE複合ファイルの内部構造は解析していません", "The internal structure of this OLE compound file (installer or Office document) was not parsed", 10));
+            return;
+        }
+
         if (analysis.FileType != "ZIP / package") return;
         if (analysis.Size > SecurityPolicy.MaxArchiveInspectionBytes)
         {

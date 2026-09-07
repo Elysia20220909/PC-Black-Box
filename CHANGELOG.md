@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.8.1 — 2026-08-22
+
+- Stopped rewarding an attacker for breaking the shortcut parser. A LinkInfo block larger than the extraction cap is legal and trivial to pad, and it made the walk abandon every field that follows — so a shortcut running an encoded command scored lower than one that parsed cleanly. The walk now steps over an oversized block and keeps reading, the header-derived flags are recorded even when the command line cannot be recovered, and a failed parse of active content is scored at review weight instead of the floor.
+- Applied the same rule to every container this product can name but cannot open. `RAR`, `7-Zip` and `GZip` were named and then silently skipped, so shipping a payload as `.7z` instead of `.zip` erased every archive finding and still reported `CLEAR` and complete. Those formats now report `container-unopened` and `INCOMPLETE`, and ISO 9660 and Cabinet images are recognized rather than passing as `Binary / unknown` — an ISO matters because Mark-of-the-Web does not reach the files inside it.
+
+- Said what the clipboard actually is. The copy action leaves the process, but Windows clipboard history retains copied text and can sync it to a Microsoft account, and this product cannot read that setting reliably — so the confirmation and the README name it instead of implying the string stops at the clipboard.
+- Ignored generated reports wherever they are saved, not only under `reports/`. A report lists inspected file names, source hosts, and digests, so it identifies more than any single hash; only the directory was covered before.
+
+- Read Windows shortcuts instead of naming them. A `.lnk` was never opened: it sat outside the capability gate, so a shortcut wearing a document name and running `powershell -w hidden -enc <payload>` was reported as `LOW` and, worse, as a complete inspection. The command line is now recovered from the shortcut structure and judged like the script it is. The measured fixture moved from `LOW 18` to `HIGH 100`.
+- Reserved the danger-level shortcut finding for a command line that also carries another signal — an encoded command, a hidden window, a download, a double extension, or a Mark-of-the-Web. Measured against the 72 shortcuts in this machine’s system Start Menu, the first rule called 6 legitimate developer tools dangerous; the corroborated rule calls none of them dangerous while the malicious-shaped fixture stays at `HIGH 100`.
+- Added `encoded-command` and `hidden-window` capability patterns, so PowerShell’s abbreviated switches (`-e`, `-enc`, `-encodedcommand`) and hidden-window launches are matched wherever they appear, not only in shortcuts.
+- Extended the double-extension check to `.lnk`, `.url`, `.msi`, `.iso`, `.img`, `.pif`, `.cpl` and the remaining script extensions; `invoice.pdf.lnk` previously passed it untouched.
+- Recognized OLE compound files (MSI, MSP, legacy Office) by content rather than leaving them as `Binary / unknown`. Their strings are now scanned, and because their storage tree is not parsed they are reported `INCOMPLETE` instead of `CLEAR`. A 655 MB installer previously came back `CLEAR (0/100)` and `complete` after being read only to compute its digest.
+- Reported what a shortcut would run in the window, the Markdown report, and the JSON, so the finding carries its evidence.
+- Corrected the privacy statement: the report omits this machine’s paths and identifiers, while strings found inside the target are shown as evidence.
+
 ## 0.8.0 — 2026-08-21
 
 - Replaced the first-8-MiB capability sample with bounded streaming for scripts, Windows PE files, and PDFs. Chunk overlap preserves indicators that cross a read boundary, while explicit 1-GiB/file, 4-GiB/inspection, 60-second/file, and 180-second/inspection budgets fail closed as `INCOMPLETE`; SHA-256 remains a separate whole-file pass. The byte budgets govern coverage at a measured ~50 MiB/s, so an ordinary folder of installers is inspected in full instead of exhausting the budget partway.

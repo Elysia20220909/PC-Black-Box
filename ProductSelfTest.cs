@@ -107,6 +107,11 @@ internal static class ProductSelfTest
             Require(TestRiskAndCompletenessRemainSeparate(), ref checks);
             Require(TestCapabilityBudgetsStayOrdered(), ref checks);
             Require(TestHashLookupUrlFailsClosed(), ref checks);
+            Require(TestShortcutCommandLineIsRead(), ref checks);
+            Require(TestHostileShortcutFailsClosed(), ref checks);
+            Require(TestOleCompoundIsScannedAndNeverComplete(), ref checks);
+            Require(TestOversizedLinkInfoStillYieldsTheCommandLine(), ref checks);
+            Require(TestUnopenedContainerIsNeverClear(), ref checks);
             Require(TestArchiveFindingsWithoutExtraction(), ref checks);
             Require(TestCanceledInspectionReadsNothing(), ref checks);
             return new ProductSelfTestResult(true, checks);
@@ -430,6 +435,186 @@ internal static class ProductSelfTest
 
         return SecurityPolicy.TryBuildHashLookupUrl(null, out string missing) == false && missing.Length == 0;
     }
+
+    /// <summary>
+    /// Builds the delivery shape this product used to miss entirely: a shortcut wearing a document name
+    /// whose command line runs an encoded PowerShell payload in a hidden window. Nothing here is executed.
+    /// </summary>
+    private static byte[] BuildShortcut(string relativePath, string arguments, uint showCommand, int linkInfoBytes = 0)
+    {
+        const uint hasLinkInfo = 0x00000002;
+        const uint hasRelativePath = 0x00000008;
+        const uint hasArguments = 0x00000020;
+        const uint isUnicode = 0x00000080;
+
+        using var buffer = new MemoryStream();
+        using var writer = new BinaryWriter(buffer, System.Text.Encoding.Unicode, leaveOpen: true);
+        writer.Write(0x4C);
+        writer.Write(new byte[]
+        {
+            0x01, 0x14, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46
+        });
+        writer.Write((linkInfoBytes > 0 ? hasLinkInfo : 0u) | hasRelativePath | hasArguments | isUnicode);
+        writer.Write(0x00000020);
+        writer.Write(0L);
+        writer.Write(0L);
+        writer.Write(0L);
+        writer.Write(0);
+        writer.Write(0);
+        writer.Write(showCommand);
+        writer.Write((ushort)0);
+        writer.Write((ushort)0);
+        writer.Write(0);
+        writer.Write(0);
+
+        if (linkInfoBytes > 0)
+        {
+            writer.Write(linkInfoBytes);
+            writer.Write(0x1C);
+            writer.Write(0);
+            writer.Write(0);
+            writer.Write(0);
+            writer.Write(0);
+            writer.Write(0);
+            writer.Write(new byte[linkInfoBytes - 0x1C]);
+        }
+
+        foreach (string value in new[] { relativePath, arguments })
+        {
+            writer.Write((ushort)value.Length);
+            writer.Write(System.Text.Encoding.Unicode.GetBytes(value));
+        }
+
+        writer.Write(0);
+        writer.Flush();
+        return buffer.ToArray();
+    }
+
+    /// <summary>A shortcut is judged by the command line it carries, not by its extension.</summary>
+    private static bool TestShortcutCommandLineIsRead() =>
+        WithFixtureDirectory(directory =>
+        {
+            string path = Path.Combine(directory, "invoice.pdf.lnk");
+            string encoded = Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes("Write-Host 'self test'"));
+            File.WriteAllBytes(path, BuildShortcut(
+                @"..\..\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+                $"-w hidden -nop -enc {encoded}",
+                showCommand: 7));
+
+            ScanResult result = Inspect(path);
+            if (result.Files.Count != 1) return false;
+
+            FileAnalysis file = result.Files[0];
+            bool Has(string code) => file.Indicators.Any(indicator => indicator.Code.Equals(code, StringComparison.Ordinal));
+            return file.FileType.Equals(FileInspector.ShortcutType, StringComparison.Ordinal) &&
+                   file.ShortcutTarget.Contains("powershell.exe", StringComparison.OrdinalIgnoreCase) &&
+                   file.ShortcutArguments.Contains("-enc", StringComparison.Ordinal) &&
+                   Has("shortcut-runs-interpreter") &&
+                   Has("encoded-command") &&
+                   Has("hidden-window") &&
+                   Has("shortcut-hidden-start") &&
+                   Has("double-extension") &&
+                   file.RiskCode.Equals("HIGH", StringComparison.Ordinal);
+        });
+
+    /// <summary>
+    /// A shortcut whose declared sizes do not fit must end the walk and say so, never throw and never
+    /// present itself as fully read.
+    /// </summary>
+    private static bool TestHostileShortcutFailsClosed() =>
+        WithFixtureDirectory(directory =>
+        {
+            string path = Path.Combine(directory, "hostile.lnk");
+            byte[] shortcut = BuildShortcut(@"C:\Windows\System32\cmd.exe", "/c echo", showCommand: 1);
+            // Claim every optional structure is present and hand it nothing but the header.
+            BinaryPrimitives.WriteUInt32LittleEndian(shortcut.AsSpan(0x14), 0xFFFFFFFF);
+            File.WriteAllBytes(path, shortcut.AsSpan(0, 0x4C + 2).ToArray());
+
+            ScanResult result = Inspect(path);
+            if (result.Files.Count != 1) return false;
+
+            FileAnalysis file = result.Files[0];
+            return file.FileType.Equals(FileInspector.ShortcutType, StringComparison.Ordinal) &&
+                   file.InspectionLimited &&
+                   result.IsPartial &&
+                   result.AssessmentCode.Contains("INCOMPLETE", StringComparison.Ordinal);
+        });
+
+    /// <summary>
+    /// An installer or Office document is read for its strings, and is never called complete, because its
+    /// storage tree and tables are not parsed.
+    /// </summary>
+    private static bool TestOleCompoundIsScannedAndNeverComplete() =>
+        WithFixtureDirectory(directory =>
+        {
+            string path = Path.Combine(directory, "setup.msi");
+            string encoded = Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes("Write-Host 'self test'"));
+            byte[] header = [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
+            byte[] body = System.Text.Encoding.Unicode.GetBytes($" powershell.exe -enc {encoded} ");
+            File.WriteAllBytes(path, [.. header, .. new byte[512], .. body]);
+
+            ScanResult result = Inspect(path);
+            if (result.Files.Count != 1) return false;
+
+            FileAnalysis file = result.Files[0];
+            return file.FileType.Equals(FileInspector.OleCompoundType, StringComparison.Ordinal) &&
+                   file.CapabilityScanApplicable &&
+                   file.CapabilityScannedBytes == file.Size &&
+                   file.Indicators.Any(indicator => indicator.Code.Equals("encoded-command", StringComparison.Ordinal)) &&
+                   file.Indicators.Any(indicator => indicator.Code.Equals("ole-structure-unparsed", StringComparison.Ordinal)) &&
+                   file.InspectionLimited &&
+                   result.CompletenessCode.Equals("INCOMPLETE", StringComparison.Ordinal) &&
+                   !result.AssessmentCode.Equals("CLEAR", StringComparison.Ordinal);
+        });
+
+    /// <summary>
+    /// A LinkInfo block past the extraction cap is legal and easy to build, so the walk must step over it and
+    /// still recover the command line. Otherwise breaking this parser is cheaper than passing it.
+    /// </summary>
+    private static bool TestOversizedLinkInfoStillYieldsTheCommandLine() =>
+        WithFixtureDirectory(directory =>
+        {
+            string path = Path.Combine(directory, "padded.lnk");
+            string encoded = Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes("Write-Host 'self test'"));
+            File.WriteAllBytes(path, BuildShortcut(
+                @"..\..\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+                $"-w hidden -nop -enc {encoded}",
+                showCommand: 7,
+                linkInfoBytes: 128 * 1024));
+
+            ScanResult result = Inspect(path);
+            if (result.Files.Count != 1) return false;
+
+            FileAnalysis file = result.Files[0];
+            bool Has(string code) => file.Indicators.Any(indicator => indicator.Code.Equals(code, StringComparison.Ordinal));
+            return file.ShortcutArguments.Contains("-enc", StringComparison.Ordinal) &&
+                   Has("encoded-command") &&
+                   Has("shortcut-runs-interpreter") &&
+                   Has("shortcut-hidden-start") &&
+                   file.RiskCode.Equals("HIGH", StringComparison.Ordinal);
+        });
+
+    /// <summary>
+    /// A container this product can name but cannot open must never read as a finished inspection, or the
+    /// cheapest evasion is simply to pick the wrapper that is not opened.
+    /// </summary>
+    private static bool TestUnopenedContainerIsNeverClear() =>
+        WithFixtureDirectory(directory =>
+        {
+            string path = Path.Combine(directory, "payload.7z");
+            File.WriteAllBytes(path, [0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00]);
+
+            ScanResult result = Inspect(path);
+            if (result.Files.Count != 1) return false;
+
+            FileAnalysis file = result.Files[0];
+            return file.FileType.Equals(FileInspector.SevenZipType, StringComparison.Ordinal) &&
+                   file.InspectionLimited &&
+                   file.Indicators.Any(indicator => indicator.Code.Equals("container-unopened", StringComparison.Ordinal)) &&
+                   result.CompletenessCode.Equals("INCOMPLETE", StringComparison.Ordinal) &&
+                   !result.AssessmentCode.Equals("CLEAR", StringComparison.Ordinal);
+        });
 
     /// <summary>
     /// Reports an escaping path and active content inside an archive from the central directory alone:

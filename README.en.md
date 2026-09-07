@@ -41,7 +41,7 @@ Use `JA / EN` to switch languages. Only that language preference is stored in `%
 - Select a finding card on `OVERVIEW`, or focus it with Tab and press Enter / Space, to open the matching file evidence directly.
 - Use `Ctrl+O` for a file, `Ctrl+Shift+O` for a folder, `Ctrl+F` to search, and `F5` or `Ctrl+Enter` to inspect.
 - Use `Ctrl+1 / 2 / 3` for Overview, Files, and Report; press `Esc` to cancel an active inspection.
-- `COPY SHA-256` and `COPY LOOKUP URL` in the file evidence pane only place text on the clipboard. The product never opens the URL and never connects; opening it is the operator's decision, and doing so discloses that hash to the service.
+- `COPY SHA-256` and `COPY LOOKUP URL` in the file evidence pane only place text on the clipboard. The product never opens the URL and never connects; opening it is the operator's decision, and doing so discloses that hash to the service. The clipboard itself is outside this product: with Windows clipboard history enabled, the copied string is also retained by Windows and may sync to a Microsoft account.
 
 ## What it inspects
 
@@ -50,6 +50,8 @@ Use `JA / EN` to switch languages. Only that language preference is stored in `%
 - Mark-of-the-Web (Internet Zone) and source host
 - True format inferred from file magic
 - Double extensions, right-to-left override characters, and extension mismatches
+- Windows shortcuts: the target, arguments, working directory, hidden-window and elevation flags, read from the shortcut structure without resolving or launching it
+- OLE compound files (installers and legacy Office documents): recognized by content and read for strings, with the storage tree left unparsed and reported as incomplete
 - PE architecture, product/company metadata, and entropy sampled from the first 8 MiB
 - Streaming capability matching for scripts, Windows PE files, and PDFs within explicit limits, including downloads, persistence, Defender changes, process injection, deletion, and related behavior
 - Executable content, macros, path traversal, and extreme compression ratios inside ZIP and Office packages
@@ -69,7 +71,8 @@ Legitimate administration scripts, installers, and compression tools can trigger
 - No automatic network request is made.
 - No process injection, game-memory access, or packet capture is performed.
 - Files are not deleted, quarantined, moved, or repaired.
-- Reports omit absolute paths, Windows user names, IP addresses, Steam IDs, and credentials.
+- Reports omit **this machine’s** absolute paths, Windows user names, IP addresses, Steam IDs, and credentials. Strings held inside the target, such as a shortcut’s target and arguments, are shown as the evidence behind a finding.
+- Treat the report itself as sensitive. It lists the inspected file names, the hosts they came from, and their digests, which identifies more than any single hash does. Generated reports are gitignored; read one before sharing it.
 - No external hash lookup or browser launch is available; inspection remains fully offline.
 
 The design follows iOS-inspired security principles: least privilege, a closed data flow, explicit user actions, and fixed trust boundaries. It remains a conventional Windows desktop app and does not claim isolation equivalent to the iOS App Sandbox.

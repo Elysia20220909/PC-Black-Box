@@ -64,6 +64,27 @@ public static class ReportBuilder
         }
         builder.AppendLine();
 
+        List<FileAnalysis> shortcuts = result.Files
+            .Where(file => file.FileType.Equals(FileInspector.ShortcutType, StringComparison.Ordinal))
+            .Where(file => file.ShortcutTarget != "—" || file.ShortcutArguments != "—")
+            .OrderByDescending(file => file.RiskScore)
+            .Take(50)
+            .ToList();
+        if (shortcuts.Count > 0)
+        {
+            builder.AppendLine(ja ? "## ショートカットが起動するもの" : "## What the shortcuts would run");
+            builder.AppendLine();
+            builder.AppendLine(ja
+                ? "| リスク | ファイル | 起動先 | 引数 |"
+                : "| Risk | File | Target | Arguments |");
+            builder.AppendLine("|---:|---|---|---|");
+            foreach (FileAnalysis shortcut in shortcuts)
+            {
+                builder.AppendLine($"| {shortcut.RiskScore} | `{Escape(shortcut.RelativePath)}` | `{Escape(shortcut.ShortcutTarget)}` | `{Escape(shortcut.ShortcutArguments)}` |");
+            }
+            builder.AppendLine();
+        }
+
         builder.AppendLine(ja ? "## ファイル一覧" : "## File inventory");
         builder.AppendLine();
         builder.AppendLine("| Risk | File | Size | Type | Signature | SHA-256 | Inspection | Source host |");
@@ -90,8 +111,8 @@ public static class ReportBuilder
         builder.AppendLine(ja ? "## プライバシーと制約" : "## Privacy and limitations");
         builder.AppendLine();
         builder.AppendLine(ja
-            ? "対象は実行していません。ファイルのアップロード、外部サイト照会、ネットワーク通信、プロセス注入、メモリ読み取りは行いません。レポートには絶対パス、Windowsユーザー名、IPアドレス、Steam ID、認証情報を含めません。"
-            : "The target was not executed. No file upload, external lookup, network request, process injection, or memory read is performed. The report omits absolute paths, Windows user names, IP addresses, Steam IDs, and credentials.");
+            ? "対象は実行していません。ファイルのアップロード、外部サイト照会、ネットワーク通信、プロセス注入、メモリ読み取りは行いません。この環境の絶対パス、Windowsユーザー名、IPアドレス、Steam ID、認証情報はレポートに含めません。ショートカットの起動先や引数など、調査対象の中に書かれていた文字列は証拠として掲載します。"
+            : "The target was not executed. No file upload, external lookup, network request, process injection, or memory read is performed. The report omits this machine's absolute paths, Windows user names, IP addresses, Steam IDs, and credentials. Strings held inside the target, such as a shortcut's command line, are shown as evidence.");
         return builder.ToString();
     }
 
@@ -144,6 +165,8 @@ public static class ReportBuilder
                 file.InternetZone,
                 sourceHost = file.SourceHost == "—" ? null : Clean(file.SourceHost),
                 file.ArchiveEntries,
+                shortcutTarget = file.ShortcutTarget == "—" ? null : Clean(file.ShortcutTarget),
+                shortcutArguments = file.ShortcutArguments == "—" ? null : Clean(file.ShortcutArguments),
                 file.InspectionLimited,
                 file.CapabilityScanApplicable,
                 file.CapabilityScannedBytes,
