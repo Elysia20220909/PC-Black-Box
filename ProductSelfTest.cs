@@ -123,7 +123,14 @@ internal static class ProductSelfTest
             Require(TestUnderreportedArchiveEntryBodyIsStillScanned(), ref checks);
             Require(TestPdfZipPolyglotInspectsBothFormats(), ref checks);
             Require(TestMalformedEmbeddedZipIsIncomplete(), ref checks);
-            Require(TestNestedArchiveNeverLooksComplete(), ref checks);
+            Require(TestHiddenNestedArchiveIsRecursivelyInspected(), ref checks);
+            Require(TestNestedZipContentOutranksUnsupportedName(), ref checks);
+            Require(TestNestedActiveEntryCountsAggregate(), ref checks);
+            Require(TestPrefixedNestedArchiveIsInspectedButIncomplete(), ref checks);
+            Require(TestNestedArchiveDepthLimitFailsClosed(), ref checks);
+            Require(TestNestedArchiveCountLimitFailsClosed(), ref checks);
+            Require(TestNestedArchiveByteLimitFailsClosed(), ref checks);
+            Require(TestInvalidNestedArchiveFailsClosed(), ref checks);
             Require(TestDisguisedNestedFormatsStayIncomplete(), ref checks);
             Require(TestLoneZipEndMarkerDoesNotClaimNestedArchive(), ref checks);
             Require(TestPrefixedArchiveBodyInspection(), ref checks);
@@ -231,7 +238,7 @@ internal static class ProductSelfTest
         return markdown.IndexOf(result.TargetPath, StringComparison.OrdinalIgnoreCase) < 0 &&
                json.IndexOf(result.TargetPath, StringComparison.OrdinalIgnoreCase) < 0 &&
                markdown.Contains("folder/name'\uFFFD\uFFFD.ps1", StringComparison.Ordinal) &&
-               document.RootElement.GetProperty("schema").GetString() is "pc-black-box-report-v4" &&
+               document.RootElement.GetProperty("schema").GetString() is "pc-black-box-report-v5" &&
                document.RootElement.GetProperty("files")[0].GetProperty("path").GetString()
                    is "folder|name`\uFFFD\uFFFD.ps1";
     }
@@ -447,6 +454,8 @@ internal static class ProductSelfTest
     private static bool TestArchiveContentBudgetsStayOrdered() =>
         FileInspector.MaxArchiveContentBytesPerFile >= FileInspector.MaxArchiveContentBytesPerEntry &&
         FileInspector.MaxArchiveContentBytesPerScan >= FileInspector.MaxArchiveContentBytesPerFile &&
+        FileInspector.MaxNestedArchiveBytesPerFile >= FileInspector.MaxNestedArchiveBytes &&
+        FileInspector.MaxArchiveContentBytesPerFile >= FileInspector.MaxNestedArchiveBytesPerFile &&
         FileInspector.MaxArchiveContentTimePerScan >= FileInspector.MaxArchiveContentTimePerFile;
 
     private static bool TestUnknownArchiveCoverageIsNotShownAsComplete()
@@ -915,7 +924,7 @@ internal static class ProductSelfTest
                    result.IsPartial &&
                    result.CompletenessCode.Equals("INCOMPLETE", StringComparison.Ordinal) &&
                    report.Contains($"ZIP entry-content scan: {FileAnalysis.FormatSize(entryBytes.Length)} / {FileAnalysis.FormatSize(entryBytes.Length)}", StringComparison.Ordinal) &&
-                   root.GetProperty("schema").GetString() is "pc-black-box-report-v4" &&
+                   root.GetProperty("schema").GetString() is "pc-black-box-report-v5" &&
                    jsonResult.GetProperty("archiveContentEligibleBytes").GetInt64() == entryBytes.Length &&
                    jsonResult.GetProperty("archiveContentScannedBytes").GetInt64() == entryBytes.Length &&
                    jsonResult.GetProperty("archiveContentTotalKnown").GetBoolean() &&
@@ -953,34 +962,215 @@ internal static class ProductSelfTest
                    InspectPayload("nested-pe", pe, "archive-entry-active-payload");
         });
 
-    private static bool TestNestedArchiveNeverLooksComplete() =>
+    private static bool TestHiddenNestedArchiveIsRecursivelyInspected() =>
         WithFixtureDirectory(directory =>
         {
-            using var innerBytes = new MemoryStream();
-            using (var inner = new ZipArchive(innerBytes, ZipArchiveMode.Create, leaveOpen: true))
-            {
-                using Stream content = inner.CreateEntry("one.txt", CompressionLevel.NoCompression).Open();
-                content.WriteByte(1);
-            }
+            byte[] marker = Encoding.ASCII.GetBytes("WriteProcessMemory");
+            byte[] innerArchive = CreateZipBytes("payload.ps1", marker);
 
             string outerPath = Path.Combine(directory, "outer.zip");
             using (var outer = ZipFile.Open(outerPath, ZipArchiveMode.Create))
             {
                 using (Stream nested = outer.CreateEntry("payload.dat", CompressionLevel.NoCompression).Open())
                 {
-                    byte[] innerArchive = innerBytes.ToArray();
-                    nested.WriteByte((byte)'P');
                     nested.Write(innerArchive);
                 }
             }
 
             ScanResult result = Inspect(outerPath);
+            if (result.Files.Count != 1) return false;
+            FileAnalysis file = result.Files[0];
+            string report = ReportBuilder.Build(result, "en");
+            using JsonDocument document = JsonDocument.Parse(ReportBuilder.BuildJson(result, "en"));
+            JsonElement jsonResult = document.RootElement.GetProperty("result");
+            JsonElement jsonFile = document.RootElement.GetProperty("files")[0];
             return result.Files.Count == 1 &&
-                   result.Files[0].Indicators.Any(indicator => indicator.Code.Equals("nested-archive-unopened", StringComparison.Ordinal)) &&
-                   result.Files[0].InspectionLimited &&
+                   file.NestedArchivesInspected == 1 &&
+                   file.NestedArchiveEntriesInspected == 1 &&
+                   file.ArchiveMaxDepthInspected == 1 &&
+                   file.NestedArchiveBytesInspected == innerArchive.Length &&
+                   file.ArchiveContentTotalKnown &&
+                   file.ArchiveContentEligibleBytes == innerArchive.Length + marker.Length &&
+                   file.ArchiveContentScannedBytes == innerArchive.Length + marker.Length &&
+                   file.Indicators.Any(indicator => indicator.Code.Equals("archive-entry-process-injection", StringComparison.Ordinal) && indicator.Score == 35 && indicator.English.Contains("payload.dat!payload.ps1", StringComparison.Ordinal)) &&
+                   file.Indicators.All(indicator => !indicator.Code.Equals("nested-archive-unopened", StringComparison.Ordinal)) &&
+                   !file.InspectionLimited &&
+                   !result.IsPartial &&
+                   result.CompletenessCode.Equals("COMPLETE", StringComparison.Ordinal) &&
+                   report.Contains("Nested ZIP recursion: 1 archive(s) / 1 inner entries / depth 1", StringComparison.Ordinal) &&
+                   document.RootElement.GetProperty("schema").GetString() is "pc-black-box-report-v5" &&
+                   jsonResult.GetProperty("nestedArchivesInspected").GetInt32() == 1 &&
+                   jsonFile.GetProperty("archiveMaxDepthInspected").GetInt32() == 1 &&
+                   !File.Exists(Path.Combine(directory, "payload.dat")) &&
+                   !File.Exists(Path.Combine(directory, "payload.ps1"));
+        });
+
+    private static bool TestNestedArchiveDepthLimitFailsClosed() =>
+        WithFixtureDirectory(directory =>
+        {
+            byte[] nested = CreateZipBytes("leaf.txt", [1]);
+            for (int wrapper = 0; wrapper <= FileInspector.MaxNestedArchiveDepth; wrapper++)
+            {
+                nested = CreateZipBytes($"depth-{FileInspector.MaxNestedArchiveDepth - wrapper + 1}.zip", nested);
+            }
+
+            string path = Path.Combine(directory, "depth-limit.zip");
+            File.WriteAllBytes(path, nested);
+            ScanResult result = Inspect(path);
+            if (result.Files.Count != 1) return false;
+            FileAnalysis file = result.Files[0];
+            return file.NestedArchivesInspected == FileInspector.MaxNestedArchiveDepth &&
+                   file.ArchiveMaxDepthInspected == FileInspector.MaxNestedArchiveDepth &&
+                   file.Indicators.Any(indicator => indicator.Code.Equals("nested-archive-depth-limit", StringComparison.Ordinal)) &&
+                   !file.ArchiveContentTotalKnown &&
+                   file.InspectionLimited &&
+                   result.IsPartial;
+        });
+
+    private static bool TestNestedZipContentOutranksUnsupportedName() =>
+        WithFixtureDirectory(directory =>
+        {
+            byte[] inner = CreateZipBytes("notes.txt", "harmless"u8.ToArray());
+            string path = Path.Combine(directory, "misnamed-nested.zip");
+            using (var archive = ZipFile.Open(path, ZipArchiveMode.Create))
+            {
+                using Stream entry = archive.CreateEntry("actually-a-zip.rar", CompressionLevel.NoCompression).Open();
+                entry.Write(inner);
+            }
+
+            ScanResult result = Inspect(path);
+            FileAnalysis file = result.Files.Single();
+            return file.NestedArchivesInspected == 1 &&
+                   file.NestedArchiveEntriesInspected == 1 &&
+                   file.Indicators.All(indicator => !indicator.Code.Equals("nested-archive-unopened", StringComparison.Ordinal)) &&
+                   file.ArchiveContentTotalKnown &&
+                   !file.InspectionLimited &&
+                   !result.IsPartial &&
+                   !File.Exists(Path.Combine(directory, "notes.txt"));
+        });
+
+    private static bool TestNestedActiveEntryCountsAggregate() =>
+        WithFixtureDirectory(directory =>
+        {
+            byte[] inner = CreateZipBytes("inner.ps1", [1]);
+            string path = Path.Combine(directory, "active-count.zip");
+            using (var archive = ZipFile.Open(path, ZipArchiveMode.Create))
+            {
+                using (Stream direct = archive.CreateEntry("direct.ps1", CompressionLevel.NoCompression).Open())
+                {
+                    direct.WriteByte(1);
+                }
+                using Stream nested = archive.CreateEntry("inner.zip", CompressionLevel.NoCompression).Open();
+                nested.Write(inner);
+            }
+
+            ScanResult result = Inspect(path);
+            Indicator? finding = result.Files.Single().Indicators.SingleOrDefault(
+                indicator => indicator.Code.Equals("archive-active-content", StringComparison.Ordinal));
+            return finding is not null &&
+                   finding.Score == 12 &&
+                   finding.English.Contains("2 active-content item(s)", StringComparison.Ordinal);
+        });
+
+    private static bool TestPrefixedNestedArchiveIsInspectedButIncomplete() =>
+        WithFixtureDirectory(directory =>
+        {
+            byte[] marker = Encoding.ASCII.GetBytes("WriteProcessMemory");
+            byte[] zip = CreateZipBytes("inside.ps1", marker);
+            byte[] prefixedZip = new byte[zip.Length + 1];
+            prefixedZip[0] = (byte)'P';
+            zip.CopyTo(prefixedZip, 1);
+
+            string path = Path.Combine(directory, "prefixed-nested.zip");
+            using (var archive = ZipFile.Open(path, ZipArchiveMode.Create))
+            {
+                using Stream entry = archive.CreateEntry("hidden.dat", CompressionLevel.NoCompression).Open();
+                entry.Write(prefixedZip);
+            }
+
+            ScanResult result = Inspect(path);
+            if (result.Files.Count != 1) return false;
+            FileAnalysis file = result.Files[0];
+            return file.NestedArchivesInspected == 1 &&
+                   file.Indicators.Any(indicator => indicator.Code.Equals("nested-archive-prefix", StringComparison.Ordinal)) &&
+                   file.Indicators.Any(indicator => indicator.Code.Equals("archive-entry-process-injection", StringComparison.Ordinal) && indicator.English.Contains("hidden.dat!inside.ps1", StringComparison.Ordinal)) &&
+                   file.ArchiveContentTotalKnown &&
+                   file.InspectionLimited &&
                    result.IsPartial &&
-                   result.CompletenessCode.Equals("INCOMPLETE", StringComparison.Ordinal) &&
-                   !File.Exists(Path.Combine(directory, "payload.dat"));
+                   !File.Exists(Path.Combine(directory, "inside.ps1"));
+        });
+
+    private static bool TestNestedArchiveCountLimitFailsClosed() =>
+        WithFixtureDirectory(directory =>
+        {
+            byte[] emptyArchive = CreateZipBytes();
+            string path = Path.Combine(directory, "count-limit.zip");
+            using (var archive = ZipFile.Open(path, ZipArchiveMode.Create))
+            {
+                for (int index = 0; index <= FileInspector.MaxNestedArchivesPerFile; index++)
+                {
+                    using Stream entry = archive.CreateEntry($"nested-{index:D2}.zip", CompressionLevel.NoCompression).Open();
+                    entry.Write(emptyArchive);
+                }
+            }
+
+            ScanResult result = Inspect(path);
+            if (result.Files.Count != 1) return false;
+            FileAnalysis file = result.Files[0];
+            return file.NestedArchivesInspected == FileInspector.MaxNestedArchivesPerFile &&
+                   file.Indicators.Any(indicator => indicator.Code.Equals("nested-archive-count-limit", StringComparison.Ordinal)) &&
+                   !file.ArchiveContentTotalKnown &&
+                   file.InspectionLimited &&
+                   result.IsPartial;
+        });
+
+    private static bool TestInvalidNestedArchiveFailsClosed() =>
+        WithFixtureDirectory(directory =>
+        {
+            string path = Path.Combine(directory, "invalid-nested.zip");
+            using (var archive = ZipFile.Open(path, ZipArchiveMode.Create))
+            {
+                using Stream entry = archive.CreateEntry("broken.zip", CompressionLevel.NoCompression).Open();
+                entry.Write("not a zip"u8);
+            }
+
+            ScanResult result = Inspect(path);
+            if (result.Files.Count != 1) return false;
+            FileAnalysis file = result.Files[0];
+            return file.NestedArchivesInspected == 0 &&
+                   file.Indicators.Any(indicator => indicator.Code.Equals("invalid-nested-archive", StringComparison.Ordinal)) &&
+                   !file.ArchiveContentTotalKnown &&
+                   file.InspectionLimited &&
+                   result.IsPartial;
+        });
+
+    private static bool TestNestedArchiveByteLimitFailsClosed() =>
+        WithFixtureDirectory(directory =>
+        {
+            string path = Path.Combine(directory, "nested-byte-limit.zip");
+            using (var archive = ZipFile.Open(path, ZipArchiveMode.Create))
+            {
+                using Stream entry = archive.CreateEntry("oversized.zip", CompressionLevel.NoCompression).Open();
+                byte[] block = new byte[1024 * 1024];
+                // End exactly one byte beyond the nested capture boundary. The ordinary body scanner must
+                // still observe EOF there, while recursive parsing rejects the deliberately truncated copy.
+                long remaining = FileInspector.MaxNestedArchiveBytes + 1;
+                while (remaining > 0)
+                {
+                    int write = checked((int)Math.Min(block.Length, remaining));
+                    entry.Write(block, 0, write);
+                    remaining -= write;
+                }
+            }
+
+            ScanResult result = Inspect(path);
+            FileAnalysis file = result.Files.Single();
+            return file.NestedArchivesInspected == 0 &&
+                   file.Indicators.Any(indicator => indicator.Code.Equals("nested-archive-buffer-limit", StringComparison.Ordinal)) &&
+                   file.ArchiveContentScannedBytes == FileInspector.MaxNestedArchiveBytes + 1 &&
+                   !file.ArchiveContentTotalKnown &&
+                   file.InspectionLimited &&
+                   result.IsPartial;
         });
 
     private static bool TestLoneZipEndMarkerDoesNotClaimNestedArchive() =>
@@ -1201,6 +1391,20 @@ internal static class ProductSelfTest
         }
         stream.Position = 0;
         return stream;
+    }
+
+    private static byte[] CreateZipBytes(string? entryName = null, byte[]? content = null)
+    {
+        using var stream = new MemoryStream();
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            if (entryName is not null)
+            {
+                using Stream entry = archive.CreateEntry(entryName, CompressionLevel.NoCompression).Open();
+                if (content is not null) entry.Write(content);
+            }
+        }
+        return stream.ToArray();
     }
 
     private static bool TestValidEmptyZip64Preflight()
