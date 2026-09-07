@@ -24,6 +24,8 @@ public sealed class FileAnalysis
     public string SourceHost { get; set; } = "—";
     public int ArchiveEntries { get; set; }
     public bool InspectionLimited { get; set; }
+    public bool CapabilityScanApplicable { get; set; }
+    public long CapabilityScannedBytes { get; set; }
     internal long ObservedLength { get; set; }
     internal DateTime ObservedLastWriteUtc { get; set; }
     internal SecureFileIdentity ObservedIdentity { get; set; }
@@ -65,9 +67,13 @@ public sealed class ScanResult
     public int HighCount => Files.Count(x => x.RiskScore >= 60);
     public int ReviewCount => Files.Count(x => x.RiskScore is >= 25 and < 60);
     public int SignedCount => Files.Count(x => x.SignatureStatus.Equals("Valid", StringComparison.OrdinalIgnoreCase));
-    public int ActiveContentCount => Files.Count(x => x.FileType == "Windows PE" || FileInspector.IsActiveContentExtension(Path.GetExtension(x.RelativePath)));
+    public int ActiveContentCount => Files.Count(x => x.FileType == "Windows PE" || FileInspector.IsActiveContentExtension(FileInspector.GetInspectionExtension(x)));
+    public long CapabilityEligibleBytes => Files.Where(x => x.CapabilityScanApplicable).Sum(x => x.Size);
+    public long CapabilityScannedBytes => Files.Sum(x => x.CapabilityScannedBytes);
     public int RiskScore => Files.Count == 0 ? 0 : Files.Max(x => x.RiskScore);
     public string RiskCode => RiskScore >= 60 ? "HIGH" : RiskScore >= 25 ? "REVIEW" : Files.Any(x => x.Indicators.Count > 0) ? "LOW" : "CLEAR";
+    public string CompletenessCode => IsPartial ? "INCOMPLETE" : "COMPLETE";
+    public string AssessmentCode => !IsPartial ? RiskCode : RiskCode == "CLEAR" ? "INCOMPLETE" : $"{RiskCode}+INCOMPLETE";
 }
 
 public sealed record ScanProgress(int Completed, int Total, string CurrentFile);

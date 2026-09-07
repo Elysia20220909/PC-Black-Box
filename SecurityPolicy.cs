@@ -112,6 +112,39 @@ public static class SecurityPolicy
         return builder.Length == 0 ? "—" : builder.ToString();
     }
 
+    /// <summary>
+    /// Builds the operator-driven lookup URL for a digest. The product never opens or requests it:
+    /// the hash leaves this machine only if the operator pastes the URL somewhere themselves. The
+    /// digest is revalidated here rather than trusting whatever a field happens to hold, so nothing
+    /// but a well-formed SHA-256 can ride out on the clipboard.
+    /// </summary>
+    public static bool TryBuildHashLookupUrl(string? sha256, out string url)
+    {
+        url = String.Empty;
+        if (sha256 is null || sha256.Length != 64) return false;
+
+        char[] normalized = new char[64];
+        for (int index = 0; index < 64; index++)
+        {
+            char character = sha256[index];
+            if (character is >= '0' and <= '9' or >= 'a' and <= 'f')
+            {
+                normalized[index] = character;
+            }
+            else if (character is >= 'A' and <= 'F')
+            {
+                normalized[index] = (char)(character + ('a' - 'A'));
+            }
+            else
+            {
+                return false;
+            }
+        }
+
+        url = "https://www.virustotal.com/gui/file/" + new string(normalized);
+        return true;
+    }
+
     public static bool ContainsDirectionalOrInvisibleControl(string value) => value.Any(IsDirectionalOrInvisibleControl);
 
     internal static bool WouldExceedCumulativeLimit(long consumedBytes, long nextBytes, long limitBytes) =>

@@ -16,14 +16,19 @@ public static class ReportBuilder
         builder.AppendLine($"- {(ja ? "所要時間" : "Duration")}: {result.Duration.TotalSeconds:F1} s");
         builder.AppendLine($"- {(ja ? "セキュリティ基準" : "Security baseline")}: {Escape(result.SecurityProfile)} — {result.SecurityControlsEnforced}/{result.SecurityControlsRequired} {(ja ? "強制確認済み" : "controls enforced")}");
         builder.AppendLine($"- {(ja ? "追加防御" : "Platform reinforcements")}: {result.SecurityReinforcementsEnforced}/{result.SecurityReinforcementsAvailable} {(ja ? "この環境で有効" : "active on this system")}");
-        builder.AppendLine($"- {(ja ? "判定" : "Assessment")}: **{result.RiskCode} ({result.RiskScore}/100)**");
+        builder.AppendLine($"- {(ja ? "判定" : "Assessment")}: **{result.AssessmentCode} ({result.RiskScore}/100)**");
         builder.AppendLine($"- {(ja ? "ファイル数" : "Files")}: {result.Files.Count}");
         builder.AppendLine($"- {(ja ? "合計サイズ" : "Total size")}: {FileAnalysis.FormatSize(result.TotalBytes)}");
+        builder.AppendLine($"- {(ja ? "SHA-256全読取" : "SHA-256 bytes read")}: {FileAnalysis.FormatSize(result.TotalBytes)}");
+        if (result.CapabilityEligibleBytes > 0)
+        {
+            builder.AppendLine($"- {(ja ? "能力語の内容走査" : "Capability content scan")}: {FileAnalysis.FormatSize(result.CapabilityScannedBytes)} / {FileAnalysis.FormatSize(result.CapabilityEligibleBytes)}");
+        }
         builder.AppendLine($"- {(ja ? "有効な署名" : "Valid signatures")}: {result.SignedCount}");
         builder.AppendLine($"- {(ja ? "アクティブコンテンツ" : "Active-content files")}: {result.ActiveContentCount}");
         if (result.IsPartial)
         {
-            builder.AppendLine($"- {(ja ? "範囲" : "Scope")}: **PARTIAL** — {Escape(result.PartialReason)}");
+            builder.AppendLine($"- {(ja ? "範囲" : "Scope")}: **INCOMPLETE** — {Escape(result.PartialReason)}");
         }
         builder.AppendLine();
 
@@ -37,7 +42,13 @@ public static class ReportBuilder
             .Select(item => (item.file, item.indicator))
             .ToList();
 
-        if (findings.Count == 0)
+        if (result.IsPartial && findings.Count == 0)
+        {
+            builder.AppendLine(ja
+                ? "調査範囲が不完全なため、安全性を評価できません。"
+                : "The inspection is incomplete, so safety cannot be assessed.");
+        }
+        else if (findings.Count == 0)
         {
             builder.AppendLine(ja
                 ? "明白な危険指標は見つかりませんでした。ただし、安全性を保証する結果ではありません。"
@@ -55,11 +66,12 @@ public static class ReportBuilder
 
         builder.AppendLine(ja ? "## ファイル一覧" : "## File inventory");
         builder.AppendLine();
-        builder.AppendLine("| Risk | File | Size | Type | Signature | SHA-256 | Source host |");
-        builder.AppendLine("|---:|---|---:|---|---|---|---|");
+        builder.AppendLine("| Risk | File | Size | Type | Signature | SHA-256 | Inspection | Source host |");
+        builder.AppendLine("|---:|---|---:|---|---|---|---|---|");
         foreach (FileAnalysis file in result.Files.OrderByDescending(x => x.RiskScore).ThenBy(x => x.RelativePath, StringComparer.OrdinalIgnoreCase).Take(500))
         {
-            builder.AppendLine($"| {file.RiskScore} | `{Escape(file.RelativePath)}` | {file.SizeText} | {Escape(file.FileType)} | {Escape(file.SignatureStatus)} | `{file.Sha256}` | {Escape(file.SourceHost)} |");
+            string coverage = file.InspectionLimited ? "INCOMPLETE" : "complete";
+            builder.AppendLine($"| {file.RiskScore} | `{Escape(file.RelativePath)}` | {file.SizeText} | {Escape(file.FileType)} | {Escape(file.SignatureStatus)} | `{file.Sha256}` | {coverage} | {Escape(file.SourceHost)} |");
         }
         if (result.Files.Count > 500)
         {
@@ -88,7 +100,7 @@ public static class ReportBuilder
         bool ja = !language.Equals("en", StringComparison.OrdinalIgnoreCase);
         var payload = new
         {
-            schema = "pc-black-box-report-v2",
+            schema = "pc-black-box-report-v3",
             generatedAt = DateTimeOffset.UtcNow,
             target = Clean(result.TargetName),
             security = new
@@ -103,6 +115,8 @@ public static class ReportBuilder
             result = new
             {
                 risk = result.RiskCode,
+                completeness = result.CompletenessCode,
+                assessment = result.AssessmentCode,
                 score = result.RiskScore,
                 result.Files.Count,
                 totalBytes = result.TotalBytes,
@@ -112,6 +126,9 @@ public static class ReportBuilder
                 result.ActiveContentCount,
                 result.IsPartial,
                 partialReason = Clean(result.PartialReason),
+                sha256BytesRead = result.TotalBytes,
+                capabilityEligibleBytes = result.CapabilityEligibleBytes,
+                capabilityScannedBytes = result.CapabilityScannedBytes,
                 durationSeconds = Math.Round(result.Duration.TotalSeconds, 3)
             },
             files = result.Files.Select(file => new
@@ -128,6 +145,8 @@ public static class ReportBuilder
                 sourceHost = file.SourceHost == "—" ? null : Clean(file.SourceHost),
                 file.ArchiveEntries,
                 file.InspectionLimited,
+                file.CapabilityScanApplicable,
+                file.CapabilityScannedBytes,
                 riskScore = file.RiskScore,
                 risk = file.RiskCode,
                 indicators = file.Indicators.Select(indicator => new

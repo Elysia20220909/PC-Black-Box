@@ -98,6 +98,15 @@ internal static class ProductSelfTest
             Require(TestReportOmitsAbsolutePathAndSanitizesCells(), ref checks);
             Require(TestTextInspectionHashesWithoutExecuting(), ref checks);
             Require(TestScriptCapabilitiesRaiseReview(), ref checks);
+            Require(TestLateScriptCapabilitiesRaiseReview(), ref checks);
+            Require(TestChunkBoundaryCapability(), ref checks);
+            Require(TestBoundedWhitespaceCapabilityAcrossChunk(), ref checks);
+            Require(TestLateOddAlignedUnicodeCapability(), ref checks);
+            Require(TestLongPathExtensionUsesFullPath(), ref checks);
+            Require(TestInvalidArchiveMakesResultIncomplete(), ref checks);
+            Require(TestRiskAndCompletenessRemainSeparate(), ref checks);
+            Require(TestCapabilityBudgetsStayOrdered(), ref checks);
+            Require(TestHashLookupUrlFailsClosed(), ref checks);
             Require(TestArchiveFindingsWithoutExtraction(), ref checks);
             Require(TestCanceledInspectionReadsNothing(), ref checks);
             return new ProductSelfTestResult(true, checks);
@@ -201,7 +210,7 @@ internal static class ProductSelfTest
         return markdown.IndexOf(result.TargetPath, StringComparison.OrdinalIgnoreCase) < 0 &&
                json.IndexOf(result.TargetPath, StringComparison.OrdinalIgnoreCase) < 0 &&
                markdown.Contains("folder/name'\uFFFD\uFFFD.ps1", StringComparison.Ordinal) &&
-               document.RootElement.GetProperty("schema").GetString() is "pc-black-box-report-v2" &&
+               document.RootElement.GetProperty("schema").GetString() is "pc-black-box-report-v3" &&
                document.RootElement.GetProperty("files")[0].GetProperty("path").GetString()
                    is "folder|name`\uFFFD\uFFFD.ps1";
     }
@@ -245,6 +254,182 @@ internal static class ProductSelfTest
                    file.Indicators.Any(indicator => indicator.Code.Equals("remote-download", StringComparison.Ordinal)) &&
                    file.RiskCode.Equals("REVIEW", StringComparison.Ordinal);
         });
+
+    /// <summary>Proves capability matching covers bytes beyond the former first-8-MiB sample boundary.</summary>
+    private static bool TestLateScriptCapabilitiesRaiseReview() =>
+        WithFixtureDirectory(directory =>
+        {
+            string path = Path.Combine(directory, "late-capability.ps1");
+            const long markerOffset = 8L * 1024 * 1024 + 4096;
+            byte[] marker = System.Text.Encoding.ASCII.GetBytes("WriteProcessMemory\n");
+            using (var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                stream.SetLength(markerOffset);
+                stream.Position = markerOffset;
+                stream.Write(marker, 0, marker.Length);
+                stream.Flush(flushToDisk: true);
+            }
+
+            ScanResult result = Inspect(path);
+            if (result.Files.Count != 1) return false;
+
+            FileAnalysis file = result.Files[0];
+            return file.Indicators.Any(indicator => indicator.Code.Equals("process-injection", StringComparison.Ordinal)) &&
+                   file.CapabilityScanApplicable &&
+                   file.CapabilityScannedBytes == file.Size &&
+                   !result.IsPartial;
+        });
+
+    /// <summary>Locks the overlap that preserves an indicator split across two streaming reads.</summary>
+    private static bool TestChunkBoundaryCapability() =>
+        WithFixtureDirectory(directory =>
+        {
+            string path = Path.Combine(directory, "boundary-capability.ps1");
+            const long markerOffset = 1024L * 1024 - 7;
+            byte[] marker = System.Text.Encoding.ASCII.GetBytes("WriteProcessMemory\n");
+            using (var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                stream.SetLength(markerOffset);
+                stream.Position = markerOffset;
+                stream.Write(marker, 0, marker.Length);
+            }
+
+            ScanResult result = Inspect(path);
+            return result.Files.Count == 1 &&
+                   result.Files[0].Indicators.Any(indicator => indicator.Code.Equals("process-injection", StringComparison.Ordinal));
+        });
+
+    /// <summary>Locks a bounded-whitespace capability match that crosses a streaming boundary.</summary>
+    private static bool TestBoundedWhitespaceCapabilityAcrossChunk() =>
+        WithFixtureDirectory(directory =>
+        {
+            string path = Path.Combine(directory, "boundary-whitespace.ps1");
+            string markerText = "curl" + new string(' ', 256) + "https://example.invalid/payload";
+            byte[] marker = System.Text.Encoding.ASCII.GetBytes(markerText);
+            long markerOffset = 1024L * 1024 - marker.Length / 2;
+            using (var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                stream.SetLength(markerOffset);
+                stream.Position = markerOffset;
+                stream.Write(marker, 0, marker.Length);
+            }
+
+            ScanResult result = Inspect(path);
+            return result.Files.Count == 1 &&
+                   result.Files[0].Indicators.Any(indicator => indicator.Code.Equals("remote-download", StringComparison.Ordinal));
+        });
+
+    /// <summary>Finds UTF-16 capability text even when its first byte is at an odd file offset.</summary>
+    private static bool TestLateOddAlignedUnicodeCapability() =>
+        WithFixtureDirectory(directory =>
+        {
+            string path = Path.Combine(directory, "late-unicode-capability.ps1");
+            const long markerOffset = 8L * 1024 * 1024 + 4097;
+            byte[] marker = System.Text.Encoding.Unicode.GetBytes("WriteProcessMemory\n");
+            using (var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                stream.SetLength(markerOffset);
+                stream.Position = markerOffset;
+                stream.Write(marker, 0, marker.Length);
+            }
+
+            ScanResult result = Inspect(path);
+            return result.Files.Count == 1 &&
+                   result.Files[0].Indicators.Any(indicator => indicator.Code.Equals("process-injection", StringComparison.Ordinal)) &&
+                   result.Files[0].CapabilityScannedBytes == result.Files[0].Size;
+        });
+
+    /// <summary>Uses the untruncated full path when the display path no longer carries its extension.</summary>
+    private static bool TestLongPathExtensionUsesFullPath()
+    {
+        var file = new FileAnalysis
+        {
+            FullPath = @"C:\fixtures\tool.ps1",
+            RelativePath = new string('x', 1024)
+        };
+        return FileInspector.GetInspectionExtension(file).Equals(".ps1", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Exercises the production invalid-archive path and prevents it from being presented as complete.</summary>
+    private static bool TestInvalidArchiveMakesResultIncomplete() =>
+        WithFixtureDirectory(directory =>
+        {
+            string path = Path.Combine(directory, "invalid.zip");
+            File.WriteAllBytes(path, [0x50, 0x4B, 0x03, 0x04, 0x00, 0x00, 0x00, 0x00]);
+
+            ScanResult result = Inspect(path);
+            if (result.Files.Count != 1) return false;
+
+            string report = ReportBuilder.Build(result, "en");
+            string json = ReportBuilder.BuildJson(result, "en");
+            using JsonDocument document = JsonDocument.Parse(json);
+            JsonElement jsonResult = document.RootElement.GetProperty("result");
+            return result.Files[0].InspectionLimited &&
+                   result.Files[0].Indicators.Any(indicator => indicator.Code.Equals("invalid-archive", StringComparison.Ordinal)) &&
+                   result.IsPartial &&
+                   result.CompletenessCode.Equals("INCOMPLETE", StringComparison.Ordinal) &&
+                   result.AssessmentCode.Contains("INCOMPLETE", StringComparison.Ordinal) &&
+                   jsonResult.GetProperty("risk").GetString() is "LOW" &&
+                   jsonResult.GetProperty("completeness").GetString() is "INCOMPLETE" &&
+                   report.Contains("INCOMPLETE", StringComparison.Ordinal) &&
+                   !report.Contains("No obvious risk indicator was found", StringComparison.Ordinal);
+        });
+
+    /// <summary>Keeps a known HIGH visible even when a separate completeness failure is present.</summary>
+    private static bool TestRiskAndCompletenessRemainSeparate()
+    {
+        var result = new ScanResult
+        {
+            TargetName = "high-and-incomplete",
+            IsPartial = true,
+            PartialReason = "test scope is incomplete"
+        };
+        var file = new FileAnalysis { RelativePath = "known-risk.ps1" };
+        file.Indicators.Add(new Indicator("danger", "known-risk", "既知の強い指標", "Known strong indicator", 60));
+        result.Files.Add(file);
+
+        using JsonDocument document = JsonDocument.Parse(ReportBuilder.BuildJson(result, "en"));
+        JsonElement jsonResult = document.RootElement.GetProperty("result");
+        return result.RiskCode.Equals("HIGH", StringComparison.Ordinal) &&
+               result.CompletenessCode.Equals("INCOMPLETE", StringComparison.Ordinal) &&
+               result.AssessmentCode.Equals("HIGH+INCOMPLETE", StringComparison.Ordinal) &&
+               jsonResult.GetProperty("risk").GetString() is "HIGH" &&
+               jsonResult.GetProperty("completeness").GetString() is "INCOMPLETE" &&
+               jsonResult.GetProperty("assessment").GetString() is "HIGH+INCOMPLETE";
+    }
+
+    /// <summary>
+    /// Keeps the per-inspection budget at or above the per-file budget. Inverted budgets would cut every
+    /// file short at the smaller number while the report still named the per-file limit as the reason.
+    /// </summary>
+    private static bool TestCapabilityBudgetsStayOrdered() =>
+        FileInspector.MaxCapabilityBytesPerScan >= FileInspector.MaxCapabilityBytesPerFile &&
+        FileInspector.MaxCapabilityTimePerScan >= FileInspector.MaxCapabilityTimePerFile;
+
+    /// <summary>
+    /// Builds a lookup URL only from a well-formed digest. The URL is the one place a target-derived
+    /// value is offered for the operator to carry off this machine, so anything else must fail closed.
+    /// </summary>
+    private static bool TestHashLookupUrlFailsClosed()
+    {
+        if (!SecurityPolicy.TryBuildHashLookupUrl(new string('A', 64), out string url)) return false;
+        if (!url.Equals("https://www.virustotal.com/gui/file/" + new string('a', 64), StringComparison.Ordinal)) return false;
+
+        string[] rejected =
+        [
+            String.Empty,
+            new string('a', 63),
+            new string('a', 65),
+            new string('g', 64),
+            "../" + new string('a', 61)
+        ];
+        foreach (string candidate in rejected)
+        {
+            if (SecurityPolicy.TryBuildHashLookupUrl(candidate, out string leaked) || leaked.Length != 0) return false;
+        }
+
+        return SecurityPolicy.TryBuildHashLookupUrl(null, out string missing) == false && missing.Length == 0;
+    }
 
     /// <summary>
     /// Reports an escaping path and active content inside an archive from the central directory alone:

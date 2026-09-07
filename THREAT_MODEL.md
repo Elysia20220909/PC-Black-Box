@@ -142,8 +142,10 @@ would break the running product, and a control that cannot stay on is worse than
   the managed network guard.
 - Target-free `--self-test` must pass product query, sanitization, report, baseline, directory-budget, ZIP, ZIP64, and ambiguous-record checks.
 - `--self-test` must also inspect fixtures it creates and removes itself, and confirm that a text file's
-  reported digest matches the bytes on disk, that script capabilities and archive traversal are reported
-  without extraction, that no archive entry escapes onto disk, and that an already-canceled inspection
+  reported digest matches the bytes on disk, that script capabilities beyond the first 8 MiB and archive
+  traversal are reported without extraction, that bounded whitespace survives a content-chunk boundary,
+  that an invalid archive promotes the production result to `INCOMPLETE`, that long display paths do not
+  hide an active extension, that no archive entry escapes onto disk, and that an already-canceled inspection
   ends without reading the target.
 - Live process mitigation flags must match the required policy bits.
 - Regression fixtures must preserve signature, capability, hostile-archive, privacy, and path-boundary behavior.

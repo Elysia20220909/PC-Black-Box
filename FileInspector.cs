@@ -31,6 +31,18 @@ public sealed class FileInspector
     private const uint EndOfCentralDirectorySignature = 0x06054B50;
     private const int MaxSignatureChecks = 300;
     private const int SampleBytes = 8 * 1024 * 1024;
+    private const int CapabilityChunkBytes = 1024 * 1024;
+    private const int CapabilityOverlapBytes = 4096;
+    // The byte budgets decide how much is actually inspected; the time budgets only bound
+    // pathological slowness (a stalling network share, a crafted input) so a scan cannot hang.
+    // Measured throughput on this class of machine is roughly 50 MiB/s, so the per-inspection
+    // byte budget is reached in about 75 seconds — well inside its time budget. Sizing them the
+    // other way round would let an ordinary folder of installers exhaust the budget and report
+    // INCOMPLETE for content that was never the reason for the limit.
+    internal const long MaxCapabilityBytesPerFile = 1024L * 1024 * 1024;
+    internal const long MaxCapabilityBytesPerScan = 4096L * 1024 * 1024;
+    internal static readonly TimeSpan MaxCapabilityTimePerFile = TimeSpan.FromSeconds(60);
+    internal static readonly TimeSpan MaxCapabilityTimePerScan = TimeSpan.FromSeconds(180);
     private static readonly TimeSpan RegexMatchTimeout = TimeSpan.FromSeconds(1);
     private static readonly Regex ZoneIdPattern = CreatePattern(@"^ZoneId=(?<value>\d+)", RegexOptions.IgnoreCase | RegexOptions.Multiline);
     private static readonly Regex HostUrlPattern = CreatePattern(@"^HostUrl=(?<value>.+)$", RegexOptions.IgnoreCase | RegexOptions.Multiline);
@@ -59,11 +71,11 @@ public sealed class FileInspector
         ("defender-change", CreateCapabilityPattern(@"(Add-MpPreference|Set-MpPreference|DisableRealtimeMonitoring|DisableBehaviorMonitoring|ExclusionPath|ExclusionProcess)"), 40, "Microsoft Defenderの設定変更能力", "Microsoft Defender configuration capability"),
         ("process-injection", CreateCapabilityPattern(@"(WriteProcessMemory|CreateRemoteThread|VirtualAllocEx|QueueUserAPC|NtCreateThreadEx)"), 35, "他プロセスへの注入に関連するAPI", "APIs associated with process injection"),
         ("credential-access", CreateCapabilityPattern(@"(Get-Credential|ConvertTo-SecureString|CredentialManager|mimikatz|lsass|Login Data|Cookies\\b)"), 25, "資格情報アクセスに関連する語句", "Terms associated with credential access"),
-        ("persistence", CreateCapabilityPattern(@"(Register-ScheduledTask|New-ScheduledTask|schtasks(?:\.exe)?|New-Service|sc(?:\.exe)?\s+create|CurrentVersion\\Run|Startup\\)"), 22, "永続化に利用できる処理", "Capability that can establish persistence"),
-        ("remote-download", CreateCapabilityPattern(@"(Invoke-WebRequest|Invoke-RestMethod|DownloadString|DownloadFile|Start-BitsTransfer|System\.Net\.WebClient|curl(?:\.exe)?\s+https?://|wget\s+https?://)"), 18, "外部からファイルやデータを取得する処理", "Capability to download files or data"),
+        ("persistence", CreateCapabilityPattern(@"(Register-ScheduledTask|New-ScheduledTask|schtasks(?:\.exe)?|New-Service|sc(?:\.exe)?\s{1,256}create|CurrentVersion\\Run|Startup\\)"), 22, "永続化に利用できる処理", "Capability that can establish persistence"),
+        ("remote-download", CreateCapabilityPattern(@"(Invoke-WebRequest|Invoke-RestMethod|DownloadString|DownloadFile|Start-BitsTransfer|System\.Net\.WebClient|curl(?:\.exe)?\s{1,256}https?://|wget\s{1,256}https?://)"), 18, "外部からファイルやデータを取得する処理", "Capability to download files or data"),
         ("obfuscation", CreateCapabilityPattern(@"(FromBase64String|-EncodedCommand|\bIEX\b|Invoke-Expression|GZipStream|DeflateStream)"), 17, "難読化または動的実行に使われる処理", "Capability associated with obfuscation or dynamic execution"),
-        ("shell-launch", CreateCapabilityPattern(@"(Start-Process|ProcessStartInfo|cmd(?:\.exe)?\s+/c|powershell(?:\.exe)?\s+-)"), 10, "別プロセスやシェルを起動する処理", "Capability to launch another process or shell"),
-        ("destructive-file", CreateCapabilityPattern(@"(Remove-Item|DeleteFile|rmdir\s+/s|del\s+/[fq])"), 9, "ファイル削除能力", "File-deletion capability"),
+        ("shell-launch", CreateCapabilityPattern(@"(Start-Process|ProcessStartInfo|cmd(?:\.exe)?\s{1,256}/c|powershell(?:\.exe)?\s{1,256}-)"), 10, "別プロセスやシェルを起動する処理", "Capability to launch another process or shell"),
+        ("destructive-file", CreateCapabilityPattern(@"(Remove-Item|DeleteFile|rmdir\s{1,256}/s|del\s{1,256}/[fq])"), 9, "ファイル削除能力", "File-deletion capability"),
         ("force-stop", CreateCapabilityPattern(@"(Stop-Process|TerminateProcess|taskkill(?:\.exe)?)"), 6, "プロセスを強制停止する能力", "Capability to terminate processes")
     ];
 
@@ -119,6 +131,7 @@ public sealed class FileInspector
         string root = targetIsFile ? Path.GetDirectoryName(fullTarget) ?? fullTarget : fullTarget;
         int signatureChecks = 0;
         long inspectedBytes = 0;
+        var capabilityBudget = new CapabilityScanBudget();
 
         for (int index = 0; index < files.Count; index++)
         {
@@ -127,7 +140,7 @@ public sealed class FileInspector
             progress?.Report(new ScanProgress(index, files.Count, Path.GetFileName(file)));
             try
             {
-                FileAnalysis analysis = AnalyzeFile(file, root, targetIsFile, inspectedBytes, ref signatureChecks, cancellationToken);
+                FileAnalysis analysis = AnalyzeFile(file, root, targetIsFile, inspectedBytes, ref signatureChecks, capabilityBudget, cancellationToken);
                 result.Files.Add(analysis);
                 inspectedBytes += analysis.Size;
             }
@@ -149,6 +162,7 @@ public sealed class FileInspector
         {
             ApplySignatureRisk(file);
         }
+        PromoteInspectionLimits(result);
 
         progress?.Report(new ScanProgress(files.Count, files.Count, String.Empty));
         stopwatch.Stop();
@@ -304,7 +318,27 @@ public sealed class FileInspector
     internal static bool WouldExceedRetainedPathLimit(long retainedCharacters, int nextPathCharacters) =>
         SecurityPolicy.WouldExceedCumulativeLimit(retainedCharacters, nextPathCharacters, MaxRetainedPathCharacters);
 
-    private static FileAnalysis AnalyzeFile(string path, string root, bool singleFile, long inspectedBytes, ref int signatureChecks, CancellationToken cancellationToken)
+    internal static string GetInspectionExtension(FileAnalysis analysis)
+    {
+        string path = String.IsNullOrWhiteSpace(analysis.FullPath) ? analysis.RelativePath : analysis.FullPath;
+        try
+        {
+            return Path.GetExtension(path);
+        }
+        catch (ArgumentException)
+        {
+            return String.Empty;
+        }
+    }
+
+    private static FileAnalysis AnalyzeFile(
+        string path,
+        string root,
+        bool singleFile,
+        long inspectedBytes,
+        ref int signatureChecks,
+        CapabilityScanBudget capabilityBudget,
+        CancellationToken cancellationToken)
     {
         using FileStream secureStream = SecureFileReader.OpenRead(path);
         SecureFileSnapshot originalSnapshot = SecureFileReader.GetSnapshot(secureStream.SafeFileHandle);
@@ -330,7 +364,7 @@ public sealed class FileInspector
         ReadVersionAndPeMetadata(path, secureStream, analysis);
         ReadInternetZone(path, analysis);
         DetectNameAndTypeMismatch(analysis, sample, rawRelativePath);
-        DetectCapabilities(analysis, sample);
+        DetectCapabilities(secureStream, analysis, capabilityBudget, cancellationToken);
         InspectStructuredFormats(secureStream, analysis, cancellationToken);
 
         if (ShouldCheckSignature(analysis))
@@ -509,49 +543,123 @@ public sealed class FileInspector
         }
     }
 
-    private static void DetectCapabilities(FileAnalysis analysis, byte[] sample)
+    private static void DetectCapabilities(
+        FileStream stream,
+        FileAnalysis analysis,
+        CapabilityScanBudget budget,
+        CancellationToken cancellationToken)
     {
-        string extension = Path.GetExtension(analysis.RelativePath);
+        string extension = GetInspectionExtension(analysis);
         bool script = ScriptExtensions.Contains(extension);
         bool pe = analysis.FileType == "Windows PE";
         if (!script && !pe && analysis.FileType != "PDF") return;
 
-        string ascii = Encoding.Latin1.GetString(sample);
-        string unicode = sample.Length >= 2 ? Encoding.Unicode.GetString(sample) : String.Empty;
-        string searchable = ascii + "\n" + unicode;
+        analysis.CapabilityScanApplicable = true;
+        if (stream.Length == 0) return;
 
-        foreach (var capability in CapabilityPatterns)
+        long remainingScanBytes = Math.Max(0, MaxCapabilityBytesPerScan - budget.BytesScanned);
+        long targetBytes = Math.Min(stream.Length, Math.Min(MaxCapabilityBytesPerFile, remainingScanBytes));
+        if (targetBytes == 0)
         {
-            bool matched;
-            try
-            {
-                matched = capability.Pattern.IsMatch(searchable);
-            }
-            catch (RegexMatchTimeoutException)
-            {
-                analysis.InspectionLimited = true;
-                AddIndicator(analysis, new("watch", "regex-time-limit", "能力語の照合が時間上限に達しました", "Capability matching reached its time limit", 8));
-                break;
-            }
-            if (!matched) continue;
-            int score = script ? capability.Score : Math.Max(4, capability.Score / 2);
-            AddIndicator(analysis, new(score >= 30 ? "danger" : "watch", capability.Code, capability.Ja, capability.En, score));
+            analysis.InspectionLimited = true;
+            AddIndicator(analysis, new("watch", "capability-scan-budget", "能力語の内容走査が1回あたりの上限に達しました", "Capability content scanning reached the per-inspection budget", 8));
+            return;
         }
 
-        if (analysis.FileType == "PDF")
+        stream.Position = 0;
+        byte[] buffer = new byte[CapabilityChunkBytes + CapabilityOverlapBytes];
+        var matchedCapabilities = new HashSet<string>(StringComparer.Ordinal);
+        bool pdfActiveMatched = false;
+        int overlap = 0;
+        Stopwatch timer = Stopwatch.StartNew();
+
+        try
         {
-            try
+            while (analysis.CapabilityScannedBytes < targetBytes)
             {
-                if (PdfActivePattern.IsMatch(ascii))
+                cancellationToken.ThrowIfCancellationRequested();
+                if (timer.Elapsed >= MaxCapabilityTimePerFile || budget.Elapsed + timer.Elapsed >= MaxCapabilityTimePerScan)
                 {
-                    AddIndicator(analysis, new("watch", "pdf-active-action", "PDFにJavaScriptまたは自動起動アクションの兆候があります", "The PDF contains an indicator of JavaScript or an automatic launch action", 28));
+                    analysis.InspectionLimited = true;
+                    AddIndicator(analysis, new("watch", "capability-scan-time", "能力語の内容走査が時間上限に達しました", "Capability content scanning reached its time limit", 8));
+                    return;
                 }
+
+                int requested = (int)Math.Min(CapabilityChunkBytes, targetBytes - analysis.CapabilityScannedBytes);
+                int read = stream.Read(buffer, overlap, requested);
+                if (read == 0) break;
+
+                analysis.CapabilityScannedBytes += read;
+                budget.BytesScanned += read;
+                int available = overlap + read;
+                string ascii = Encoding.Latin1.GetString(buffer, 0, available);
+                int evenUnicodeBytes = available & ~1;
+                string unicodeEven = evenUnicodeBytes >= 2 ? Encoding.Unicode.GetString(buffer, 0, evenUnicodeBytes) : String.Empty;
+                int oddUnicodeBytes = (available - 1) & ~1;
+                string unicodeOdd = oddUnicodeBytes >= 2 ? Encoding.Unicode.GetString(buffer, 1, oddUnicodeBytes) : String.Empty;
+                string searchable = ascii + "\n" + unicodeEven + "\n" + unicodeOdd;
+
+                foreach (var capability in CapabilityPatterns)
+                {
+                    if (matchedCapabilities.Contains(capability.Code)) continue;
+
+                    bool matched;
+                    try
+                    {
+                        matched = capability.Pattern.IsMatch(searchable);
+                    }
+                    catch (RegexMatchTimeoutException)
+                    {
+                        analysis.InspectionLimited = true;
+                        AddIndicator(analysis, new("watch", "regex-time-limit", "能力語の照合が時間上限に達しました", "Capability matching reached its time limit", 8));
+                        return;
+                    }
+                    if (!matched) continue;
+
+                    matchedCapabilities.Add(capability.Code);
+                    int score = script ? capability.Score : Math.Max(4, capability.Score / 2);
+                    AddIndicator(analysis, new(score >= 30 ? "danger" : "watch", capability.Code, capability.Ja, capability.En, score));
+                }
+
+                if (analysis.FileType == "PDF" && !pdfActiveMatched)
+                {
+                    try
+                    {
+                        if (PdfActivePattern.IsMatch(ascii))
+                        {
+                            pdfActiveMatched = true;
+                            AddIndicator(analysis, new("watch", "pdf-active-action", "PDFにJavaScriptまたは自動起動アクションの兆候があります", "The PDF contains an indicator of JavaScript or an automatic launch action", 28));
+                        }
+                    }
+                    catch (RegexMatchTimeoutException)
+                    {
+                        analysis.InspectionLimited = true;
+                        AddIndicator(analysis, new("watch", "regex-time-limit", "PDF能力語の照合が時間上限に達しました", "PDF capability matching reached its time limit", 8));
+                        return;
+                    }
+                }
+
+                overlap = Math.Min(CapabilityOverlapBytes, available);
+                Buffer.BlockCopy(buffer, available - overlap, buffer, 0, overlap);
             }
-            catch (RegexMatchTimeoutException)
+
+            if (analysis.CapabilityScannedBytes < stream.Length)
             {
                 analysis.InspectionLimited = true;
-                AddIndicator(analysis, new("watch", "regex-time-limit", "PDF能力語の照合が時間上限に達しました", "PDF capability matching reached its time limit", 8));
+                if (analysis.CapabilityScannedBytes >= MaxCapabilityBytesPerFile)
+                {
+                    AddIndicator(analysis, new("watch", "capability-file-limit", $"能力語の内容走査は1ファイル{FileAnalysis.FormatSize(MaxCapabilityBytesPerFile)}までです", $"Capability content scanning is limited to {FileAnalysis.FormatSize(MaxCapabilityBytesPerFile)} per file", 8));
+                }
+                else
+                {
+                    AddIndicator(analysis, new("watch", "capability-scan-budget", $"能力語の内容走査は1回{FileAnalysis.FormatSize(MaxCapabilityBytesPerScan)}までです", $"Capability content scanning is limited to {FileAnalysis.FormatSize(MaxCapabilityBytesPerScan)} per inspection", 8));
+                }
             }
+        }
+        finally
+        {
+            timer.Stop();
+            budget.Elapsed += timer.Elapsed;
         }
     }
 
@@ -979,9 +1087,17 @@ public sealed class FileInspector
         }
     }
 
+    internal static void PromoteInspectionLimits(ScanResult result)
+    {
+        if (result.Files.Any(file => file.InspectionLimited))
+        {
+            MarkPartial(result, "One or more files reached an inspection limit, so the result is incomplete.");
+        }
+    }
+
     private static void ApplySignatureRisk(FileAnalysis analysis)
     {
-        bool active = IsActiveContentExtension(Path.GetExtension(analysis.RelativePath));
+        bool active = IsActiveContentExtension(GetInspectionExtension(analysis));
         bool external = analysis.InternetZone >= 3;
         if (analysis.FileType == "Windows PE" && analysis.SignatureStatus.Equals("Valid", StringComparison.OrdinalIgnoreCase))
         {
@@ -1004,7 +1120,7 @@ public sealed class FileInspector
     }
 
     private static bool ShouldCheckSignature(FileAnalysis analysis) =>
-        analysis.FileType == "Windows PE" || SignatureExtensions.Contains(Path.GetExtension(analysis.RelativePath));
+        analysis.FileType == "Windows PE" || SignatureExtensions.Contains(GetInspectionExtension(analysis));
 
     private static void AddIndicator(FileAnalysis analysis, Indicator indicator)
     {
@@ -1020,6 +1136,12 @@ public sealed class FileInspector
 
     private sealed class ArchiveSafetyLimitException : IOException
     {
+    }
+
+    private sealed class CapabilityScanBudget
+    {
+        public long BytesScanned { get; set; }
+        public TimeSpan Elapsed { get; set; }
     }
 
     private readonly record struct PendingDirectory(string Path, int Depth);

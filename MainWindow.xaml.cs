@@ -112,6 +112,7 @@ public partial class MainWindow : Window
         TimeValue.Text = "—";
         ScanProgressBar.Value = 0;
         CopyHashButton.IsEnabled = false;
+        CopyLookupUrlButton.IsEnabled = false;
         CopyReportButton.IsEnabled = false;
         SaveMarkdownButton.IsEnabled = false;
         SaveJsonButton.IsEnabled = false;
@@ -180,18 +181,21 @@ public partial class MainWindow : Window
 
     private void ShowResult(ScanResult result)
     {
-        RiskValue.Text = $"{result.RiskCode} {result.RiskScore}";
-        RiskValue.Foreground = RiskBrush(result.RiskScore);
+        Brush assessmentBrush = result.RiskScore >= 60
+            ? RiskBrush(result.RiskScore)
+            : result.IsPartial ? (Brush)FindResource("WarnBrush") : RiskBrush(result.RiskScore);
+        RiskValue.Text = $"{result.AssessmentCode} {result.RiskScore}";
+        RiskValue.Foreground = assessmentBrush;
         FilesValue.Text = result.Files.Count.ToString();
         ActiveValue.Text = result.ActiveContentCount.ToString();
         SignedValue.Text = result.SignedCount.ToString();
         TimeValue.Text = $"{result.Duration.TotalSeconds:F1}s";
         ScanProgressBar.Value = 100;
         ProgressText.Text = result.IsPartial
-            ? (IsJapanese ? $"部分調査: {result.PartialReason}" : $"Partial inspection: {result.PartialReason}")
+            ? (IsJapanese ? $"INCOMPLETE: 未確認の範囲があります — {result.PartialReason}" : $"INCOMPLETE: some content remains unchecked — {result.PartialReason}")
             : (IsJapanese ? "調査完了 — ファイルは実行・変更されていません" : "Inspection complete — no file was executed or modified");
-        AssessmentText.Text = $"{result.RiskCode} / {result.RiskScore}";
-        AssessmentText.Foreground = RiskBrush(result.RiskScore);
+        AssessmentText.Text = $"{result.AssessmentCode} / {result.RiskScore}";
+        AssessmentText.Foreground = assessmentBrush;
         VerdictText.Text = BuildVerdict(result);
 
         List<(FileAnalysis File, Indicator Indicator)> findings = result.Files
@@ -201,7 +205,7 @@ public partial class MainWindow : Window
             .Take(25)
             .Select(item => (item.file, item.indicator))
             .ToList();
-        PopulateFindings(findings);
+        PopulateFindings(findings, result.IsPartial);
 
         _fileRows = result.Files.OrderByDescending(file => file.RiskScore).ThenBy(file => file.RelativePath, StringComparer.OrdinalIgnoreCase).ToList();
         ResetFileFilters();
@@ -214,6 +218,24 @@ public partial class MainWindow : Window
 
     private string BuildVerdict(ScanResult result)
     {
+        if (result.IsPartial)
+        {
+            if (result.RiskScore >= 60)
+            {
+                return IsJapanese
+                    ? "強い危険指標があり、さらに未確認の範囲も残っています。対象を実行せず、既知の所見と未確認範囲の両方を扱ってください。"
+                    : "Strong risk indicators were found, and some content also remains unchecked. Do not run the target; address both the known findings and the unchecked scope.";
+            }
+            if (result.RiskScore >= 25)
+            {
+                return IsJapanese
+                    ? "追加確認が必要な指標があり、さらに未確認の範囲も残っています。安全とは判断できません。"
+                    : "Review-level indicators were found, and some content also remains unchecked. Safety cannot be assessed.";
+            }
+            return IsJapanese
+                ? "調査範囲が不完全なため、安全性を評価できません。未確認の範囲を残したまま実行しないでください。"
+                : "The inspection is incomplete, so safety cannot be assessed. Do not run the target while any content remains unchecked.";
+        }
         if (result.RiskScore >= 60)
         {
             return IsJapanese
@@ -231,12 +253,14 @@ public partial class MainWindow : Window
             : "No obvious strong indicator was found. Static inspection alone cannot guarantee safety.";
     }
 
-    private void PopulateFindings(List<(FileAnalysis File, Indicator Indicator)> findings)
+    private void PopulateFindings(List<(FileAnalysis File, Indicator Indicator)> findings, bool incomplete)
     {
         FindingsPanel.Children.Clear();
         if (findings.Count == 0)
         {
-            FindingsPanel.Children.Add(CreateFindingCard("good", IsJapanese ? "明白な指標なし" : "NO OBVIOUS INDICATOR", IsJapanese ? "静的調査の範囲では、優先警告はありません。" : "No priority warning was found within the static inspection scope."));
+            FindingsPanel.Children.Add(incomplete
+                ? CreateFindingCard("watch", "INCOMPLETE", IsJapanese ? "未確認の範囲が残っているため、安全性を評価できません。" : "Some content remains unchecked, so safety cannot be assessed.")
+                : CreateFindingCard("good", IsJapanese ? "明白な指標なし" : "NO OBVIOUS INDICATOR", IsJapanese ? "静的調査の範囲では、優先警告はありません。" : "No priority warning was found within the static inspection scope."));
             return;
         }
 
@@ -387,6 +411,7 @@ public partial class MainWindow : Window
         {
             FileDetailText.Text = IsJapanese ? "条件に一致するファイルはありません。" : "No file matches the current filters.";
             CopyHashButton.IsEnabled = false;
+            CopyLookupUrlButton.IsEnabled = false;
         }
     }
 
@@ -395,11 +420,13 @@ public partial class MainWindow : Window
         if (FileGrid.SelectedItem is not FileAnalysis file)
         {
             CopyHashButton.IsEnabled = false;
+            CopyLookupUrlButton.IsEnabled = false;
             return;
         }
 
         UpdateFileDetail(file);
         CopyHashButton.IsEnabled = !String.IsNullOrWhiteSpace(file.Sha256);
+        CopyLookupUrlButton.IsEnabled = SecurityPolicy.TryBuildHashLookupUrl(file.Sha256, out _);
     }
 
     private void UpdateFileDetail(FileAnalysis file)
@@ -412,6 +439,14 @@ public partial class MainWindow : Window
         details.AppendLine($"{(IsJapanese ? "署名" : "SIGNATURE"),-10} {file.SignatureStatus}");
         if (file.Signer != "—") details.AppendLine($"{(IsJapanese ? "署名者" : "SIGNER"),-10} {file.Signer}");
         details.AppendLine($"{(IsJapanese ? "エントロピー" : "ENTROPY"),-10} {file.EntropyText}");
+        if (file.CapabilityScanApplicable)
+        {
+            details.AppendLine($"{(IsJapanese ? "内容走査" : "CONTENT"),-10} {FileAnalysis.FormatSize(file.CapabilityScannedBytes)} / {file.SizeText}");
+        }
+        if (file.InspectionLimited)
+        {
+            details.AppendLine(IsJapanese ? "INCOMPLETE  未確認の範囲があります" : "INCOMPLETE  Some content remains unchecked");
+        }
         details.AppendLine($"ZONE       {(file.InternetZone?.ToString() ?? "—")}  |  {(IsJapanese ? "入手元" : "SOURCE")} {file.SourceHost}");
         if (file.ArchiveEntries > 0) details.AppendLine($"{(IsJapanese ? "書庫" : "ARCHIVE"),-10} {file.ArchiveEntries} {(IsJapanese ? "項目" : "entries")}");
         if (file.Indicators.Count > 0)
@@ -430,6 +465,18 @@ public partial class MainWindow : Window
         if (FileGrid.SelectedItem is FileAnalysis file && !String.IsNullOrWhiteSpace(file.Sha256))
         {
             CopyTextSafely(file.Sha256, IsJapanese ? "SHA-256をコピーしました" : "SHA-256 copied");
+        }
+    }
+
+    // Copying is deliberately as far as this goes: the product cannot open the URL, and the
+    // operator is told what opening it would disclose before they decide to.
+    private void CopyLookupUrl_Click(object sender, RoutedEventArgs e)
+    {
+        if (FileGrid.SelectedItem is FileAnalysis file && SecurityPolicy.TryBuildHashLookupUrl(file.Sha256, out string url))
+        {
+            CopyTextSafely(url, IsJapanese
+                ? "照会URLをコピーしました — 開くとハッシュがVirusTotalに渡ります"
+                : "Lookup URL copied — opening it discloses the hash to VirusTotal");
         }
     }
 
@@ -623,9 +670,10 @@ public partial class MainWindow : Window
         FindingsTitleText.Text = ja ? "主な所見" : "KEY FINDINGS";
         ScopeTitleText.Text = ja ? "調査するもの" : "INSPECTION SCOPE";
         ScopeBodyText.Text = ja
-            ? $"SHA-256 / オフライン署名確認 / 安定ファイルID / Internet Zone / 実ファイル形式 / 拡張子偽装 / エントロピー / スクリプト能力 / ZIP内部構造\n\nセキュリティ基準 {postureCount} をOSとランタイムから確認済み。この環境で有効な追加防御は {reinforcementCount} 件です。実行・アップロード・外部照会・パケット取得・メモリ読取は行いません。"
-            : $"SHA-256 / offline signature verification / stable file identity / Internet Zone / true file format / extension mismatch / entropy / script capabilities / ZIP structure\n\nSecurity baseline {postureCount} is verified through OS and runtime checks. {reinforcementCount} platform reinforcements are active on this system. No execution, upload, external lookup, packet capture, or memory read.";
+            ? $"ファイル全体のSHA-256 / 明示的な上限内でのスクリプト・PE・PDF能力語 / オフライン署名確認 / 安定ファイルID / Internet Zone / 実ファイル形式 / 拡張子偽装 / 先頭8MiBのエントロピー / ZIP内部構造\n\nセキュリティ基準 {postureCount} をOSとランタイムから確認済み。この環境で有効な追加防御は {reinforcementCount} 件です。実行・アップロード・外部照会・パケット取得・メモリ読取は行いません。"
+            : $"Whole-file SHA-256 / bounded capability-pattern scanning for scripts, PE, and PDF / offline signature verification / stable file identity / Internet Zone / true file format / extension mismatch / first-8-MiB entropy / ZIP structure\n\nSecurity baseline {postureCount} is verified through OS and runtime checks. {reinforcementCount} platform reinforcements are active on this system. No execution, upload, external lookup, packet capture, or memory read.";
         CopyHashButton.Content = ja ? "SHA-256をコピー" : "COPY SHA-256";
+        CopyLookupUrlButton.Content = ja ? "照会URLをコピー" : "COPY LOOKUP URL";
         ReportTitleText.Text = ja ? "匿名化された調査レポート" : "SANITIZED INSPECTION REPORT";
         CopyReportButton.Content = ja ? "コピー" : "COPY";
         SaveMarkdownButton.Content = ja ? "Markdown保存" : "SAVE MARKDOWN";
@@ -634,7 +682,9 @@ public partial class MainWindow : Window
             ? $"完全オフライン • 防御 {postureCount} +{posture.ReinforcementEnforcedCount} • アップロードなし"
             : $"FULLY OFFLINE • BASELINE {postureCount} +{posture.ReinforcementEnforcedCount} • NO UPLOAD";
         ShortcutFooterText.Text = ja ? "CTRL+O ファイル • CTRL+F 検索 • F5 調査" : "CTRL+O FILE • CTRL+F FIND • F5 INSPECT";
-        VersionText.Text = ja ? "v0.7.0 • 安全境界" : "v0.7.0 • TRUST BOUNDARY";
+        Version version = typeof(MainWindow).Assembly.GetName().Version ?? new Version(0, 0, 0);
+        string productVersion = $"{version.Major}.{version.Minor}.{Math.Max(0, version.Build)}";
+        VersionText.Text = ja ? $"v{productVersion} • 安全境界" : $"v{productVersion} • TRUST BOUNDARY";
 
         if (FileGrid.SelectedItem is FileAnalysis selectedFile)
         {
