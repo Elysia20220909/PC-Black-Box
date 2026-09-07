@@ -61,7 +61,19 @@ Folder inspection stops at 2,500 files, 10,000 directories, depth 128, 20,000 en
 
 ## Assessment model
 
-`CLEAR / LOW / REVIEW / HIGH` is review priority, while `COMPLETE / INCOMPLETE` describes inspection completeness. Known risk and unchecked scope are retained separately and can appear together, for example `HIGH+INCOMPLETE`. None is a malware verdict or safety guarantee.
+`CLEAR / LOW / REVIEW / HIGH` is review priority, while `COMPLETE / INCOMPLETE` describes inspection completeness.
+
+Completeness reports **traversal**—whether every file in the target was reached—separately from the **four file aspects** applied to each file that was reached.
+
+| Aspect | What it does | How it falls short |
+|---|---|---|
+| Traversal | reaches every file held by the target | an enumeration limit, reparse point, or concurrent change |
+| Digest | SHA-256 over every byte | the file could not be opened safely |
+| Capability content | streaming capability matching on applicable formats | a byte or time budget was reached |
+| Signature | offline Authenticode verification | the 300-file-per-inspection limit was passed |
+| Structure | reading ZIP, shortcut and similar structures | an archive that is not opened, OLE internals that are not parsed |
+
+"Every file was reached and its digest and applicable capability content were read, but one archive was never opened" and "the walk never reached some files" are different results. The report names the missing aspect instead of painting both with one `INCOMPLETE`. Known risk and unchecked scope are also retained separately and can appear together, for example `HIGH+INCOMPLETE`. None is a malware verdict or safety guarantee.
 
 Legitimate administration scripts, installers, and compression tools can trigger warnings. Conversely, unknown code may show no static indicator. Combine this result with the expected purpose, download source, signature, and tools such as Windows Defender.
 
