@@ -172,8 +172,9 @@ would break the running product, and a control that cannot stay on is worse than
 - `--self-test` must prove the four completeness aspects stay apart: a container that was never opened
   limits structure alone while digest, content and signature remain complete, and a file that could not be
   opened limits all four without falsely claiming that traversal missed the file. It must also expose every
-  archive entry left unread after a shared content budget ends, avoid calling an honestly named executable
-  entry hidden, and require corroboration before a signed PE plus trailing ZIP receives danger weight.
+  archive entry left unread after a shared content budget ends, inventory active-content and container names
+  within that tail, avoid calling an honestly named executable entry hidden, and require corroboration before
+  a signed PE plus trailing ZIP receives danger weight.
 - Live process mitigation flags must match the required policy bits.
 - Regression fixtures must preserve signature, capability, hostile-archive, privacy, and path-boundary behavior.
 - Regression checks must preserve final-handle path matching, guarded directory writes, directory mutation detection, archive preflight, and cumulative observed-size limits.

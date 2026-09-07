@@ -76,6 +76,9 @@ public sealed class FileAnalysis
     public bool ArchiveContentTotalKnown { get; set; }
     public long ArchiveContentEligibleBytes { get; set; }
     public long ArchiveContentScannedBytes { get; set; }
+    public int ArchiveBudgetTailEntryBodies { get; set; }
+    public int ArchiveBudgetTailActiveEntries { get; set; }
+    public int ArchiveBudgetTailContainerEntries { get; set; }
     public int NestedArchivesInspected { get; set; }
     public int NestedArchiveEntriesInspected { get; set; }
     public int ArchiveMaxDepthInspected { get; set; }
@@ -138,6 +141,9 @@ public sealed class ScanResult
         ArchiveContentScanApplicable && Files.Where(x => x.ArchiveContentScanApplicable).All(x => x.ArchiveContentTotalKnown);
     public long ArchiveContentEligibleBytes => SaturatingSum(Files.Select(x => x.ArchiveContentEligibleBytes));
     public long ArchiveContentScannedBytes => SaturatingSum(Files.Select(x => x.ArchiveContentScannedBytes));
+    public int ArchiveBudgetTailEntryBodies => Files.Sum(x => x.ArchiveBudgetTailEntryBodies);
+    public int ArchiveBudgetTailActiveEntries => Files.Sum(x => x.ArchiveBudgetTailActiveEntries);
+    public int ArchiveBudgetTailContainerEntries => Files.Sum(x => x.ArchiveBudgetTailContainerEntries);
     public int NestedArchivesInspected => Files.Sum(x => x.NestedArchivesInspected);
     public int NestedArchiveEntriesInspected => Files.Sum(x => x.NestedArchiveEntriesInspected);
     public int ArchiveMaxDepthInspected => Files.Count == 0 ? 0 : Files.Max(x => x.ArchiveMaxDepthInspected);
