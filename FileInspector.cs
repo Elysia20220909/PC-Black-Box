@@ -8,6 +8,7 @@ using System.Security;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using OpenMcdf;
 
 namespace DestinyBlackBox;
 
@@ -54,6 +55,7 @@ public sealed class FileInspector
     internal const long MaxArchiveContentBytesPerScan = 1024L * 1024 * 1024;
     internal const int MaxNestedArchiveDepth = 3;
     internal const int MaxNestedArchivesPerFile = 32;
+    private const int MaxOleStorageDepth = 32;
     internal const int MaxRecursiveArchiveEntriesPerFile = 20000;
     internal const long MaxNestedArchiveBytes = 32L * 1024 * 1024;
     internal const long MaxNestedArchiveBytesPerFile = 128L * 1024 * 1024;
@@ -905,10 +907,7 @@ public sealed class FileInspector
 
         if (analysis.FileType == OleCompoundType)
         {
-            // The capability pass reads this file's strings, but the storage tree, the installer tables and
-            // any VBA project inside are not parsed. Reporting that as a complete inspection would repeat
-            // exactly the lie the first-8-MiB sample used to tell.
-            LimitInspection(analysis, InspectionLimit.Structure, new("watch", "ole-structure-unparsed", "MSIやOfficeなどOLE複合ファイルの内部構造は解析していません", "The internal structure of this OLE compound file (installer or Office document) was not parsed", 10));
+            InspectOleCompound(stream, analysis, archiveContentBudget, cancellationToken);
             if (!analysis.EmbeddedZipPayload) return;
         }
 
@@ -954,6 +953,307 @@ public sealed class FileInspector
     /// Reuses the same bounded preflight for every ZIP layer. Nested bytes stay in memory and are handed
     /// back to this method as a read-only stream; no layer gains an extraction or execution path.
     /// </summary>
+    private static void InspectOleCompound(
+        FileStream stream,
+        FileAnalysis analysis,
+        ArchiveContentScanBudget archiveContentBudget,
+        CancellationToken cancellationToken)
+    {
+        if (analysis.Size > SecurityPolicy.MaxArchiveInspectionBytes)
+        {
+            LimitInspection(analysis, InspectionLimit.Structure, new(
+                "watch",
+                "ole-size-limit",
+                $"OLE内部確認は{FileAnalysis.FormatSize(SecurityPolicy.MaxArchiveInspectionBytes)}までです",
+                $"OLE structure inspection is limited to {FileAnalysis.FormatSize(SecurityPolicy.MaxArchiveInspectionBytes)}",
+                12));
+            return;
+        }
+
+        long originalPosition = stream.Position;
+        var context = new OleInspectionContext(analysis, archiveContentBudget, cancellationToken);
+        try
+        {
+            stream.Position = 0;
+            using var readOnly = new OffsetReadStream(stream, 0);
+            readOnly.SetReadGuard(context.ThrowIfTimeExpired, ArchiveCompressedReadChunkBytes);
+            using var root = RootStorage.Open(
+                readOnly,
+                StorageModeFlags.LeaveOpen | StorageModeFlags.StrictValidation);
+            WalkOleStorage(root, String.Empty, 0, analysis, context);
+            if (context.SawVba)
+            {
+                LimitInspection(analysis, InspectionLimit.Structure, new(
+                    "watch",
+                    "ole-vba-unparsed",
+                    "VBAプロジェクトのストリームは見つけましたが、マクロ本体は解読していません",
+                    "A VBA project stream was found, but the macro body was not decoded",
+                    18));
+            }
+            if (context.SawCustomAction)
+            {
+                LimitInspection(analysis, InspectionLimit.Structure, new(
+                    "watch",
+                    "ole-tables-unparsed",
+                    "MSIのCustomActionストリームは見つけましたが、実行内容は解読していません",
+                    "An MSI CustomAction stream was found, but its actions were not decoded",
+                    18));
+            }
+        }
+        catch (OleContentTimeLimitException)
+        {
+            context.ReportTimeLimit();
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception exception) when (
+            exception is OpenMcdf.FileFormatException or IOException or NotSupportedException or OverflowException
+                or ArgumentException or InvalidDataException or FormatException)
+        {
+            LimitInspection(analysis, InspectionLimit.Structure, new(
+                "watch",
+                "ole-structure-unparsed",
+                "MSIやOfficeなどOLE複合ファイルの内部構造は解析していません",
+                "The internal structure of this OLE compound file (installer or Office document) was not parsed",
+                10));
+        }
+        finally
+        {
+            context.Complete();
+            try
+            {
+                stream.Position = originalPosition;
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
+    private static void WalkOleStorage(
+        Storage storage,
+        string logicalPath,
+        int depth,
+        FileAnalysis analysis,
+        OleInspectionContext context)
+    {
+        context.ThrowIfTimeExpired();
+        List<EntryInfo> entries;
+        try
+        {
+            entries = storage.EnumerateEntries().ToList();
+        }
+        catch (OpenMcdf.FileFormatException)
+        {
+            throw;
+        }
+
+        foreach (EntryInfo entry in entries)
+        {
+            context.ThrowIfTimeExpired();
+            if (!context.TryVisitEntry()) return;
+
+            string childPath = String.IsNullOrEmpty(logicalPath) ? entry.Name : logicalPath + "/" + entry.Name;
+            bool vba = IsOleVbaName(entry.Name);
+            bool customAction = IsOleCustomActionName(entry.Name);
+            if (vba)
+            {
+                context.SawVba = true;
+                AddIndicator(analysis, new(
+                    "watch",
+                    "ole-vba-project",
+                    "OLE複合ファイル内にVBAプロジェクトがあります",
+                    "The OLE compound file contains a VBA project",
+                    28));
+            }
+            if (customAction)
+            {
+                context.SawCustomAction = true;
+                AddIndicator(analysis, new(
+                    "watch",
+                    "ole-custom-action",
+                    "OLE複合ファイル内にMSI CustomActionテーブルがあります",
+                    "The OLE compound file contains an MSI CustomAction table",
+                    28));
+            }
+
+            if (entry.Type == EntryType.Storage)
+            {
+                if (depth >= MaxOleStorageDepth)
+                {
+                    LimitInspection(analysis, InspectionLimit.Structure, new(
+                        "watch",
+                        "ole-depth-limit",
+                        $"OLEストレージ木は深さ{MaxOleStorageDepth}まで解析します",
+                        $"OLE storage-tree inspection is limited to depth {MaxOleStorageDepth}",
+                        12));
+                    continue;
+                }
+
+                if (!storage.TryOpenStorage(entry.Name, out Storage? child) || child is null)
+                {
+                    LimitInspection(analysis, InspectionLimit.Structure, new(
+                        "watch",
+                        "ole-storage-unopened",
+                        "OLEストレージの一部を開けませんでした",
+                        "Part of the OLE storage tree could not be opened",
+                        12));
+                    continue;
+                }
+
+                WalkOleStorage(child, childPath, depth + 1, analysis, context);
+                continue;
+            }
+
+            if (entry.Type != EntryType.Stream) continue;
+            ScanOleStream(storage, entry, childPath, analysis, context, fullWeight: vba || customAction);
+        }
+    }
+
+    private static void ScanOleStream(
+        Storage storage,
+        EntryInfo entry,
+        string logicalPath,
+        FileAnalysis analysis,
+        OleInspectionContext context,
+        bool fullWeight)
+    {
+        if (!storage.TryOpenStream(entry.Name, out CfbStream? oleStream) || oleStream is null)
+        {
+            LimitInspection(analysis, InspectionLimit.Structure, new(
+                "watch",
+                "ole-stream-unopened",
+                "OLEストリームの一部を開けませんでした",
+                "Part of the OLE stream table could not be opened",
+                12));
+            return;
+        }
+
+        using (oleStream)
+        {
+            long remainingFileBytes = Math.Max(0, MaxArchiveContentBytesPerFile - analysis.ArchiveContentScannedBytes);
+            long remainingScanBytes = Math.Max(0, MaxArchiveContentBytesPerScan - context.Budget.BytesScanned);
+            long entryLimit = Math.Min(MaxArchiveContentBytesPerEntry, Math.Min(remainingFileBytes, remainingScanBytes));
+            if (entryLimit == 0)
+            {
+                LimitInspection(analysis, InspectionLimit.Content | InspectionLimit.Structure, new(
+                    "watch",
+                    "ole-stream-budget",
+                    "OLEストリーム本文の走査が容量上限に達しました",
+                    "OLE stream-body scanning reached its byte budget",
+                    12));
+                return;
+            }
+
+            byte[] buffer = new byte[ArchiveContentChunkBytes + ArchiveContentOverlapBytes];
+            int overlap = 0;
+            long scanned = 0;
+            bool reachedEof = false;
+            try
+            {
+                while (true)
+                {
+                    context.ThrowIfTimeExpired();
+                    long remaining = entryLimit - scanned;
+                    if (remaining <= 0) break;
+                    int requested = (int)Math.Min(ArchiveContentChunkBytes, remaining);
+                    int read = oleStream.Read(buffer, overlap, requested);
+                    if (read == 0)
+                    {
+                        reachedEof = true;
+                        break;
+                    }
+
+                    int available = overlap + read;
+                    scanned += read;
+                    analysis.ArchiveContentScannedBytes += read;
+                    context.Budget.BytesScanned += read;
+                    MatchOleStreamCapabilityChunk(buffer, available, logicalPath, context, analysis, fullWeight);
+                    overlap = Math.Min(ArchiveContentOverlapBytes, available);
+                    Buffer.BlockCopy(buffer, available - overlap, buffer, 0, overlap);
+                }
+            }
+            catch (OleContentTimeLimitException)
+            {
+                throw;
+            }
+            catch (Exception exception) when (exception is IOException or NotSupportedException or OpenMcdf.FileFormatException)
+            {
+                LimitInspection(analysis, InspectionLimit.Content | InspectionLimit.Structure, new(
+                    "watch",
+                    "ole-stream-read-error",
+                    "OLEストリーム本文の一部を安全に読み取れませんでした",
+                    "One or more OLE streams could not be read safely",
+                    12));
+                return;
+            }
+
+            if (!reachedEof)
+            {
+                LimitInspection(analysis, InspectionLimit.Content | InspectionLimit.Structure, new(
+                    "watch",
+                    "ole-stream-budget",
+                    "OLEストリーム本文の走査が容量上限に達しました",
+                    "OLE stream-body scanning reached its byte budget",
+                    12));
+            }
+        }
+    }
+
+    private static void MatchOleStreamCapabilityChunk(
+        byte[] buffer,
+        int available,
+        string logicalPath,
+        OleInspectionContext context,
+        FileAnalysis analysis,
+        bool fullWeight)
+    {
+        string ascii = Encoding.Latin1.GetString(buffer, 0, available);
+        int evenUnicodeBytes = available & ~1;
+        string unicodeEven = evenUnicodeBytes >= 2 ? Encoding.Unicode.GetString(buffer, 0, evenUnicodeBytes) : String.Empty;
+        int oddUnicodeBytes = (available - 1) & ~1;
+        string unicodeOdd = oddUnicodeBytes >= 2 ? Encoding.Unicode.GetString(buffer, 1, oddUnicodeBytes) : String.Empty;
+        string searchable = ascii + "\n" + unicodeEven + "\n" + unicodeOdd;
+        string safeName = SecurityPolicy.SanitizeText(logicalPath, 512);
+
+        foreach (var capability in CapabilityPatterns)
+        {
+            if (context.MatchedCapabilityScores.TryGetValue(capability.Code, out int previousScore) && previousScore >= capability.Score) continue;
+            if (!capability.Pattern.IsMatch(searchable)) continue;
+            int score = fullWeight ? capability.Score : Math.Max(4, capability.Score / 2);
+            if (previousScore >= score) continue;
+
+            context.MatchedCapabilityScores[capability.Code] = score;
+            string indicatorCode = "ole-stream-" + capability.Code;
+            analysis.Indicators.RemoveAll(indicator => indicator.Code.Equals(indicatorCode, StringComparison.OrdinalIgnoreCase));
+            AddIndicator(analysis, new(
+                score >= 30 ? "danger" : "watch",
+                indicatorCode,
+                fullWeight
+                    ? $"OLE内の「{safeName}」: {capability.Ja}"
+                    : $"OLE内のストリーム「{safeName}」に「{capability.Ja}」と関連する文字列があります",
+                fullWeight
+                    ? $"OLE stream '{safeName}': {capability.En}"
+                    : $"OLE stream '{safeName}' contains text associated with: {capability.En}",
+                score));
+        }
+    }
+
+    private static bool IsOleVbaName(string name)
+    {
+        string trimmed = name.Trim().TrimStart('\u0001', '\u0005');
+        return trimmed.Equals("VBA", StringComparison.OrdinalIgnoreCase) ||
+               trimmed.Equals("Macros", StringComparison.OrdinalIgnoreCase) ||
+               trimmed.Equals("_VBA_PROJECT", StringComparison.OrdinalIgnoreCase) ||
+               trimmed.Equals("_VBA_PROJECT_CUR", StringComparison.OrdinalIgnoreCase) ||
+               trimmed.Equals("VBA_PROJECT", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsOleCustomActionName(string name) =>
+        name.Trim().Equals("CustomAction", StringComparison.OrdinalIgnoreCase);
+
     private static void InspectZipPayload(
         Stream source,
         FileAnalysis analysis,
@@ -2166,6 +2466,10 @@ public sealed class FileInspector
     {
     }
 
+    private sealed class OleContentTimeLimitException : IOException
+    {
+    }
+
     private sealed class CapabilityScanBudget
     {
         public long BytesScanned { get; set; }
@@ -2176,6 +2480,83 @@ public sealed class FileInspector
     {
         public long BytesScanned { get; set; }
         public TimeSpan Elapsed { get; set; }
+    }
+
+    /// <summary>
+    /// Bounds one OLE storage-tree walk and its stream-body reads against the same byte and time
+    /// budgets used for ZIP entry bodies, so an OLE+ZIP polyglot cannot spend the limit twice.
+    /// </summary>
+    private sealed class OleInspectionContext
+    {
+        private readonly FileAnalysis _analysis;
+        private readonly Stopwatch _timer = Stopwatch.StartNew();
+        private int _entriesVisited;
+        private bool _completed;
+
+        public OleInspectionContext(
+            FileAnalysis analysis,
+            ArchiveContentScanBudget budget,
+            CancellationToken cancellationToken)
+        {
+            _analysis = analysis;
+            Budget = budget;
+            CancellationToken = cancellationToken;
+        }
+
+        public ArchiveContentScanBudget Budget { get; }
+        public CancellationToken CancellationToken { get; }
+        public Dictionary<string, int> MatchedCapabilityScores { get; } = new(StringComparer.Ordinal);
+        public bool SawVba { get; set; }
+        public bool SawCustomAction { get; set; }
+        public bool TimeLimitReached { get; private set; }
+
+        public void ThrowIfTimeExpired()
+        {
+            CancellationToken.ThrowIfCancellationRequested();
+            if (TimeLimitReached ||
+                _timer.Elapsed >= MaxArchiveContentTimePerFile ||
+                Budget.Elapsed + _timer.Elapsed >= MaxArchiveContentTimePerScan)
+            {
+                TimeLimitReached = true;
+                throw new OleContentTimeLimitException();
+            }
+        }
+
+        public bool TryVisitEntry()
+        {
+            if (_entriesVisited >= MaxArchiveEntries)
+            {
+                LimitInspection(_analysis, InspectionLimit.Content | InspectionLimit.Structure, new(
+                    "watch",
+                    "ole-entry-limit",
+                    $"OLE内部一覧は{MaxArchiveEntries}件で打ち切ります",
+                    $"OLE entry listing is limited to {MaxArchiveEntries} entries",
+                    10));
+                return false;
+            }
+
+            _entriesVisited++;
+            return true;
+        }
+
+        public void ReportTimeLimit()
+        {
+            TimeLimitReached = true;
+            LimitInspection(_analysis, InspectionLimit.Content | InspectionLimit.Structure, new(
+                "watch",
+                "ole-content-time",
+                "OLEストレージ木とストリーム本文の走査が時間上限に達しました",
+                "OLE storage-tree and stream-body scanning reached its time limit",
+                10));
+        }
+
+        public void Complete()
+        {
+            if (_completed) return;
+            _completed = true;
+            _timer.Stop();
+            Budget.Elapsed += _timer.Elapsed;
+        }
     }
 
     /// <summary>

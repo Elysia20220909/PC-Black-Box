@@ -9,9 +9,9 @@
     <AssemblyName>PC Black Box</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>assets\pc-black-box.ico</ApplicationIcon>
-    <Version>0.12.0</Version>
-    <FileVersion>0.12.0.0</FileVersion>
-    <AssemblyVersion>0.12.0.0</AssemblyVersion>
+    <Version>0.13.0</Version>
+    <FileVersion>0.13.0.0</FileVersion>
+    <AssemblyVersion>0.13.0.0</AssemblyVersion>
     <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
     <CheckForOverflowUnderflow>true</CheckForOverflowUnderflow>
     <Deterministic>true</Deterministic>
@@ -35,6 +35,9 @@
     <NuGetAuditLevel>low</NuGetAuditLevel>
     <WarningsNotAsErrors></WarningsNotAsErrors>
   </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="OpenMcdf" Version="3.3.0" />
+  </ItemGroup>
   <ItemGroup>
     <Resource Include="assets\pc-black-box.ico" />
     <Compile Remove="tests\**\*.cs" />

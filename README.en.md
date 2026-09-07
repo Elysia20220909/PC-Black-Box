@@ -76,7 +76,7 @@ Select a finding card with the pointer, or focus it with Tab and press Enter / S
 | Name deception | Double extensions, right-to-left controls, invisible characters, and trailing spaces or periods removed by Windows | Separates the displayed name from the effective extension |
 | Windows shortcuts | Target, arguments, working directory, hidden launch, and elevation request | Reads the `.lnk` structure without resolving or launching it |
 | PE / scripts / PDF | Capability terms related to downloading, persistence, Defender changes, process injection, hidden execution, deletion, and similar actions | Streams content only up to explicit byte and time budgets |
-| OLE compound files | Recognizes the OLE format used by MSI / MSP / legacy Office files and scans strings in the raw bytes | Does not parse the storage tree, MSI tables, or VBA, so structure remains `INCOMPLETE` |
+| OLE compound files | Walks the storage tree and scans stream bodies within the capability budgets. Names such as VBA and CustomAction are recorded as findings | Does not decode VBA macro bodies or MSI tables. A malformed compound file keeps the structure aspect `INCOMPLETE` |
 | ZIP / Office packages | Prefix data, polyglots, internal double extensions, active content, macros, traversal paths, extreme compression ratios, and declared-size versus observed-EOF differences | Validates boundaries before using the standard parser and never extracts entries to disk |
 | Nested ZIPs | Recursively inspects valid ZIP structures, including ones hidden behind another extension | Holds them in memory and stops at depth 3; unsupported, malformed, encrypted, unreadable, or over-limit interiors remain `INCOMPLETE` |
 
@@ -105,7 +105,7 @@ The score is a sum of finding weights used to order attention, not a probability
 | Digest | Whether every byte of a reached file contributed to SHA-256 | The file could not be opened safely or changed while being read |
 | Capability content | Whether a supported format was scanned to its applicable boundary | Byte, elapsed-time, or match-time limits |
 | Signature | Whether every applicable signature was checked | More than 300 signature candidates in one inspection |
-| Structure | Whether the internal structure of ZIPs, shortcuts, and other containers was examined | An unreadable archive, malformed structure, or unparsed OLE interior |
+| Structure | Whether the internal structure of ZIPs, shortcuts, OLE storage trees, and other containers was examined | An unreadable archive, a malformed structure, or an undecoded VBA / MSI table |
 
 `COMPLETE` means that every supported check finished within its safety boundaries. It does not mean the target is safe.
 
@@ -202,7 +202,7 @@ The design adapts ideas about code trust and strict capability boundaries emphas
 - The process DACL affects new access checks after lockdown. It cannot revoke a full-access handle retained by a launcher beforehand.
 - Monitoring standard .NET transport assemblies is not operating-system-level capability removal through AppContainer or Windows Filtering Platform. Future native networking code could bypass it, so such a change is outside the accepted source scope.
 - ZIP entries are scanned without disk extraction, and valid nested ZIPs are recursively examined within shared budgets. This is neither a malware-signature engine nor a runtime sandbox.
-- Nested 7-Zip / RAR / GZip / Cabinet / OLE / ISO content, malformed ZIPs, encrypted nested ZIPs, and over-limit or unreadable nested ZIPs are not opened and remain `INCOMPLETE`.
+- Nested 7-Zip / RAR / GZip / Cabinet / OLE / ISO content, malformed ZIPs, encrypted nested ZIPs, and over-limit or unreadable nested ZIPs are not opened and remain `INCOMPLETE`. A top-level OLE compound file has its storage tree walked; OLE nested inside a ZIP is still not opened.
 - A bounded prefixed ZIP / ZIP64 payload is recovered and inspected, but the prefix remains unparsed and therefore `INCOMPLETE`.
 - A ZIP polyglot with PDF / PE / script or another primary format keeps both inspection surfaces. Declared entry-body sizes are not trusted; a difference from observed EOF is reported as `INCOMPLETE`.
 - Split ZIPs, encrypted central directories, and ambiguous multiple EOCD records are warned about without internal inspection.

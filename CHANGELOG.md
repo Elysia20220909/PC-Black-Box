@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.13.0 — 2026-09-07
+
+- Opened the OLE compound-file storage tree instead of stopping at the container name. A top-level MSI or legacy Office file is walked under the same byte and time budgets as ZIP entry bodies, using a read-only view of the already-open inspection stream. Nothing is extracted, launched, or written back.
+- Recorded VBA and MSI CustomAction names as findings. Those streams are capability-scanned as bytes; the macro body and installer tables themselves stay undecoded, so the structure aspect remains `INCOMPLETE`. A well-formed tree no longer emits `ole-structure-unparsed`.
+- Kept a malformed OLE header (magic plus strings, no valid FAT) fail-closed as `ole-structure-unparsed` and `INCOMPLETE`. Nested OLE inside a ZIP is still unopened. Added OpenMcdf 3.3.0 as the first PackageReference; net10.0 brings no transitive packages.
+
 ## 0.12.0 — 2026-08-24
 
 - Promoted an exhausted ZIP-body budget from a prose-only warning to structured tail inventory. The window, Markdown, and JSON now retain the entry bodies left after that budget and the subsets whose names declare active content or another container.

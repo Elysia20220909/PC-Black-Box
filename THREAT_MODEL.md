@@ -168,7 +168,9 @@ would break the running product, and a control that cannot stay on is worse than
   a later active-content entry.
 - `--self-test` must prove that a shortcut is judged by the command line inside it, that a shortcut whose
   declared sizes do not fit ends the walk and reports the result as `INCOMPLETE` rather than throwing, and
-  that an OLE compound file is read for strings and never reported as a complete inspection.
+  that an OLE compound file is read for strings and never reported as a complete inspection when its
+  storage tree cannot be parsed, that a well-formed tree names VBA or CustomAction without the old
+  unparsed-tree finding, and that undecoded VBA or MSI tables keep the structure aspect incomplete.
 - `--self-test` must prove the four completeness aspects stay apart: a container that was never opened
   limits structure alone while digest, content and signature remain complete, and a file that could not be
   opened limits all four without falsely claiming that traversal missed the file. It must also expose every

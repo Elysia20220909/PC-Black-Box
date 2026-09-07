@@ -4,6 +4,7 @@ using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using OpenMcdf;
 
 namespace DestinyBlackBox;
 
@@ -115,6 +116,8 @@ internal static class ProductSelfTest
             Require(TestShortcutCommandLineIsRead(), ref checks);
             Require(TestHostileShortcutFailsClosed(), ref checks);
             Require(TestOleCompoundIsScannedAndNeverComplete(), ref checks);
+            Require(TestOleStorageTreeNamesVbaWithoutClaimingUnparsed(), ref checks);
+            Require(TestOleCustomActionIsNamedAndKeptIncomplete(), ref checks);
             Require(TestOversizedLinkInfoStillYieldsTheCommandLine(), ref checks);
             Require(TestUnopenedContainerIsNeverClear(), ref checks);
             Require(TestUnexaminedAspectsStayApart(), ref checks);
@@ -654,8 +657,8 @@ internal static class ProductSelfTest
         });
 
     /// <summary>
-    /// An installer or Office document is read for its strings, and is never called complete, because its
-    /// storage tree and tables are not parsed.
+    /// A header that only looks like OLE is still scanned for strings, and a failed storage-tree parse
+    /// must not be reported as a complete inspection.
     /// </summary>
     private static bool TestOleCompoundIsScannedAndNeverComplete() =>
         WithFixtureDirectory(directory =>
@@ -679,6 +682,77 @@ internal static class ProductSelfTest
                    result.CompletenessCode.Equals("INCOMPLETE", StringComparison.Ordinal) &&
                    !result.AssessmentCode.Equals("CLEAR", StringComparison.Ordinal);
         });
+
+    /// <summary>
+    /// A well-formed storage tree is walked. VBA is named, the old "never opened" finding is not used,
+    /// and the macro body stays structurally incomplete because it is not decoded.
+    /// </summary>
+    private static bool TestOleStorageTreeNamesVbaWithoutClaimingUnparsed() =>
+        WithFixtureDirectory(directory =>
+        {
+            string path = Path.Combine(directory, "macro.doc");
+            string encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes("Write-Host 'self test'"));
+            byte[] payload = Encoding.Unicode.GetBytes($" powershell.exe -enc {encoded} ");
+            File.WriteAllBytes(path, CreateOleCompoundBytes(root =>
+            {
+                Storage macros = root.CreateStorage("Macros");
+                Storage vba = macros.CreateStorage("VBA");
+                using CfbStream project = vba.CreateStream("_VBA_PROJECT");
+                project.Write(payload, 0, payload.Length);
+            }));
+
+            ScanResult result = Inspect(path);
+            if (result.Files.Count != 1) return false;
+
+            FileAnalysis file = result.Files[0];
+            bool Has(string code) => file.Indicators.Any(indicator => indicator.Code.Equals(code, StringComparison.Ordinal));
+            return file.FileType.Equals(FileInspector.OleCompoundType, StringComparison.Ordinal) &&
+                   Has("ole-vba-project") &&
+                   Has("ole-vba-unparsed") &&
+                   !Has("ole-structure-unparsed") &&
+                   (Has("encoded-command") || Has("ole-stream-encoded-command")) &&
+                   file.InspectionLimited &&
+                   result.CompletenessCode.Equals("INCOMPLETE", StringComparison.Ordinal);
+        });
+
+    /// <summary>
+    /// An MSI CustomAction stream is named as evidence, and leaving its actions undecoded keeps
+    /// the structure aspect incomplete.
+    /// </summary>
+    private static bool TestOleCustomActionIsNamedAndKeptIncomplete() =>
+        WithFixtureDirectory(directory =>
+        {
+            string path = Path.Combine(directory, "setup.msi");
+            byte[] payload = Encoding.Unicode.GetBytes(" rundll32.exe javascript:\"\\..\\mshtml,RunHTMLApplication\" ");
+            File.WriteAllBytes(path, CreateOleCompoundBytes(root =>
+            {
+                using CfbStream table = root.CreateStream("CustomAction");
+                table.Write(payload, 0, payload.Length);
+            }));
+
+            ScanResult result = Inspect(path);
+            if (result.Files.Count != 1) return false;
+
+            FileAnalysis file = result.Files[0];
+            bool Has(string code) => file.Indicators.Any(indicator => indicator.Code.Equals(code, StringComparison.Ordinal));
+            return file.FileType.Equals(FileInspector.OleCompoundType, StringComparison.Ordinal) &&
+                   Has("ole-custom-action") &&
+                   Has("ole-tables-unparsed") &&
+                   !Has("ole-structure-unparsed") &&
+                   file.InspectionLimited &&
+                   result.CompletenessCode.Equals("INCOMPLETE", StringComparison.Ordinal);
+        });
+
+    private static byte[] CreateOleCompoundBytes(Action<RootStorage> populate)
+    {
+        using var buffer = new MemoryStream();
+        using (var root = RootStorage.Create(buffer, OpenMcdf.Version.V3, StorageModeFlags.LeaveOpen))
+        {
+            populate(root);
+        }
+
+        return buffer.ToArray();
+    }
 
     /// <summary>
     /// A LinkInfo block past the extraction cap is legal and easy to build, so the walk must step over it and
