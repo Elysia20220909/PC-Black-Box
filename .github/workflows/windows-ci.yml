@@ -1,0 +1,58 @@
+name: Windows source checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-source-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: windows-2025
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+      DOTNET_INSTALL_DIR: 'C:\Program Files\dotnet'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          global-json-file: global.json
+      - name: Locked restore and dependency advisory gate
+        run: |
+          dotnet restore Destiny2BlackBox.csproj --locked-mode --force --configfile NuGet.Config
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet restore tests/RuntimeBoundaryProbe/RuntimeBoundaryProbe.csproj --locked-mode --force --configfile NuGet.Config
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Release builds with security analyzers
+        run: |
+          dotnet build Destiny2BlackBox.csproj -c Release --no-restore --no-incremental
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet build tests/RuntimeBoundaryProbe/RuntimeBoundaryProbe.csproj -c Release --no-restore --no-incremental
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Formatting
+        run: |
+          dotnet format Destiny2BlackBox.csproj --verify-no-changes --no-restore
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet format tests/RuntimeBoundaryProbe/RuntimeBoundaryProbe.csproj --verify-no-changes --no-restore
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Headless runtime gates as a temporary standard user
+        run: ./tests/Invoke-HostedRuntimeGates.ps1
+      - name: Source-only checkout remains unchanged
+        run: |
+          git diff --exit-code
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (git ls-files --others --exclude-standard) { throw 'Unexpected untracked files after verification.' }

@@ -13,7 +13,7 @@ internal sealed record ProductSelfTestResult(bool Passed, int Checks)
     public string SafeStatusLine => $"PC_BLACK_BOX_SELF_TEST passed={Passed.ToString().ToLowerInvariant()} checks={Checks}";
 }
 
-internal static class ProductSelfTest
+internal static partial class ProductSelfTest
 {
     public static ProductSelfTestResult Run()
     {
@@ -118,6 +118,18 @@ internal static class ProductSelfTest
             Require(TestOleCompoundIsScannedAndNeverComplete(), ref checks);
             Require(TestOleStorageTreeNamesVbaWithoutClaimingUnparsed(), ref checks);
             Require(TestOleCustomActionIsNamedAndKeptIncomplete(), ref checks);
+            Require(TestOrdinaryOlePreservesCoverageAndInput(), ref checks);
+            Require(TestInstallerWithoutLiteralTableName(), ref checks);
+            Require(TestOleRegexTimeoutDoesNotAbortScan(), ref checks);
+            Require(TestOleAndZipShareFileTime(), ref checks);
+            Require(TestOleFilesShareScanTime(), ref checks);
+            Require(TestOleTruncatedBodyIsIncomplete(), ref checks);
+            Require(TestOleDepthBoundary(), ref checks);
+            Require(TestOleEntryBoundary(), ref checks);
+            Require(TestOleAndZipShareBytes(), ref checks);
+            Require(TestOleCorruptChainsFailClosed(), ref checks);
+            Require(TestOleCorruptDirectoryIsLazy(), ref checks);
+            Require(TestOleCorruptDifatFailsClosed(), ref checks);
             Require(TestOversizedLinkInfoStillYieldsTheCommandLine(), ref checks);
             Require(TestUnopenedContainerIsNeverClear(), ref checks);
             Require(TestUnexaminedAspectsStayApart(), ref checks);
@@ -1720,9 +1732,15 @@ internal static class ProductSelfTest
         return -1;
     }
 
-    private static void Require(bool condition, ref int checks)
+    private static void Require(bool condition, ref int checks,
+        [System.Runtime.CompilerServices.CallerArgumentExpression(nameof(condition))] string check = "")
     {
         checks++;
-        if (!condition) throw new InvalidOperationException("A product self-test check failed.");
+        if (!condition)
+        {
+            // Source expressions only; no target paths, contents, or exception details enter the log.
+            Console.Error.WriteLine($"SELF_TEST_FAILED check={checks} expression={SecurityPolicy.SanitizeText(check, 200)}");
+            throw new InvalidOperationException("A product self-test check failed.");
+        }
     }
 }

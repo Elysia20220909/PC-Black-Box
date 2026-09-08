@@ -11,6 +11,7 @@ PC Black Box gives the owner prioritized evidence about an untrusted local downl
 | Application | Signed source history and the running managed code | Selected file names, bytes, metadata, archive entries, and signer text |
 | Operating system | Windows process-mitigation state read back through Kernel32 | Paths on network, device, alternate-stream, or reparse namespaces |
 | Archive runtime | The serviced .NET runtime and its native `System.IO.Compression.Native.dll` loaded through restricted DLL discovery | Every compressed byte presented to the inflater |
+| OLE parser | OpenMcdf 3.3.0 core, resolved through the committed NuGet lock file | CFB headers, directory trees, FAT/DIFAT/miniFAT links, and stream bodies |
 | Output | Sanitized in-memory result and exclusively created local report | Existing report files, reparse destinations, absolute paths, and control characters |
 | Network | No network function is required for inspection | Remote reputation, cloud scanning, download, upload, and browser launch |
 
@@ -26,6 +27,9 @@ PC Black Box gives the owner prioritized evidence about an untrusted local downl
 - All loops, input sizes, filesystem entries, directory depth, retained paths, archive metadata, signature checks, text lengths, and regular-expression evaluation are bounded.
 - ZIP central-directory structure must pass bounded preflight before the standard archive parser can allocate entry objects.
 - ZIP entry bodies are read only through bounded streams and are never extracted to disk; declared size is reconciled with observed EOF. Valid nested ZIPs are recursively inspected in memory under shared depth, count, byte, entry, and time budgets, while unsupported, malformed, unread, or over-limit containers remain explicitly incomplete.
+- Top-level OLE trees use a non-writable view of the existing inspection handle with strict validation, without extraction, transactions, or write-back. Entry enumeration stays lazy under the 10,000-entry and depth-32 bounds. Exceptions from enumeration or reading, regex timeouts, and a mismatch between declared length and observed EOF retain explicit incomplete coverage.
+- OLE and any trailing ZIP consume one 30-second structured-inspection clock per file and one cumulative 120-second clock per scan, along with the shared byte limits. The file clock is charged to the scan once, including failure paths. Time limits remain cooperative: a synchronous OS read or parser operation already in progress cannot be forcibly interrupted by these managed guards.
+- Installer table semantics are not decoded. A top-level OLE named with an MSI/MSP extension always retains incomplete structure, whether or not a literal CustomAction name was found. This extension-based fallback does not prove identification of every renamed installer; the name fixtures are not a full real-world MSI compatibility suite.
 - Decompression may enter the framework's native inflater only after DLL discovery has excluded the target and current directory. Compressed input, expanded output, and elapsed time remain bounded at the managed edge; native inflater correctness is a trusted runtime dependency rather than a claim made by this source tree.
 - Reports exclude absolute paths and personal identifiers and are never written inside the inspected target.
 - No administrator privilege, UIAccess, external lookup, or child process is required. An elevated
@@ -134,6 +138,7 @@ would break the running product, and a control that cannot stay on is worse than
 
 ## Verification gates
 
+- Restore both projects with their committed lock files and the repository NuGet configuration. An unexpected dependency or content hash must fail locked restore. SDK/runtime provenance and parser correctness remain trusted dependencies, not conclusions of an advisory scan.
 - Strict Release rebuild with current .NET analyzers, all security rules enabled, and warnings treated as errors.
 - Dependency audit must report no advisory at any severity, direct or transitive.
 - Runtime `--security-status` result must be `enforced=true` with every required control present, and must
@@ -181,3 +186,26 @@ would break the running product, and a control that cannot stay on is worse than
 - Regression fixtures must preserve signature, capability, hostile-archive, privacy, and path-boundary behavior.
 - Regression checks must preserve final-handle path matching, guarded directory writes, directory mutation detection, archive preflight, and cumulative observed-size limits.
 - Secret scanning and tracked-artifact inspection must pass before a signed commit is pushed.
+
+### Headless automation
+
+The Windows workflow runs locked restores, strict Release builds, formatting, and runtime gates without
+publishing or uploading build artifacts. Its Actions references are pinned to commits and its GitHub
+token has read-only contents permission with checkout credential persistence disabled.
+
+GitHub-hosted Windows VMs start as administrators. The hosted-only helper first requires the product to
+refuse that elevated launch, then creates a random-password standard local user for the runtime gates
+and removes that account in a finally block. This account exists only on the disposable runner; the helper
+refuses ordinary developer machines and self-hosted runners. A job-level timeout additionally bounds
+the ephemeral VM's lifetime. No credential is printed or committed.
+
+The external access probe loads the production module initializer in a separate, non-elevated console
+process with the same metadata-update and EventSource restrictions. It verifies the enforced posture
+before signaling readiness, never starts WPF, and has a bounded lifetime. It is evidence of the production
+hardening boundary, not an interactive GUI smoke test. The product executable's own startup and all sixteen
+required controls are checked separately through its command-line modes.
+
+OLE tests distinguish deterministic time/regex failure injection from normal-clock execution. The entry
+and byte limit fixtures use a fixed test clock to avoid substituting a machine-speed-dependent timeout
+for the intended resource boundary. Production constructors always use the system clock and real regex
+matching; no command-line or configuration switch disables the baseline or changes a budget.

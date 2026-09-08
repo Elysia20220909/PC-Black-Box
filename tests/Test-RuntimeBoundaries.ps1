@@ -1,7 +1,7 @@
 #Requires -Version 7.0
 
 [CmdletBinding()]
-param()
+param([switch] $NoBuild)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -84,8 +84,11 @@ function Close-TestHandle {
     }
 }
 
-Invoke-DotNetBuild -Project $applicationProject
-Invoke-DotNetBuild -Project $probeProject
+if (-not $NoBuild)
+{
+    Invoke-DotNetBuild -Project $applicationProject
+    Invoke-DotNetBuild -Project $probeProject
+}
 
 foreach ($requiredPath in @($applicationExecutable, $applicationAssembly, $probeAssembly))
 {
@@ -97,13 +100,21 @@ foreach ($requiredPath in @($applicationExecutable, $applicationAssembly, $probe
 
 Add-NativeProbeType
 $checks = 0
-$target = Start-Process -FilePath $applicationExecutable -WindowStyle Hidden -PassThru
+$start = [Diagnostics.ProcessStartInfo]::new('dotnet')
+$start.UseShellExecute = $false
+$start.CreateNoWindow = $true
+$start.RedirectStandardOutput = $true
+$start.RedirectStandardError = $true
+$start.ArgumentList.Add($probeAssembly)
+$start.ArgumentList.Add('--hold')
+$start.ArgumentList.Add($applicationAssembly)
+$target = [Diagnostics.Process]::Start($start)
 try
 {
-    Start-Sleep -Milliseconds 1500
-    if ($target.HasExited)
+    $ready = $target.StandardOutput.ReadLineAsync()
+    if (-not $ready.Wait(10000) -or $ready.Result -ne 'BOUNDARY_PROBE_READY' -or $target.HasExited)
     {
-        throw "PC Black Box exited before the external boundary checks completed."
+        throw "The headless production-boundary probe did not become ready."
     }
 
     $accessTests = @(

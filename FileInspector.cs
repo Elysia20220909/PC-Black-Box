@@ -55,7 +55,7 @@ public sealed class FileInspector
     internal const long MaxArchiveContentBytesPerScan = 1024L * 1024 * 1024;
     internal const int MaxNestedArchiveDepth = 3;
     internal const int MaxNestedArchivesPerFile = 32;
-    private const int MaxOleStorageDepth = 32;
+    internal const int MaxOleStorageDepth = 32;
     internal const int MaxRecursiveArchiveEntriesPerFile = 20000;
     internal const long MaxNestedArchiveBytes = 32L * 1024 * 1024;
     internal const long MaxNestedArchiveBytesPerFile = 128L * 1024 * 1024;
@@ -120,12 +120,25 @@ public sealed class FileInspector
 
     public static bool IsActiveContentExtension(string? extension) => extension is not null && ActiveExtensions.Contains(extension);
 
+    private readonly TimeProvider _clock;
+    private readonly Func<Regex, string, bool> _matchOleCapability;
+
+    public FileInspector() : this(TimeProvider.System, static (pattern, text) => pattern.IsMatch(text)) { }
+
+    // Instance-scoped seams let self-tests exercise timeouts without weakening production limits
+    // or changing global regex state while another inspection is running.
+    internal FileInspector(TimeProvider clock, Func<Regex, string, bool> matchOleCapability)
+    {
+        _clock = clock;
+        _matchOleCapability = matchOleCapability;
+    }
+
     public Task<ScanResult> ScanAsync(string targetPath, IProgress<ScanProgress>? progress, CancellationToken cancellationToken)
     {
         return Task.Run(() => ScanCore(targetPath, progress, cancellationToken), cancellationToken);
     }
 
-    private static ScanResult ScanCore(string targetPath, IProgress<ScanProgress>? progress, CancellationToken cancellationToken)
+    private ScanResult ScanCore(string targetPath, IProgress<ScanProgress>? progress, CancellationToken cancellationToken)
     {
         if (ProcessElevation.IsElevated)
         {
@@ -360,7 +373,7 @@ public sealed class FileInspector
         }
     }
 
-    private static FileAnalysis AnalyzeFile(
+    private FileAnalysis AnalyzeFile(
         string path,
         string root,
         bool singleFile,
@@ -890,7 +903,7 @@ public sealed class FileInspector
     private static string FormatShortcutField(string value) =>
         String.IsNullOrWhiteSpace(value) ? "—" : SecurityPolicy.SanitizeText(value, 512);
 
-    private static void InspectStructuredFormats(
+    private void InspectStructuredFormats(
         FileStream stream,
         FileAnalysis analysis,
         ArchiveContentScanBudget archiveContentBudget,
@@ -905,9 +918,12 @@ public sealed class FileInspector
             if (!analysis.EmbeddedZipPayload) return;
         }
 
+        if (analysis.FileType != OleCompoundType && analysis.FileType != ZipPackageType &&
+            !analysis.EmbeddedZipPayload) return;
+        using var fileBudget = new ArchiveFileTimeBudget(archiveContentBudget, _clock);
         if (analysis.FileType == OleCompoundType)
         {
-            InspectOleCompound(stream, analysis, archiveContentBudget, cancellationToken);
+            InspectOleCompound(stream, analysis, archiveContentBudget, fileBudget, cancellationToken);
             if (!analysis.EmbeddedZipPayload) return;
         }
 
@@ -918,7 +934,7 @@ public sealed class FileInspector
             return;
         }
 
-        var context = new ArchiveRecursionContext(analysis, archiveContentBudget, cancellationToken);
+        var context = new ArchiveRecursionContext(analysis, archiveContentBudget, fileBudget, cancellationToken);
         try
         {
             InspectZipPayload(stream, analysis, context, depth: 0, logicalArchivePath: String.Empty, topLevel: true);
@@ -950,13 +966,13 @@ public sealed class FileInspector
     }
 
     /// <summary>
-    /// Reuses the same bounded preflight for every ZIP layer. Nested bytes stay in memory and are handed
-    /// back to this method as a read-only stream; no layer gains an extraction or execution path.
+    /// Opens the existing inspection handle read-only and bounds storage traversal and body reads.
     /// </summary>
-    private static void InspectOleCompound(
+    private void InspectOleCompound(
         FileStream stream,
         FileAnalysis analysis,
         ArchiveContentScanBudget archiveContentBudget,
+        ArchiveFileTimeBudget fileBudget,
         CancellationToken cancellationToken)
     {
         if (analysis.Size > SecurityPolicy.MaxArchiveInspectionBytes)
@@ -971,7 +987,7 @@ public sealed class FileInspector
         }
 
         long originalPosition = stream.Position;
-        var context = new OleInspectionContext(analysis, archiveContentBudget, cancellationToken);
+        var context = new OleInspectionContext(analysis, archiveContentBudget, fileBudget, _matchOleCapability, cancellationToken);
         try
         {
             stream.Position = 0;
@@ -990,19 +1006,28 @@ public sealed class FileInspector
                     "A VBA project stream was found, but the macro body was not decoded",
                     18));
             }
-            if (context.SawCustomAction)
+            string extension = GetInspectionExtension(analysis);
+            if (context.SawCustomAction || extension.Equals(".msi", StringComparison.OrdinalIgnoreCase) ||
+                extension.Equals(".msp", StringComparison.OrdinalIgnoreCase))
             {
                 LimitInspection(analysis, InspectionLimit.Structure, new(
                     "watch",
                     "ole-tables-unparsed",
-                    "MSIのCustomActionストリームは見つけましたが、実行内容は解読していません",
-                    "An MSI CustomAction stream was found, but its actions were not decoded",
+                    "Windows Installerのテーブルと実行内容は解読していません",
+                    "Windows Installer tables and their actions were not decoded",
                     18));
             }
         }
         catch (OleContentTimeLimitException)
         {
             context.ReportTimeLimit();
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            LimitInspection(analysis, InspectionLimit.Content | InspectionLimit.Structure, new(
+                "watch", "ole-regex-time-limit",
+                "OLE本文の能力語照合が時間上限に達したため、内部の確認を完了できませんでした",
+                "OLE capability matching reached its time limit; internal inspection is incomplete", 12));
         }
         catch (OperationCanceledException)
         {
@@ -1021,7 +1046,6 @@ public sealed class FileInspector
         }
         finally
         {
-            context.Complete();
             try
             {
                 stream.Position = originalPosition;
@@ -1040,20 +1064,17 @@ public sealed class FileInspector
         OleInspectionContext context)
     {
         context.ThrowIfTimeExpired();
-        List<EntryInfo> entries;
-        try
-        {
-            entries = storage.EnumerateEntries().ToList();
-        }
-        catch (OpenMcdf.FileFormatException)
-        {
-            throw;
-        }
-
-        foreach (EntryInfo entry in entries)
+        // Keep enumeration lazy: the entry budget must precede materializing the whole tree.
+        // MoveNext failures propagate to the format boundary and become INCOMPLETE there.
+        using IEnumerator<EntryInfo> entries = storage.EnumerateEntries().GetEnumerator();
+        while (!context.EntryLimitReached)
         {
             context.ThrowIfTimeExpired();
+            bool hasEntry = entries.MoveNext();
+            context.ThrowIfTimeExpired();
+            if (!hasEntry) return;
             if (!context.TryVisitEntry()) return;
+            EntryInfo entry = entries.Current;
 
             string childPath = String.IsNullOrEmpty(logicalPath) ? entry.Name : logicalPath + "/" + entry.Name;
             bool vba = IsOleVbaName(entry.Name);
@@ -1190,7 +1211,14 @@ public sealed class FileInspector
                 return;
             }
 
-            if (!reachedEof)
+            if (reachedEof && scanned != oleStream.Length)
+            {
+                LimitInspection(analysis, InspectionLimit.Content | InspectionLimit.Structure, new(
+                    "watch", "ole-stream-size-mismatch",
+                    "OLEストリームの宣言長と実際に読めた本文の長さが一致しません",
+                    "An OLE stream's declared length differs from its observed body length", 12));
+            }
+            else if (!reachedEof)
             {
                 LimitInspection(analysis, InspectionLimit.Content | InspectionLimit.Structure, new(
                     "watch",
@@ -1220,8 +1248,9 @@ public sealed class FileInspector
 
         foreach (var capability in CapabilityPatterns)
         {
+            context.ThrowIfTimeExpired();
             if (context.MatchedCapabilityScores.TryGetValue(capability.Code, out int previousScore) && previousScore >= capability.Score) continue;
-            if (!capability.Pattern.IsMatch(searchable)) continue;
+            if (!context.MatchCapability(capability.Pattern, searchable)) continue;
             int score = fullWeight ? capability.Score : Math.Max(4, capability.Score / 2);
             if (previousScore >= score) continue;
 
@@ -2482,6 +2511,23 @@ public sealed class FileInspector
         public TimeSpan Elapsed { get; set; }
     }
 
+    /// <summary>One clock for all structured formats in a file; charged to the scan exactly once.</summary>
+    private sealed class ArchiveFileTimeBudget(ArchiveContentScanBudget scanBudget, TimeProvider clock) : IDisposable
+    {
+        private readonly long _started = clock.GetTimestamp();
+        private bool _completed;
+        private TimeSpan Elapsed => clock.GetElapsedTime(_started);
+        public bool IsExpired => Elapsed >= MaxArchiveContentTimePerFile ||
+                                 scanBudget.Elapsed + Elapsed >= MaxArchiveContentTimePerScan;
+
+        public void Dispose()
+        {
+            if (_completed) return;
+            _completed = true;
+            scanBudget.Elapsed += Elapsed;
+        }
+    }
+
     /// <summary>
     /// Bounds one OLE storage-tree walk and its stream-body reads against the same byte and time
     /// budgets used for ZIP entry bodies, so an OLE+ZIP polyglot cannot spend the limit twice.
@@ -2489,33 +2535,36 @@ public sealed class FileInspector
     private sealed class OleInspectionContext
     {
         private readonly FileAnalysis _analysis;
-        private readonly Stopwatch _timer = Stopwatch.StartNew();
+        private readonly ArchiveFileTimeBudget _fileBudget;
         private int _entriesVisited;
-        private bool _completed;
 
         public OleInspectionContext(
             FileAnalysis analysis,
             ArchiveContentScanBudget budget,
+            ArchiveFileTimeBudget fileBudget,
+            Func<Regex, string, bool> matchCapability,
             CancellationToken cancellationToken)
         {
             _analysis = analysis;
             Budget = budget;
+            _fileBudget = fileBudget;
+            MatchCapability = matchCapability;
             CancellationToken = cancellationToken;
         }
 
         public ArchiveContentScanBudget Budget { get; }
+        public Func<Regex, string, bool> MatchCapability { get; }
         public CancellationToken CancellationToken { get; }
         public Dictionary<string, int> MatchedCapabilityScores { get; } = new(StringComparer.Ordinal);
         public bool SawVba { get; set; }
         public bool SawCustomAction { get; set; }
+        public bool EntryLimitReached { get; private set; }
         public bool TimeLimitReached { get; private set; }
 
         public void ThrowIfTimeExpired()
         {
             CancellationToken.ThrowIfCancellationRequested();
-            if (TimeLimitReached ||
-                _timer.Elapsed >= MaxArchiveContentTimePerFile ||
-                Budget.Elapsed + _timer.Elapsed >= MaxArchiveContentTimePerScan)
+            if (TimeLimitReached || _fileBudget.IsExpired)
             {
                 TimeLimitReached = true;
                 throw new OleContentTimeLimitException();
@@ -2526,6 +2575,7 @@ public sealed class FileInspector
         {
             if (_entriesVisited >= MaxArchiveEntries)
             {
+                EntryLimitReached = true;
                 LimitInspection(_analysis, InspectionLimit.Content | InspectionLimit.Structure, new(
                     "watch",
                     "ole-entry-limit",
@@ -2549,14 +2599,6 @@ public sealed class FileInspector
                 "OLE storage-tree and stream-body scanning reached its time limit",
                 10));
         }
-
-        public void Complete()
-        {
-            if (_completed) return;
-            _completed = true;
-            _timer.Stop();
-            Budget.Elapsed += _timer.Elapsed;
-        }
     }
 
     /// <summary>
@@ -2567,7 +2609,7 @@ public sealed class FileInspector
     private sealed class ArchiveRecursionContext
     {
         private readonly FileAnalysis _analysis;
-        private readonly Stopwatch _timer = Stopwatch.StartNew();
+        private readonly ArchiveFileTimeBudget _fileBudget;
         private int _entriesVisited;
         private int _activeEntries;
         private int _nestedArchiveReservations;
@@ -2577,10 +2619,12 @@ public sealed class FileInspector
         public ArchiveRecursionContext(
             FileAnalysis analysis,
             ArchiveContentScanBudget budget,
+            ArchiveFileTimeBudget fileBudget,
             CancellationToken cancellationToken)
         {
             _analysis = analysis;
             Budget = budget;
+            _fileBudget = fileBudget;
             CancellationToken = cancellationToken;
         }
 
@@ -2595,9 +2639,7 @@ public sealed class FileInspector
         public void ThrowIfTimeExpired()
         {
             CancellationToken.ThrowIfCancellationRequested();
-            if (TimeLimitReached ||
-                _timer.Elapsed >= MaxArchiveContentTimePerFile ||
-                Budget.Elapsed + _timer.Elapsed >= MaxArchiveContentTimePerScan)
+            if (TimeLimitReached || _fileBudget.IsExpired)
             {
                 TimeLimitReached = true;
                 MarkUnknown();
@@ -2692,8 +2734,6 @@ public sealed class FileInspector
         {
             if (_completed) return;
             _completed = true;
-            _timer.Stop();
-            Budget.Elapsed += _timer.Elapsed;
             _analysis.ArchiveContentScanApplicable = EntryBodiesSeen;
             _analysis.ArchiveContentTotalKnown = EntryBodiesSeen && AllEntryBodiesKnown;
             _analysis.ArchiveContentEligibleBytes = _analysis.ArchiveContentTotalKnown

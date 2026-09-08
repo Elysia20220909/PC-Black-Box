@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Kept OLE regex timeouts inside the per-file inspection boundary, recording incomplete content and structure instead of aborting the scan.
+- Marked top-level MSI/MSP tables as undecoded even without a literal CustomAction stream name. Ordinary non-installer OLE files retain their existing completeness rules.
+- Replaced eager OLE entry materialization with bounded lazy traversal, reconciled observed stream EOF with the declared length, and shared one file clock across OLE and trailing ZIP inspection.
+- Added target-free OLE regression fixtures for normal input preservation, installer names, regex failure, shared byte/time budgets, depth and entry boundaries, and corrupt directory/FAT/miniFAT/DIFAT structures.
+- Locked NuGet package versions and content hashes, restricted package sources, and added Windows build, formatting, advisory, and headless runtime gates. CI uses a disposable standard user without weakening the product's administrator-launch refusal; no distribution artifacts are created or uploaded.
+
 ## 0.13.0 — 2026-09-07
 
 - Opened the OLE compound-file storage tree instead of stopping at the container name. A top-level MSI or legacy Office file is walked under the same byte and time budgets as ZIP entry bodies, using a read-only view of the already-open inspection stream. Nothing is extracted, launched, or written back.

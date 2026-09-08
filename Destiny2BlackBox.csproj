@@ -33,10 +33,12 @@
     <NuGetAudit>true</NuGetAudit>
     <NuGetAuditMode>all</NuGetAuditMode>
     <NuGetAuditLevel>low</NuGetAuditLevel>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RestoreLockedMode>true</RestoreLockedMode>
     <WarningsNotAsErrors></WarningsNotAsErrors>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="OpenMcdf" Version="3.3.0" />
+    <PackageReference Include="OpenMcdf" Version="[3.3.0]" />
   </ItemGroup>
   <ItemGroup>
     <Resource Include="assets\pc-black-box.ico" />
