@@ -106,3 +106,6 @@ finally
     }
     # Logs remain on the disposable VM for the current job only; no artifact upload is configured.
 }
+
+# All gates and cleanup succeeded; do not leak the expected elevation-refusal exit code to Actions.
+exit 0
