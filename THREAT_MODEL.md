@@ -198,6 +198,9 @@ refuse that elevated launch, then creates a random-password standard local user 
 and removes that account in a finally block. This account exists only on the disposable runner; the helper
 refuses ordinary developer machines and self-hosted runners. A job-level timeout additionally bounds
 the ephemeral VM's lifetime. No credential is printed or committed.
+Removal is confirmed only after account enumeration succeeds and the temporary SID is absent. Lookup
+failures, including failures after partial results, fail the gate. Mocked cleanup tests exercise these
+outcomes without creating, removing, or querying local accounts on a developer machine.
 
 The external access probe loads the production module initializer in a separate, non-elevated console
 process with the same metadata-update and EventSource restrictions. It verifies the enforced posture
@@ -209,3 +212,10 @@ OLE tests distinguish deterministic time/regex failure injection from normal-clo
 and byte limit fixtures use a fixed test clock to avoid substituting a machine-speed-dependent timeout
 for the intended resource boundary. Production constructors always use the system clock and real regex
 matching; no command-line or configuration switch disables the baseline or changes a budget.
+
+The OLE body reader does not spend an extra byte to probe EOF at a budget boundary. Observing exactly
+the logical CfbStream length is sufficient for body coverage even when that length equals the budget;
+an unread declared tail remains incomplete. Real CFB fixtures cover 64 MiB minus one byte, exactly
+64 MiB, and 64 MiB plus one byte. Synthetic streams directly exercise the same body reader for early
+EOF, inconsistent declared lengths, partial reads, zero budgets, and cancellation. These synthetic
+tests prove the reader's defensive branches, not additional real-world CFB parser compatibility.

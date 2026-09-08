@@ -16,6 +16,7 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 {
     throw 'The hosted setup process must be elevated; the product test process must not be.'
 }
+. (Join-Path $PSScriptRoot 'HostedAccountCleanup.ps1')
 
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $assembly = Join-Path $repositoryRoot 'bin\Release\net10.0-windows10.0.17763.0\PC Black Box.dll'
@@ -95,10 +96,7 @@ finally
             if ($null -ne $account)
             {
                 Remove-LocalUser -SID $account.SID
-                if (Get-LocalUser -SID $account.SID -ErrorAction SilentlyContinue)
-                {
-                    throw 'The temporary CI account was not removed.'
-                }
+                Assert-HostedAccountAbsent -Sid $account.SID
                 'TEMPORARY_ACCOUNT removed=true'
             }
         }

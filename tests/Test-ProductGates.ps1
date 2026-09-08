@@ -17,6 +17,8 @@ if ($TemporaryDirectory)
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $assembly = Join-Path $repositoryRoot 'bin\Release\net10.0-windows10.0.17763.0\PC Black Box.dll'
 
+& (Join-Path $PSScriptRoot 'Test-HostedAccountCleanup.ps1')
+
 function Invoke-CheckedProduct {
     param([Parameter(Mandatory)][string] $Mode)
     $output = @(& dotnet $assembly $Mode)

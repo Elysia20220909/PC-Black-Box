@@ -124,8 +124,12 @@ internal static partial class ProductSelfTest
             Require(TestOleAndZipShareFileTime(), ref checks);
             Require(TestOleFilesShareScanTime(), ref checks);
             Require(TestOleTruncatedBodyIsIncomplete(), ref checks);
+            Require(TestOleBodyLengthEvidence(), ref checks);
+            Require(TestOleBodyReaderHonorsByteLimit(), ref checks);
+            Require(TestOleBodyCancellationPropagates(), ref checks);
             Require(TestOleDepthBoundary(), ref checks);
             Require(TestOleEntryBoundary(), ref checks);
+            Require(TestOleStreamByteBoundary(), ref checks);
             Require(TestOleAndZipShareBytes(), ref checks);
             Require(TestOleCorruptChainsFailClosed(), ref checks);
             Require(TestOleCorruptDirectoryIsLazy(), ref checks);

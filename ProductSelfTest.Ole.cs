@@ -195,6 +195,35 @@ internal static partial class ProductSelfTest
             return true;
         });
 
+    private static bool TestOleStreamByteBoundary() =>
+        WithFixtureDirectory(directory =>
+        {
+            foreach (long size in new[] { FileInspector.MaxArchiveContentBytesPerEntry - 1,
+                         FileInspector.MaxArchiveContentBytesPerEntry, FileInspector.MaxArchiveContentBytesPerEntry + 1 })
+            {
+                string path = Path.Combine(directory, "stream-boundary.dat");
+                using (FileStream target = File.Create(path))
+                using (var root = RootStorage.Create(target, OpenMcdf.Version.V3, StorageModeFlags.LeaveOpen))
+                using (CfbStream body = root.CreateStream("Body"))
+                {
+                    byte[] block = new byte[1024 * 1024];
+                    for (long written = 0; written < size; written += block.Length)
+                        body.Write(block.AsSpan(0, (int)Math.Min(block.Length, size - written)));
+                }
+                var inspector = new FileInspector(new InspectionTestClock(), static (_, _) => false);
+                FileAnalysis file = inspector.ScanAsync(path, null, default).GetAwaiter().GetResult().Files.Single();
+                bool over = size > FileInspector.MaxArchiveContentBytesPerEntry;
+                if (HasOleFinding(file, "ole-stream-budget") != over ||
+                    file.ArchiveContentScannedBytes != Math.Min(size, FileInspector.MaxArchiveContentBytesPerEntry) ||
+                    file.Limits != (over ? InspectionLimit.Content | InspectionLimit.Structure : InspectionLimit.None))
+                {
+                    Console.Error.WriteLine($"OLE_BYTE_BOUNDARY size={size} scanned={file.ArchiveContentScannedBytes} limits={file.Limits}");
+                    return false;
+                }
+            }
+            return true;
+        });
+
     private static bool TestOleAndZipShareBytes() =>
         WithFixtureDirectory(directory =>
         {
@@ -302,6 +331,82 @@ internal static partial class ProductSelfTest
                    file.ArchiveContentScannedBytes == 0 &&
                    file.Limits == (InspectionLimit.Content | InspectionLimit.Structure);
         });
+
+    // Synthetic reader tests target the production body-reading path, not CFB compatibility.
+    // A real truncated CFB is separately tested above and rejected earlier by OpenMcdf.
+    private sealed class DeclaredLengthStream(byte[] content, long declaredLength) : MemoryStream(content, writable: false)
+    {
+        public override long Length => declaredLength;
+        public long BytesRead { get; private set; }
+        public int ReadCalls { get; private set; }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            ReadCalls++;
+            int read = base.Read(buffer, offset, Math.Min(count, 3));
+            BytesRead += read;
+            return read;
+        }
+    }
+
+    private static bool TestOleBodyLengthEvidence()
+    {
+        foreach (int actualLength in new[] { 0, 3, 4, 5 })
+        {
+            using var source = new DeclaredLengthStream(new byte[actualLength], 4);
+            var file = new FileAnalysis();
+            long charged = 0;
+            FileInspector.ScanOleStreamBody(source, 8, file, static () => { },
+                (_, _, read) => charged += read);
+            bool mismatch = actualLength != 4;
+            if (HasOleFinding(file, "ole-stream-size-mismatch") != mismatch ||
+                HasOleFinding(file, "ole-stream-budget") || HasOleFinding(file, "ole-stream-read-error") ||
+                file.Limits != (mismatch ? InspectionLimit.Content | InspectionLimit.Structure : InspectionLimit.None) ||
+                file.ArchiveContentScannedBytes != actualLength || charged != actualLength || source.BytesRead != actualLength)
+                return false;
+        }
+        return true;
+    }
+
+    private static bool TestOleBodyReaderHonorsByteLimit()
+    {
+        foreach (int length in new[] { 0, 8 })
+            foreach (long limit in new long[] { 0, 4, 8, 9 })
+            {
+                using var source = new DeclaredLengthStream(new byte[length], length);
+                var file = new FileAnalysis();
+                long charged = 0;
+                FileInspector.ScanOleStreamBody(source, limit, file, static () => { },
+                    (_, _, read) => charged += read);
+                long expected = Math.Min(length, limit);
+                int expectedReadCalls = (int)((expected + 2) / 3) + (limit > length ? 1 : 0);
+                bool limited = length > limit;
+                if (source.BytesRead != expected || charged != expected || file.ArchiveContentScannedBytes != expected ||
+                    source.ReadCalls != expectedReadCalls ||
+                    HasOleFinding(file, "ole-stream-budget") != limited ||
+                    file.Limits != (limited ? InspectionLimit.Content | InspectionLimit.Structure : InspectionLimit.None))
+                    return false;
+            }
+        return true;
+    }
+
+    private static bool TestOleBodyCancellationPropagates()
+    {
+        using var source = new DeclaredLengthStream(new byte[8], 8);
+        using var cancellation = new CancellationTokenSource();
+        var file = new FileAnalysis();
+        try
+        {
+            FileInspector.ScanOleStreamBody(source, 8, file, cancellation.Token.ThrowIfCancellationRequested,
+                (_, _, _) => cancellation.Cancel());
+            return false;
+        }
+        catch (OperationCanceledException exception)
+        {
+            return exception.CancellationToken == cancellation.Token && source.BytesRead == 3 &&
+                   file.ArchiveContentScannedBytes == 3 && file.Indicators.Count == 0;
+        }
+    }
 
     private static bool TestOleCorruptDirectoryIsLazy() =>
         WithFixtureDirectory(directory =>

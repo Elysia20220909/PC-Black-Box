@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Corrected OLE body coverage at the exact byte limit without reading beyond the budget. A fully observed logical stream is no longer marked incomplete solely because an extra EOF read did not fit; short EOF still marks both content and structure incomplete.
+- Added real CFB fixtures around the 64 MiB stream boundary and synthetic production-reader tests for declared-length mismatches, short reads, zero/exact/over-limit budgets, and cancellation propagation.
+- Made the hosted-account removal check fail on lookup errors instead of treating them as proof of absence. Added non-mutating regression tests for absence, a remaining account, and failed or partial enumeration.
 - Kept OLE regex timeouts inside the per-file inspection boundary, recording incomplete content and structure instead of aborting the scan.
 - Marked top-level MSI/MSP tables as undecoded even without a literal CustomAction stream name. Ordinary non-installer OLE files retain their existing completeness rules.
 - Replaced eager OLE entry materialization with bounded lazy traversal, reconciled observed stream EOF with the declared length, and shared one file clock across OLE and trailing ZIP inspection.

@@ -1157,76 +1157,75 @@ public sealed class FileInspector
             long remainingFileBytes = Math.Max(0, MaxArchiveContentBytesPerFile - analysis.ArchiveContentScannedBytes);
             long remainingScanBytes = Math.Max(0, MaxArchiveContentBytesPerScan - context.Budget.BytesScanned);
             long entryLimit = Math.Min(MaxArchiveContentBytesPerEntry, Math.Min(remainingFileBytes, remainingScanBytes));
-            if (entryLimit == 0)
-            {
-                LimitInspection(analysis, InspectionLimit.Content | InspectionLimit.Structure, new(
-                    "watch",
-                    "ole-stream-budget",
-                    "OLEストリーム本文の走査が容量上限に達しました",
-                    "OLE stream-body scanning reached its byte budget",
-                    12));
-                return;
-            }
-
-            byte[] buffer = new byte[ArchiveContentChunkBytes + ArchiveContentOverlapBytes];
-            int overlap = 0;
-            long scanned = 0;
-            bool reachedEof = false;
-            try
-            {
-                while (true)
+            ScanOleStreamBody(oleStream, entryLimit, analysis, context.ThrowIfTimeExpired,
+                (buffer, available, read) =>
                 {
-                    context.ThrowIfTimeExpired();
-                    long remaining = entryLimit - scanned;
-                    if (remaining <= 0) break;
-                    int requested = (int)Math.Min(ArchiveContentChunkBytes, remaining);
-                    int read = oleStream.Read(buffer, overlap, requested);
-                    if (read == 0)
-                    {
-                        reachedEof = true;
-                        break;
-                    }
-
-                    int available = overlap + read;
-                    scanned += read;
-                    analysis.ArchiveContentScannedBytes += read;
                     context.Budget.BytesScanned += read;
                     MatchOleStreamCapabilityChunk(buffer, available, logicalPath, context, analysis, fullWeight);
-                    overlap = Math.Min(ArchiveContentOverlapBytes, available);
-                    Buffer.BlockCopy(buffer, available - overlap, buffer, 0, overlap);
-                }
-            }
-            catch (OleContentTimeLimitException)
-            {
-                throw;
-            }
-            catch (Exception exception) when (exception is IOException or NotSupportedException or OpenMcdf.FileFormatException)
-            {
-                LimitInspection(analysis, InspectionLimit.Content | InspectionLimit.Structure, new(
-                    "watch",
-                    "ole-stream-read-error",
-                    "OLEストリーム本文の一部を安全に読み取れませんでした",
-                    "One or more OLE streams could not be read safely",
-                    12));
-                return;
-            }
+                });
+        }
+    }
 
-            if (reachedEof && scanned != oleStream.Length)
+    // Storage opening stays in ScanOleStream. This bounded reader also accepts synthetic
+    // streams in self-tests, so early EOF is tested without relying on a parser's failure mode.
+    internal static void ScanOleStreamBody(
+        Stream source,
+        long byteLimit,
+        FileAnalysis analysis,
+        Action checkTime,
+        Action<byte[], int, int> inspectChunk)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(byteLimit);
+        long scanned = 0;
+        bool reachedEof = false;
+        try
+        {
+            checkTime();
+            long declaredLength = source.Length;
+            byte[] buffer = byteLimit > 0 ? new byte[ArchiveContentChunkBytes + ArchiveContentOverlapBytes] : [];
+            int overlap = 0;
+            while (scanned < byteLimit)
             {
+                checkTime();
+                int requested = (int)Math.Min(ArchiveContentChunkBytes, byteLimit - scanned);
+                int read = source.Read(buffer, overlap, requested);
+                if (read == 0)
+                {
+                    reachedEof = true;
+                    break;
+                }
+                int available = overlap + read;
+                scanned += read;
+                analysis.ArchiveContentScannedBytes += read;
+                inspectChunk(buffer, available, read);
+                overlap = Math.Min(ArchiveContentOverlapBytes, available);
+                Buffer.BlockCopy(buffer, available - overlap, buffer, 0, overlap);
+            }
+            checkTime();
+
+            // CfbStream.Length is the logical body length, not the capacity of its sectors.
+            // Reading exactly that length is complete even when no extra EOF read fits the budget.
+            if (scanned > declaredLength || (reachedEof && scanned != declaredLength))
                 LimitInspection(analysis, InspectionLimit.Content | InspectionLimit.Structure, new(
                     "watch", "ole-stream-size-mismatch",
                     "OLEストリームの宣言長と実際に読めた本文の長さが一致しません",
                     "An OLE stream's declared length differs from its observed body length", 12));
-            }
-            else if (!reachedEof)
-            {
+            else if (scanned < declaredLength)
                 LimitInspection(analysis, InspectionLimit.Content | InspectionLimit.Structure, new(
-                    "watch",
-                    "ole-stream-budget",
+                    "watch", "ole-stream-budget",
                     "OLEストリーム本文の走査が容量上限に達しました",
-                    "OLE stream-body scanning reached its byte budget",
-                    12));
-            }
+                    "OLE stream-body scanning reached its byte budget", 12));
+        }
+        catch (OleContentTimeLimitException)
+        {
+            throw;
+        }
+        catch (Exception exception) when (exception is IOException or NotSupportedException or OpenMcdf.FileFormatException)
+        {
+            LimitInspection(analysis, InspectionLimit.Content | InspectionLimit.Structure, new(
+                "watch", "ole-stream-read-error",
+                "OLEストリーム本文の一部を安全に読み取れませんでした",
+                "One or more OLE streams could not be read safely", 12));
         }
     }
 
