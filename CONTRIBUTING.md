@@ -6,6 +6,10 @@ The repository is public and a PC Black Box preview is available through GitHub 
 
 本体は非商用の個人利用と手元での改変に限って許可し、商用利用と再配布は禁止します。変更やパッチを提出する前に、所有者と提出方法、許可、権利の扱いを確認してください。公開PRによるコードの再公開を、この案内だけで許可するものではありません。第三者ライセンスとGitHub規約が別途認める権利は妨げません。
 
+参加時は[行動規範](CODE_OF_CONDUCT.md)を守り、相談の種類に応じて[SUPPORT.md](SUPPORT.md)の窓口を使ってください。Issueテンプレートは将来の受付に備えたもので、Issuesの有効化やコード提出の許可ではありません。
+
+Follow the [code of conduct](CODE_OF_CONDUCT.md) and use the appropriate contact in [SUPPORT.md](SUPPORT.md). Issue templates are prepared for future intake; they do not enable Issues or grant permission to submit code.
+
 ## Before proposing a change / 提案の前に
 
 - Read [README.md](README.md), [README.en.md](README.en.md), [SECURITY.md](SECURITY.md), and [THREAT_MODEL.md](THREAT_MODEL.md). Follow [AGENTS.md](AGENTS.md) for work in this repository.

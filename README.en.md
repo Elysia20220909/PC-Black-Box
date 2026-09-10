@@ -89,6 +89,7 @@ Contact for trials and general bugs: [ChloeFlora23047120947120@protonmail.com](m
 
 As of 2026-09-10, Issues, Discussions, and GitHub private vulnerability reporting are disabled. Do not disclose vulnerabilities publicly. Follow [SECURITY.md](SECURITY.md) and confirm a secure transfer method before sending details.
 
+- [Code of conduct](CODE_OF_CONDUCT.md) / [Support and reporting](SUPPORT.md)
 - [Usage and distribution status](docs/distribution-status.md)
 - [Controls, inspection scope, and limits](docs/reference-main.en.md)
 - [Changelog](CHANGELOG.md) / [Threat model](THREAT_MODEL.md)

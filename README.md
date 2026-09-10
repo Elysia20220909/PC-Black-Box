@@ -89,6 +89,7 @@ dotnet build .\Destiny2BlackBox.csproj -c Release --no-restore
 
 2026-09-10時点ではIssues、Discussions、GitHubの非公開脆弱性報告機能は無効です。脆弱性は公開せず、[SECURITY.md](SECURITY.md)に従い、詳細を送る前に安全な受け渡し方法を確認してください。
 
+- [行動規範](CODE_OF_CONDUCT.md) / [相談と報告](SUPPORT.md)
 - [利用・配布条件の確認状況](docs/distribution-status.md)
 - [操作・検査範囲・上限のリファレンス](docs/reference-main.md)
 - [変更履歴](CHANGELOG.md) / [脅威モデル](THREAT_MODEL.md)
