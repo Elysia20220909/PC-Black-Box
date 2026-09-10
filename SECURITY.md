@@ -8,7 +8,7 @@ The detailed boundary below describes main 0.12.0 at `2278b0f`. The published 0.
 
 ## Reporting
 
-As checked on 2026-09-10, Issues, Discussions, and GitHub private vulnerability reporting are disabled for this repository. This is a dated status, not a promise about future availability. The contact below can be used to request a secure reporting method; it is not a verified vulnerability-intake channel.
+Rechecked on 2026-09-10: Discussions is enabled, while Issues and GitHub private vulnerability reporting remain disabled. Discussions is public and must not be used to disclose vulnerabilities or sensitive information. This is a dated status, not a promise about future availability. The contact below can be used to request a secure reporting method; it is not a verified vulnerability-intake channel.
 
 Do not disclose suspected vulnerabilities in public issues, pull requests, discussions, or social media. Use GitHub's private vulnerability reporting only when a "Report a vulnerability" option is available on this repository's Security page. The presence of this document does not mean that the reporting feature is enabled.
 

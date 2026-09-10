@@ -8,15 +8,16 @@ This guide explains how to contact the StillLens / PC Black Box project and what
 
 [ChloeFlora23047120947120@protonmail.com](mailto:ChloeFlora23047120947120@protonmail.com)
 
-2026-09-10の確認時点では、Issues、Discussions、GitHubの非公開脆弱性報告機能は無効です。メールの到達性も未確認です。返信がない場合に、機密情報を公開PRや別の公開場所へ投稿しないでください。
+2026-09-10の再確認時点ではDiscussionsが有効で、IssuesとGitHubの非公開脆弱性報告機能は無効です。Discussionsは公開のため、脆弱性や機密情報の連絡には使わないでください。メールの到達性は未確認です。返信がない場合も、機密情報を公開PRや別の公開場所へ投稿しないでください。
 
-As checked on 2026-09-10, Issues, Discussions, and GitHub private vulnerability reporting are disabled. Mailbox delivery has not been verified. A lack of response is not a reason to publish sensitive information in a pull request or another public channel.
+Rechecked on 2026-09-10: Discussions is enabled; Issues and GitHub private vulnerability reporting are disabled. Discussions is public and must not be used for vulnerabilities or sensitive information. Mailbox delivery has not been verified. A lack of response is not a reason to publish sensitive information in a pull request or another public channel.
 
 ## 相談の種類 / Where to start
 
 | 用途 / Purpose | 案内 / Guidance |
 |---|---|
-| 使い方、試用、一般の不具合、改善案 / Usage, trials, general bugs, ideas | 上記メールへ、まず概要だけを送ります。 / Email a brief description first. |
+| 使い方の質問 / Usage questions | [Discussions](https://github.com/Elysia20220909/PC-Black-Box/discussions)で、機密情報を含めずに質問できます。 / Ask in Discussions without sensitive information. |
+| 試用、一般の不具合、改善案 / Trials, general bugs, ideas | Issuesは現在無効です。上記メールへ、まず概要だけを送ります。 / Issues is currently disabled; email a brief description first. |
 | 脆弱性の可能性 / Suspected vulnerability | [SECURITY.md](SECURITY.md)に従い、詳細を送る前に安全な方法を確認します。 / Follow the security policy and confirm a secure method before sharing details. |
 | 嫌がらせ等の行動規範違反 / Conduct concern | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)の相談方法を使います。 / Follow the code of conduct reporting process. |
 | コード・文書の変更 / Code or documentation contribution | [CONTRIBUTING.md](CONTRIBUTING.md)で提出範囲、権利、方法を先に確認します。 / Confirm submission scope, rights, and method first. |
@@ -38,6 +39,6 @@ Do not initially attach inspected files, suspicious executables, raw reports, lo
 
 The [custom application terms](LICENSE) allow noncommercial personal use and private modification, not commercial use or redistribution. Third-party licenses remain separate, and the existing-preview and SDK questions in the [distribution status](docs/distribution-status.md) remain unresolved. Contacting the project or filling in a template does not establish version-specific usage or code-submission permission.
 
-Issueテンプレートは将来の受付に備えたものです。ファイルを追加しただけではIssuesを有効にせず、mainへの反映と機能の有効化が済むまでは受付フォームとして利用できません。フォームを使える場合も、脆弱性や機密情報は公開しないでください。
+不具合報告と改善提案のIssueフォームは将来の受付に備えたものです。フォームの定義を追加しただけではIssuesを有効にせず、mainへの反映と機能の有効化が済むまでは利用できません。フォームの必須チェックは自己確認であり、機密情報の自動検出や削除を行うものではありません。フォームを使える場合も、脆弱性や機密情報は公開しないでください。
 
-Issue templates are prepared for future use. Adding files does not enable Issues; the templates are not an active intake form until they are merged into main and Issues is enabled. Even when available, do not use public forms for vulnerabilities or sensitive information.
+Bug report and feature request forms are prepared for future intake. Adding form definitions does not enable Issues; the forms are not available until they are merged into main and Issues is enabled. Required checkboxes are self-checks, not automatic detection or removal of sensitive data. Even when available, do not use public forms for vulnerabilities or sensitive information.

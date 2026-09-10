@@ -13,18 +13,18 @@ Checked on 2026-09-10. This is a status record, not a license agreement, legal a
 | Repository | `Elysia20220909/PC-Black-Box` is public |
 | Published release | `v0.13.0-preview.1` is a published prerelease, not a Draft |
 | Release source | `831eb7fba4e2c7eb0a434d5e3a2240a0ee3a0c97` from PR #19; not merged into main |
-| Documentation base | main 0.12.0, `2278b0feeed7aad47a80624b9f7813c4a61c439f` |
+| Documentation base | main 0.12.0, `6e37910e15d646b9590832da3a2ba37fc9008a4c`; application code unchanged since `2278b0feeed7aad47a80624b9f7813c4a61c439f` |
 | Planned name | StillLens; the repository URL, EXE/DLL names, and settings location are unchanged |
-| Application license | Custom noncommercial personal-use / no-redistribution terms in this local revision; not yet published to GitHub or applied to the existing ZIP |
-| Reporting channels | Issues, Discussions, and GitHub private vulnerability reporting are disabled; an owner-provided general contact is recorded below, with delivery unverified |
+| Application license | Custom noncommercial personal-use / no-redistribution terms, published to main in PR #20; not applied to the existing ZIP |
+| Reporting channels | Rechecked on 2026-09-10: Discussions is enabled for non-sensitive general questions. Issues and GitHub private vulnerability reporting remain disabled; the general contact below has unverified delivery. Public channels are not for vulnerabilities or sensitive information |
 
 公開済みZIPはPC Black Box名義の所有者確認用プレビューとして梱包されたものです。その後リポジトリがPublicになりましたが、ZIP内の説明や利用条件を更新したわけではありません。ダウンロード可能という事実と、一般配布の条件が確定したかどうかは区別します。
 
 The published ZIP was packaged as a PC Black Box owner-review preview before the repository became public. Making the repository public did not update its bundled text or settle its distribution terms. The existing ZIP has not been renamed, rebuilt, or repackaged for StillLens.
 
-このローカル文書作業では、公開済みリリース本文やZIPを変更していません。GitHub上の旧案内を修正するには、別途承認された公開操作が必要です。
+この文書作業では、公開中のリリース本文やZIPを変更していません。リリース本文が参照する文書リンクは、削除済みブランチのコミット `94a44d8` を指しており、その版にはDiscussionsを無効とする訂正前の記述が残っています。これを直すには、別途承認された公開操作が必要です。
 
-This local documentation pass does not change the live release notes or ZIP. Correcting the old GitHub text requires a separately approved publication step.
+This documentation pass does not change the live release notes or ZIP. The document links in those notes point at commit `94a44d8` on a deleted branch, whose revision still states that Discussions is disabled. Correcting that requires a separately approved publication step.
 
 ## 本体の条件 / Application terms
 
@@ -36,17 +36,17 @@ The [LICENSE](../LICENSE) permits noncommercial personal use, evaluation, and pr
 
 Third-party rights, rights that applicable law does not allow to be restricted, and rights separately granted under GitHub's terms remain unaffected. Public-repository viewing and forking rights within GitHub are not revoked; they are not a general grant of off-platform redistribution or commercial-use rights.
 
-今回はローカル文書のみの変更です。公開済みのmain、PR、リリース本文、既存ZIPには反映しておらず、過去に別途与えられた権利を遡って取り消すものではありません。既存プレビューへの適用と外部貢献の受け入れ条件は別途確認します。
+この条件はPR #20でmainへ公開済みで、公開中のリリース本文にも記載しています。既存ZIPへは適用しておらず、過去に別途与えられた権利を遡って取り消すものではありません。既存プレビューへの適用と外部貢献の受け入れ条件は別途確認します。
 
-This is a local documentation change only. It has not been applied to published main, PRs, release notes, or the existing ZIP, and does not retroactively revoke separately granted rights. Application to the existing preview and contribution acceptance terms require separate confirmation.
+These terms are published on main through PR #20 and are described in the live release notes. They have not been applied to the existing ZIP, and do not retroactively revoke separately granted rights. Application to the existing preview and contribution acceptance terms require separate confirmation.
 
 ## 試用・一般の不具合の連絡先 / Trial and general bug contact
 
 [ChloeFlora23047120947120@protonmail.com](mailto:ChloeFlora23047120947120@protonmail.com)
 
-所有者が指定した公開予定の連絡先です。このローカル変更ではGitHubへ掲載していません。初回はアプリとWindowsの版、症状、再現手順だけを送り、実際の調査対象、未編集のレポート、認証情報、個人パスは添付しないでください。脆弱性の可能性がある場合は、[SECURITY.md](../SECURITY.md)に従って詳細を送る前に安全な受け渡し方法を確認してください。到達性は未確認で、返信時期は保証しません。
+所有者が指定した連絡先で、[SUPPORT.md](../SUPPORT.md)と両方のREADMEに掲載してmainへ公開済みです。初回はアプリとWindowsの版、症状、再現手順だけを送り、実際の調査対象、未編集のレポート、認証情報、個人パスは添付しないでください。脆弱性の可能性がある場合は、[SECURITY.md](../SECURITY.md)に従って詳細を送る前に安全な受け渡し方法を確認してください。到達性は未確認で、返信時期は保証しません。
 
-This owner-provided address is intended for publication but has not been posted to GitHub by this local change. Initially send only application and Windows versions, symptoms, and reproduction steps, without inspected files, raw reports, credentials, or personal paths. For suspected vulnerabilities, follow [SECURITY.md](../SECURITY.md) and confirm a secure transfer method before sending details. Delivery has not been verified, and no response time is guaranteed. Providing a contact address does not establish SDK recipient agreement.
+This owner-provided address is published on main in [SUPPORT.md](../SUPPORT.md) and both READMEs. Initially send only application and Windows versions, symptoms, and reproduction steps, without inspected files, raw reports, credentials, or personal paths. For suspected vulnerabilities, follow [SECURITY.md](../SECURITY.md) and confirm a secure transfer method before sending details. Delivery has not been verified, and no response time is guaranteed. Providing a contact address does not establish SDK recipient agreement.
 
 ## 同梱コンポーネント / Included components
 
@@ -75,11 +75,11 @@ MicrosoftのREDIST一覧は、WinRT APIの呼び出しを可能にするWindows�
 
 Microsoft's REDIST list names the two SDK DLLs for unmodified inclusion in a Windows application to enable WinRT API calls. Listing is not proof that every SDK license condition is satisfied. Applicable distributor and external-end-user agreement requirements must be checked against the actual distribution arrangement; including the license text is not evidence of agreement.
 
-- [x] 本体の条件を所有者が選び、ローカル文書へ反映する。 / Owner selects custom application terms, recorded locally.
+- [x] 本体の条件を所有者が選び、mainへ公開する。 / Owner selects custom application terms; published to main.
 - [ ] SDKの適用条件と受領者同意の方法を確認する。 / Confirm applicable SDK requirements and the recipient-agreement mechanism.
 - [ ] 選択した本体の条件と第三者ライセンスが両立するか確認する。 / Check compatibility with the chosen application terms.
 - [ ] 既存プレビューの扱いと、必要な文書・配布手順の更新を所有者が承認する。 / Owner decides how to handle the existing preview and approves any required document or distribution changes.
-- [x] 試用・一般の不具合の連絡先をローカル文書へ記載する。 / Record the owner-provided general contact locally.
+- [x] 試用・一般の不具合の連絡先をmainへ掲載する。 / Publish the owner-provided general contact on main.
 - [ ] 外部試用の前に、対象版の使用許諾、メールの到達性、安全な報告手順を確認する。 / Confirm version-specific tester permission, contact delivery, and secure reporting before organized external testing.
 
 これらが未確定のまま「誰でも自由に利用・改変・再配布できる」「一般配布の確認はすべて完了した」とは案内しません。既存リリースの非公開化・削除・差し替えも、この文書では実行しません。

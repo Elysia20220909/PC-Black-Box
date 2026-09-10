@@ -1,6 +1,9 @@
 # Prepared for future use; this file does not enable Issues.
 blank_issues_enabled: false
 contact_links:
+  - name: "Questions / 使い方の質問"
+    url: "https://github.com/Elysia20220909/PC-Black-Box/discussions"
+    about: "Ask general questions without sensitive information / 機密情報を含まない一般的な質問はこちら"
   - name: "Support / 相談の前に"
     url: "https://github.com/Elysia20220909/PC-Black-Box/blob/main/SUPPORT.md"
     about: "Read the contact and privacy guidance before sending anything / 送信前に窓口と注意事項を確認"

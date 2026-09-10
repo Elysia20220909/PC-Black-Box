@@ -13,8 +13,8 @@ Follow the [code of conduct](CODE_OF_CONDUCT.md) and use the appropriate contact
 ## Before proposing a change / 提案の前に
 
 - Read [README.md](README.md), [README.en.md](README.en.md), [SECURITY.md](SECURITY.md), and [THREAT_MODEL.md](THREAT_MODEL.md). Follow [AGENTS.md](AGENTS.md) for work in this repository.
-- Confirm the intended scope with the owner through an available, appropriate channel. Do not assume Issues, Discussions, or private vulnerability reporting are enabled.
-- As of 2026-09-10, all three are disabled. Do not direct testers to a nonexistent form or publish sensitive details as a workaround. Use the general contact in [README.md](README.md) to discuss scope without sending code or sensitive attachments first. Confirm permission and an appropriate submission method before sharing changes; private modification permission alone does not authorize patch redistribution.
+- Confirm the intended scope with the owner through an available, appropriate channel. Do not assume an intake channel is enabled; check its current status before directing anyone to it.
+- Rechecked on 2026-09-10: [Discussions](https://github.com/Elysia20220909/PC-Black-Box/discussions) is enabled for general questions; Issues and GitHub private vulnerability reporting remain disabled. Do not direct testers to an inactive issue form or publish sensitive details in Discussions or other public channels. Use the general contact in [README.md](README.md) to discuss contribution scope without sending code or sensitive attachments first. Confirm permission and an appropriate submission method before sharing changes; private modification permission alone does not authorize patch redistribution.
 - Never place vulnerability details in a public issue or pull request. Use the process in [SECURITY.md](SECURITY.md).
 - Use a dedicated branch and working directory. Preserve unrelated changes and identify the exact base commit.
 - Keep implementation claims tied to that commit. A feature or passing check on another branch is not evidence for the default branch.
