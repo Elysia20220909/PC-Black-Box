@@ -19,13 +19,14 @@
 
 - **配布物を作らない。** 配布用 EXE、インストーラー、ZIP、リリースフォルダー、配布用チェックサムなどは、
   明示的な許可がない限り作成しない。**ローカルでのビルドとテストは可能**（`bin/` は `.gitignore` 済み）。
-- **非公開 / source-only。** 必要なソースだけを明示的に扱い、生成物や配布物をコミットに混ぜない。
+- **source-only。** 公開範囲にかかわらず、必要なソースだけを明示的に扱い、生成物や配布物をコミットに混ぜない。
+- **公開範囲と利用許諾を分ける。** 公開設定、アクセス権、ライセンスの追加・変更は所有者の明示承認を得る。閲覧できることを改変・再配布の許諾と見なさない。
 - **GitHub は原則 Draft PR まで。** 許可なく merge しない。
 
 ## 3. コミット前の検証
 
 完全な一覧は [THREAT_MODEL.md](THREAT_MODEL.md) の「Verification gates」（17項目）にあります。ここでは重複させず、
-入口となるコマンドだけを示します。**どのエージェントが書いた変更でも、通すゲートは同一**です。
+入口となるコマンドだけを示します。**どのエージェントが書いた変更でも、通すゲートは同一**です。実行環境で回せないゲートは、合格ではなく未実行として記録します。
 
 ```
 dotnet build Destiny2BlackBox.csproj -c Release      # 警告ゼロが必須（TreatWarningsAsErrors）
@@ -39,6 +40,8 @@ pwsh tests/Test-RuntimeBoundaries.ps1
 - `--security-status` → `enforced=true controls=16/16`（`state=not-enforced` の行が1つでもあれば不合格）
 - `--self-test` → `PC_BLACK_BOX_SELF_TEST passed=true`
 - `Test-RuntimeBoundaries.ps1` → `PC_BLACK_BOX_RUNTIME_BOUNDARY_TEST passed=true`
+
+この境界テストは、引数なしでアプリを起動します（`tests/Test-RuntimeBoundaries.ps1`）。`-WindowStyle Hidden` はヘッドレス実行の保証ではありません。GUI禁止の作業では実行せず、未検証として残してください。テストを省略した状態を全ゲート合格と報告しないこと。変更提案と検証記録の扱いは [CONTRIBUTING.md](CONTRIBUTING.md) にまとめています。
 
 ### 起動方法の落とし穴
 
@@ -63,16 +66,25 @@ pwsh tests/Test-RuntimeBoundaries.ps1
 - **実装したエージェント以外がレビューする。** 第三者の目で検証する側に回ることを、遠慮しない。
 - **引き継ぎは口頭でなくファイルで。** 「どのビルドが正で、どれが捨てて良い成果物か」を必ず書き残す。
 
-## 5. PR 運用の落とし穴
+## 5. PR 運用と現在の設定の確認
 
-- **スタック PR は `gh pr merge` が通らない。** `gh api -X PUT repos/OWNER/REPO/pulls/N/merge-async -f merge_method=squash`
-  を使い、結果は `gh api .../merge-async/{uuid}` で確認する（`gh pr view` は OPEN のまま返るので失敗に気付きにくい）。
-  ブランチ保護の回避にあたるため、**実行前に必ず本人の確認を取る**。
-- **親 PR のマージ後、GitHub の自動リベースで GPG 署名が落ちる。** `main` は署名必須なので
-  `Commits must have verified signatures.` で失敗する。直し方:
-  `git fetch` → `git reset --hard origin/<branch>` → `git rebase --force-rebase --gpg-sign origin/main` → force-push。
-  自動リベース後にローカルで `main` を merge すると無用なコンフリクトになるので、**先に reset する**。
-- `commit.gpgsign = true` を維持する。
+- 過去の運用では、スタック PR のマージや自動リベース後の署名で失敗した記録がある。過去の回避手順を、そのまま現在の操作手順にしない。
+- マージ前に、対象 PR の base/head、チェック結果、署名状態、現在のブランチ保護・ruleset を読み取りで確認する。API が 403 や 404 を返した場合は、保護なしとも検証済みとも扱わない。
+- `Commits must have verified signatures.` などの拒否が出たら、現在のコミットと拒否理由を確認し、修正の対象と副作用を示して承認を得る。保護の回避、`reset --hard`、履歴の書き換え、force-push を定型処理として実行しない。
+- `commit.gpgsign = true` を維持する。公開範囲の変更と、push・merge の承認は別。
+
+### 過去に使った回避手順（現在の手順ではありません）
+
+記録として残す。**そのままなぞらず、上のとおり現在の保護・ruleset を読み取りで確かめ、対象と副作用を示して承認を得てから実行する。**
+
+- **スタック PR が `gh pr merge` で通らなかったとき。**
+  `gh api -X PUT repos/OWNER/REPO/pulls/N/merge-async -f merge_method=squash` を使い、
+  結果は `gh api .../merge-async/{uuid}` で確認した。`gh pr view` は OPEN のまま返すため、
+  失敗に気付きにくい。これはブランチ保護の回避にあたる。
+- **親 PR のマージ後、自動リベースで GPG 署名が落ちたとき。**
+  `git fetch` → `git reset --hard origin/<branch>` → `git rebase --force-rebase --gpg-sign origin/main` →
+  force-push で戻した（やり直すなら `--force-with-lease` を使う）。自動リベース後にローカルで
+  `main` を merge すると無用なコンフリクトになるため、先に reset している。
 
 ## 6. 既知の未修正の問題
 
