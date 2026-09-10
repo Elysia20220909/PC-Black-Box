@@ -1,0 +1,9 @@
+# Prepared for future use; this file does not enable Issues.
+blank_issues_enabled: false
+contact_links:
+  - name: "Support / 相談の前に"
+    url: "https://github.com/Elysia20220909/PC-Black-Box/blob/main/SUPPORT.md"
+    about: "Read the contact and privacy guidance before sending anything / 送信前に窓口と注意事項を確認"
+  - name: "Security / 脆弱性の可能性"
+    url: "https://github.com/Elysia20220909/PC-Black-Box/blob/main/SECURITY.md"
+    about: "Do not disclose details publicly; confirm a secure reporting method / 詳細は公開せず安全な報告方法を確認"
