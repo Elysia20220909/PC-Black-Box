@@ -87,7 +87,7 @@ dotnet build .\Destiny2BlackBox.csproj -c Release --no-restore
 
 試用・一般の不具合の連絡先: [ChloeFlora23047120947120@protonmail.com](mailto:ChloeFlora23047120947120@protonmail.com)。初回はバージョン、Windowsの版、症状と再現手順だけを送り、実際の調査対象、未編集のレポート、認証情報、個人パスは添付しないでください。メールの到達性は未確認で、返信時期は保証しません。
 
-2026-09-10時点ではIssues、Discussions、GitHubの非公開脆弱性報告機能は無効です。脆弱性は公開せず、[SECURITY.md](SECURITY.md)に従い、詳細を送る前に安全な受け渡し方法を確認してください。
+2026-09-10の再確認時点では、[Discussions](https://github.com/Elysia20220909/PC-Black-Box/discussions)が有効です。使い方などの一般的な質問に利用できます。IssuesとGitHubの非公開脆弱性報告機能は無効のままです。脆弱性や機密情報はDiscussionsを含む公開の場所へ投稿せず、[SECURITY.md](SECURITY.md)に従い、詳細を送る前に安全な受け渡し方法を確認してください。
 
 - [行動規範](CODE_OF_CONDUCT.md) / [相談と報告](SUPPORT.md)
 - [利用・配布条件の確認状況](docs/distribution-status.md)

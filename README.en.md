@@ -87,7 +87,7 @@ See [contribution guidance](CONTRIBUTING.md) and the [development reference](doc
 
 Contact for trials and general bugs: [ChloeFlora23047120947120@protonmail.com](mailto:ChloeFlora23047120947120@protonmail.com). In the first message, send only the application version, Windows version, symptoms, and reproduction steps. Do not attach inspected files, raw reports, credentials, or personal paths. Mailbox delivery has not been verified, and no response time is guaranteed.
 
-As of 2026-09-10, Issues, Discussions, and GitHub private vulnerability reporting are disabled. Do not disclose vulnerabilities publicly. Follow [SECURITY.md](SECURITY.md) and confirm a secure transfer method before sending details.
+Rechecked on 2026-09-10: [Discussions](https://github.com/Elysia20220909/PC-Black-Box/discussions) is enabled for general usage questions. Issues and GitHub private vulnerability reporting remain disabled. Do not post vulnerabilities or sensitive information in public channels, including Discussions. Follow [SECURITY.md](SECURITY.md) and confirm a secure transfer method before sending details.
 
 - [Code of conduct](CODE_OF_CONDUCT.md) / [Support and reporting](SUPPORT.md)
 - [Usage and distribution status](docs/distribution-status.md)
