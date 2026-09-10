@@ -1,19 +1,29 @@
 # Security policy
 
-PC Black Box is maintained as a private, source-only repository.
+StillLens is the planned new name for PC Black Box. The application and executable names have not changed. This policy describes the existing PC Black Box security boundaries; a name transition does not add protection or certification.
+
+The repository is public, and a PC Black Box preview is published through GitHub Releases. This documentation revision includes [custom application terms](LICENSE) permitting noncommercial personal use and private modification, but prohibiting commercial use and redistribution. Third-party terms remain separate. Application of these terms to the published ZIP and SDK recipient agreement remain unresolved; availability is not distribution clearance. See [usage and distribution status](docs/distribution-status.md). The source tree must not contain release binaries or private artifacts.
+
+The detailed boundary below describes main 0.12.0 at `2278b0f`. The published 0.13.0-preview.1 comes from `831eb7f` in PR #19, not main. Consult that commit's source and release evidence for version-specific behavior. Passing tests on that preview do not validate another version or computer.
 
 ## Reporting
 
-Do not disclose suspected vulnerabilities in public issues, discussions, or social media. Report them privately to the repository owner using GitHub's private security-advisory channel when it is available.
+As checked on 2026-09-10, Issues, Discussions, and GitHub private vulnerability reporting are disabled for this repository. This is a dated status, not a promise about future availability. The contact below can be used to request a secure reporting method; it is not a verified vulnerability-intake channel.
+
+Do not disclose suspected vulnerabilities in public issues, pull requests, discussions, or social media. Use GitHub's private vulnerability reporting only when a "Report a vulnerability" option is available on this repository's Security page. The presence of this document does not mean that the reporting feature is enabled.
+
+For trials and general bugs, contact [ChloeFlora23047120947120@protonmail.com](mailto:ChloeFlora23047120947120@protonmail.com). If private vulnerability reporting is unavailable, use this address only to request a secure reporting method, without sending vulnerability details or attachments first. Delivery and a secure intake process have not been verified. Wait for confirmation before sharing sensitive evidence; do not use a public issue or pull request as a fallback. No response time is guaranteed.
 
 Include only the minimum evidence needed to reproduce the issue. Never attach credentials, raw packet captures, private download URLs, personal paths, or unredacted reports.
+
+一般の不具合は上記アドレスへ連絡できます。初回はバージョン、Windowsの版、症状と再現手順だけを送り、実際の調査対象や未編集のレポートは添付しないでください。脆弱性の可能性がある場合は詳細を送らず、安全な受け渡し方法を先に確認してください。メールの到達性と安全な受付手順は未確認で、返信時期は保証しません。
 
 ## Repository boundary
 
 - Release executables, installers, archives, signing keys, local settings, captures, and generated inspection reports must not be committed.
 - The tool performs static inspection and does not guarantee that a file is safe.
 - Changes that add execution, upload, packet capture, memory inspection, automatic routing, or security-control bypass are outside the accepted scope.
-- Access remains owner-only unless the owner explicitly approves a narrowly scoped collaborator.
+- Write access, collaborator permissions, and repository visibility changes require the owner's explicit approval. Viewing the source does not grant write access or permission to distribute binaries.
 
 ## Hardened application boundary
 
