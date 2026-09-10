@@ -116,7 +116,7 @@ and reported as `unavailable` where it does not. Reinforcements are displayed, n
 
 - Kernel drivers, filesystem minifilters, real-time antivirus monitoring, memory scanning, behavioral sandboxing, cloud reputation, remediation, and enterprise policy enforcement.
 - Protection against an administrator, kernel compromise, compromised Windows trust store, malicious firmware, or physical access.
-- AppContainer isolation and an Authenticode-signed distribution binary. Those require a separately approved packaging and signing design; this repository remains private and source-only.
+- AppContainer isolation and an Authenticode-signed distribution binary. Those require a separately approved packaging and signing design; this repository stays source-only regardless of its visibility.
 - Revocation of process handles acquired before the startup DACL is installed, and OS-level denial of arbitrary native networking.
 
 ## Mitigations considered and deliberately not applied
