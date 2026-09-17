@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "renamedSources": [
+    "AssemblySecurity.cs",
+    "FileInspector.cs",
+    "FileViewQuery.cs",
+    "Models.cs",
+    "NetworkIsolationGuard.cs",
+    "OfflineSignatureVerifier.cs",
+    "ProcessElevation.cs",
+    "ProcessObjectLockdown.cs",
+    "ProductSelfTest.cs",
+    "ReportBuilder.cs",
+    "SafeReportWriter.cs",
+    "SecureFileReader.cs",
+    "SecurityPolicy.cs",
+    "SettingsStore.cs",
+    "ShortcutInspector.cs",
+    "WindowsProcessHardening.cs"
+  ],
+  "preservedFiles": [
+    "App.xaml",
+    "App.xaml.cs",
+    "MainWindow.xaml",
+    "MainWindow.xaml.cs",
+    "app.manifest",
+    "assets/pc-black-box.ico",
+    "LICENSE"
+  ]
+}

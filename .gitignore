@@ -40,6 +40,10 @@ pc-black-box-*.json
 *.p12
 settings.json
 
+# Private source/binary name maps; generated runs also remain under ignored obj/.
+*.obfuscation-map.json
+*.obfuscation-map.xml
+
 # IDE and operating-system state
 .vs/
 .vscode/
