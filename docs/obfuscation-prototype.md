@@ -1,5 +1,9 @@
 # 0.13.0の構造難読化試作 / Structural-obfuscation prototype for 0.13.0
 
+追記: `agent/defender-readonly` ではDefender連携用のC#ファイル4個を対象一覧へ追加し、
+ランダム化するC#は21個、必須入力は31個です。以下の17個・27入力と検証結果は
+`adff137` 時点の記録です。[今回の変更と検証](defender-readonly.md)を参照してください。
+
 この作業は、指定された既存EXEに対応するソース `831eb7fba4e2c7eb0a434d5e3a2240a0ee3a0c97` を基準とします。0.12.0用の試作 `8dc4dad` を、別ブランチ `agent/obfuscation-013` へ移植しました。既存の署名済みEXE、ZIP、インストール先、GitHubは変更しません。fetchも行っていません。
 
 This local prototype targets the 0.13.0 source revision matching the specified EXE's version metadata. It does not overwrite, re-sign, or claim byte-for-byte reproduction of that existing signed application.

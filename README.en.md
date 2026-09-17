@@ -1,5 +1,8 @@
 # PC Black Box
 
+The optional read-only Microsoft Defender view shows protection state and existing detection/action
+history. It does not start scans or quarantine files. [Usage and boundaries](docs/defender-readonly.md)
+
 [日本語](README.md) / [Changelog](CHANGELOG.md) / [Security policy](SECURITY.md) / [Threat model](THREAT_MODEL.md)
 
 PC Black Box is a static inspection tool for checking downloaded files and folders on Windows before opening them.

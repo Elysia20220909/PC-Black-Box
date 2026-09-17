@@ -4,6 +4,9 @@
   "fileVersion": "0.13.0.0",
   "renamedSources": [
     "AssemblySecurity.cs",
+    "DefenderReader.cs",
+    "DefenderStatus.cs",
+    "DefenderWmi.cs",
     "FileInspector.cs",
     "FileViewQuery.cs",
     "Models.cs",
@@ -13,6 +16,7 @@
     "ProcessObjectLockdown.cs",
     "ProductSelfTest.cs",
     "ProductSelfTest.Ole.cs",
+    "ProductSelfTest.Defender.cs",
     "ReportBuilder.cs",
     "SafeReportWriter.cs",
     "SecureFileReader.cs",

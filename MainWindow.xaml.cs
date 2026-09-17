@@ -20,6 +20,8 @@ public partial class MainWindow : Window
     private string _fileRiskFilter = "ALL";
     private bool _isBusy;
     private string _language;
+    private DefenderSnapshot? _defenderSnapshot;
+    private bool _defenderBusy;
 
     private bool IsJapanese => _language == "ja";
 
@@ -633,9 +635,42 @@ public partial class MainWindow : Window
     private void OverviewNav_Click(object sender, RoutedEventArgs e) => ShowPage(OverviewPage, OverviewNav);
     private void FilesNav_Click(object sender, RoutedEventArgs e) => ShowPage(FilesPage, FilesNav);
     private void ReportNav_Click(object sender, RoutedEventArgs e) => ShowPage(ReportPage, ReportNav);
+    private void DefenderNav_Click(object sender, RoutedEventArgs e) => ShowPage(DefenderPage, DefenderNav);
+
+    private async void RefreshDefender_Click(object sender, RoutedEventArgs e)
+    {
+        if (_defenderBusy) return;
+        _defenderBusy = true;
+        RefreshDefenderButton.IsEnabled = false;
+        UpdateDefenderText();
+        try { _defenderSnapshot = await DefenderReader.Shared.ReadAsync(); }
+        catch { _defenderSnapshot = DefenderSnapshot.Empty(DefenderReadState.Unavailable); }
+        finally
+        {
+            _defenderBusy = false;
+            RefreshDefenderButton.IsEnabled = true;
+            UpdateDefenderText();
+        }
+    }
+
+    private void UpdateDefenderText()
+    {
+        RefreshDefenderButton.Content = IsJapanese ? "状態・履歴を取得" : "READ STATUS / HISTORY";
+        DefenderStatusText.Text = _defenderBusy
+            ? (IsJapanese ? "読み取り中です。スキャンは開始していません。" : "Reading existing state; no scan is being started.")
+            : _defenderSnapshot?.ToDisplay(IsJapanese) ?? (IsJapanese
+                ? "まだ取得していません。ボタンを押すと、このPCのDefenderの保護状態と既存の検出・対処履歴を読み取ります。\n\nスキャン、隔離、削除、復元、設定変更は行いません。ファイルパスやユーザー名も取得しません。"
+                : "Not queried. Use the button to read this PC's Defender protection state and existing detection/action history.\n\nNo scanning, quarantine, deletion, restoration or settings changes. File paths and user names are not collected.");
+    }
 
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
     {
+        if (e.Key == Key.F5 && DefenderPage.Visibility == Visibility.Visible)
+        {
+            RefreshDefender_Click(sender, e);
+            e.Handled = true;
+            return;
+        }
         ModifierKeys modifiers = Keyboard.Modifiers;
         bool control = (modifiers & ModifierKeys.Control) != 0;
         bool shift = (modifiers & ModifierKeys.Shift) != 0;
@@ -690,9 +725,11 @@ public partial class MainWindow : Window
         OverviewPage.Visibility = Visibility.Collapsed;
         FilesPage.Visibility = Visibility.Collapsed;
         ReportPage.Visibility = Visibility.Collapsed;
+        DefenderPage.Visibility = Visibility.Collapsed;
         OverviewNav.Tag = null;
         FilesNav.Tag = null;
         ReportNav.Tag = null;
+        DefenderNav.Tag = null;
         page.Visibility = Visibility.Visible;
         nav.Tag = "active";
     }
@@ -715,6 +752,7 @@ public partial class MainWindow : Window
         OverviewNav.Content = ja ? "概要" : "OVERVIEW";
         FilesNav.Content = ja ? "ファイル" : "FILES";
         ReportNav.Content = ja ? "レポート" : "REPORT";
+        UpdateDefenderText();
         AllFilterButton.Content = ja ? "すべて" : "ALL";
         HighFilterButton.Content = ja ? "高" : "HIGH";
         ReviewFilterButton.Content = ja ? "確認" : "REVIEW";

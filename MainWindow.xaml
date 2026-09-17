@@ -58,6 +58,7 @@
                     <Button x:Name="OverviewNav" Content="OVERVIEW" Style="{StaticResource NavButton}" Tag="active" Click="OverviewNav_Click" />
                     <Button x:Name="FilesNav" Content="FILES" Style="{StaticResource NavButton}" Click="FilesNav_Click" />
                     <Button x:Name="ReportNav" Content="REPORT" Style="{StaticResource NavButton}" Click="ReportNav_Click" />
+                    <Button x:Name="DefenderNav" Content="DEFENDER" Style="{StaticResource NavButton}" Click="DefenderNav_Click" />
                 </StackPanel>
                 <Button x:Name="LanguageButton" Grid.Column="1" Content="JA / EN" Style="{StaticResource NavButton}" Margin="0,0,8,0" Click="Language_Click" />
             </Grid>
@@ -214,6 +215,19 @@
                             </StackPanel>
                         </Grid>
                     </Border>
+                </Grid>
+
+                <Grid x:Name="DefenderPage" Visibility="Collapsed">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                    <DockPanel Margin="0,0,0,12">
+                        <Button x:Name="RefreshDefenderButton" DockPanel.Dock="Right" HorizontalAlignment="Right"
+                                Style="{StaticResource GhostButton}" Click="RefreshDefender_Click" />
+                        <TextBlock x:Name="DefenderTitleText" Text="Microsoft Defender" FontSize="15" VerticalAlignment="Center" />
+                    </DockPanel>
+                    <TextBox x:Name="DefenderStatusText" Grid.Row="1" IsReadOnly="True" TextWrapping="Wrap"
+                             VerticalScrollBarVisibility="Auto" Background="{StaticResource PanelBrush}"
+                             Foreground="{StaticResource TextBrush}" BorderBrush="{StaticResource BorderBrush}"
+                             Padding="14" FontSize="12" AutomationProperties.Name="Microsoft Defender read-only status" />
                 </Grid>
 
                 <Grid x:Name="ReportPage" Visibility="Collapsed">

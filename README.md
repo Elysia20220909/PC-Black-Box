@@ -1,5 +1,8 @@
 # PC Black Box
 
+Microsoft Defenderの保護状態と既存の検出・対処履歴を、読み取り専用で確認できます。
+スキャンや隔離を開始する機能ではありません。[使い方と制限](docs/defender-readonly.md)
+
 [English](README.en.md) / [変更履歴](CHANGELOG.md) / [セキュリティ方針](SECURITY.md) / [脅威モデル](THREAT_MODEL.md)
 
 PC Black Boxは、Windowsでダウンロードしたファイルやフォルダーを、開く前に静的調査するためのツールです。

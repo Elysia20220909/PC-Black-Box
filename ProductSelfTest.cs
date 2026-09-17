@@ -75,6 +75,7 @@ internal static partial class ProductSelfTest
                     .SafeLine.EndsWith("state=unavailable", StringComparison.Ordinal),
                 ref checks);
             Require(TestNetworkIsolationNames(), ref checks);
+            TestDefenderReadOnly(ref checks);
 
             var result = new ScanResult
             {

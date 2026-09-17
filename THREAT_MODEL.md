@@ -17,6 +17,15 @@ PC Black Box gives the owner prioritized evidence about an untrusted local downl
 
 ## Required invariants
 
+The optional [Defender read-only view](docs/defender-readonly.md) queries existing local OS state,
+not inspected files. Its fixed WMI SELECT queries add the local Windows WMI/COM provider to the
+trusted OS boundary. It never invokes provider methods, starts scans, changes configuration, or
+performs remediation. Identifying provider fields are not requested. History is bounded and explicitly
+separate from file verdicts; an empty, partial or unavailable history is never a safety claim.
+The managed network guard does not constrain Defender's independent service/cloud activity.
+Native COM calls have cooperative deadlines, not a guaranteed forced interruption; only one worker
+may remain pending after the caller times out. All existing required controls remain mandatory.
+
 - The target is never launched, loaded as code, repaired, moved, quarantined, or deleted.
 - Inspection does not continue unless every required control in `SECURITY-BASELINE-2` is enforced.
 - The process holds none of the standard .NET network-transport assemblies used by this source tree; loading one terminates it.

@@ -25,7 +25,7 @@ $map = Get-Content -LiteralPath $first.MappingFile -Raw | ConvertFrom-Json
 Assert-True $map.complete 'The completed mapping marker was not written.'
 $layout = Get-Content -LiteralPath (Join-Path $root 'obfuscation/source-layout.json') -Raw | ConvertFrom-Json
 $notices = @($layout.optionalNotices | Where-Object { Test-Path -LiteralPath (Join-Path $root $_) -PathType Leaf })
-Assert-True ($first.FileCount -eq (27 + $notices.Count)) 'Unexpected source-only input count.'
+Assert-True ($first.FileCount -eq (31 + $notices.Count)) 'Unexpected source-only input count.'
 Assert-True (!$first.MappingFile.StartsWith($first.SourceDirectory + [IO.Path]::DirectorySeparatorChar)) 'The private map leaked into source/.'
 foreach ($entry in $map.files) {
     $original = Join-Path $root $entry.original
@@ -34,7 +34,7 @@ foreach ($entry in $map.files) {
     Assert-True ((Get-FileHash -LiteralPath $transformed).Hash -eq $entry.sha256) 'Source content changed in the copy.'
 }
 $renamed = @($map.files | Where-Object { $_.transformed -match '^s/' })
-Assert-True ($renamed.Count -eq 17) 'Not all reviewed source paths were renamed.'
+Assert-True ($renamed.Count -eq 21) 'Not all reviewed source paths were renamed.'
 Assert-True (@($renamed | Where-Object { $_.transformed -cnotmatch '^s/[0-9a-f]{32}/[0-9a-f]{32}\.cs$' }).Count -eq 0) 'A path still describes its responsibility.'
 $copiedFiles = @(Get-ChildItem -LiteralPath $first.SourceDirectory -Recurse -File -Force)
 Assert-True ($copiedFiles.Count -eq $map.files.Count) 'An unlisted file was copied.'

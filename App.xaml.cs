@@ -10,7 +10,8 @@ public partial class App : Application
         bool commandLineReport = e.Args.Length >= 3 && e.Args[0].Equals("--report", StringComparison.OrdinalIgnoreCase);
         bool commandLineSecurityStatus = e.Args.Length == 1 && e.Args[0].Equals("--security-status", StringComparison.OrdinalIgnoreCase);
         bool commandLineSelfTest = e.Args.Length == 1 && e.Args[0].Equals("--self-test", StringComparison.OrdinalIgnoreCase);
-        bool commandLineMode = commandLineReport || commandLineSecurityStatus || commandLineSelfTest;
+        bool commandLineDefender = e.Args.Length > 0 && e.Args[0].Equals("--defender-status", StringComparison.OrdinalIgnoreCase);
+        bool commandLineMode = commandLineReport || commandLineSecurityStatus || commandLineSelfTest || commandLineDefender;
 
         // Refused before the baseline is consulted, so an elevated operator reads why this was
         // declined instead of a generic verification failure. The posture still follows on the
@@ -58,6 +59,24 @@ public partial class App : Application
         }
 
         base.OnStartup(e);
+
+        if (commandLineDefender)
+        {
+            if (e.Args.Length != 1)
+            {
+                try { Console.Error.WriteLine("--defender-status accepts no additional arguments."); } catch { }
+                Shutdown(1);
+                return;
+            }
+            DefenderSnapshot snapshot = DefenderReader.Shared.ReadAsync().GetAwaiter().GetResult();
+            bool guardsIntact = NetworkIsolationGuard.IsArmedAndManagedTransportFree() && ProcessObjectLockdown.VerifyCurrentPolicy();
+            try { Console.Out.WriteLine(snapshot.ToJson()); } catch { guardsIntact = false; }
+            WriteLines(Console.Error, WindowsProcessHardening.Current);
+            // Exit 0 means retrieval completed, not that the machine or any file is safe.
+            Environment.ExitCode = guardsIntact && snapshot.RetrievalComplete ? 0 : 1;
+            Shutdown(Environment.ExitCode);
+            return;
+        }
 
         if (commandLineSecurityStatus)
         {

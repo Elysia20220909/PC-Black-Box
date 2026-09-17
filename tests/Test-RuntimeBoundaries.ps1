@@ -13,7 +13,6 @@ $probeProject = Join-Path $PSScriptRoot 'RuntimeBoundaryProbe\RuntimeBoundaryPro
 $targetFramework = 'net10.0-windows10.0.17763.0'
 $applicationOutput = Join-Path $repositoryRoot "bin\Release\$targetFramework"
 $probeOutput = Join-Path $PSScriptRoot "RuntimeBoundaryProbe\bin\Release\$targetFramework"
-$applicationExecutable = Join-Path $applicationOutput 'PC Black Box.exe'
 $applicationAssembly = Join-Path $applicationOutput 'PC Black Box.dll'
 $probeAssembly = Join-Path $probeOutput 'PCBlackBox.RuntimeBoundaryProbe.dll'
 
@@ -90,7 +89,7 @@ if (-not $NoBuild)
     Invoke-DotNetBuild -Project $probeProject
 }
 
-foreach ($requiredPath in @($applicationExecutable, $applicationAssembly, $probeAssembly))
+foreach ($requiredPath in @($applicationAssembly, $probeAssembly))
 {
     if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf))
     {
