@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 2,
+  "applicationVersion": "0.13.0",
+  "fileVersion": "0.13.0.0",
+  "renamedSources": [
+    "AssemblySecurity.cs",
+    "FileInspector.cs",
+    "FileViewQuery.cs",
+    "Models.cs",
+    "NetworkIsolationGuard.cs",
+    "OfflineSignatureVerifier.cs",
+    "ProcessElevation.cs",
+    "ProcessObjectLockdown.cs",
+    "ProductSelfTest.cs",
+    "ProductSelfTest.Ole.cs",
+    "ReportBuilder.cs",
+    "SafeReportWriter.cs",
+    "SecureFileReader.cs",
+    "SecurityPolicy.cs",
+    "SettingsStore.cs",
+    "ShortcutInspector.cs",
+    "WindowsProcessHardening.cs"
+  ],
+  "preservedFiles": [
+    "App.xaml",
+    "App.xaml.cs",
+    "MainWindow.xaml",
+    "MainWindow.xaml.cs",
+    "app.manifest",
+    "assets/pc-black-box.ico",
+    "global.json",
+    "NuGet.Config",
+    "packages.lock.json"
+  ],
+  "optionalNotices": [
+    "LICENSE",
+    "LICENSE.md",
+    "LICENSE.txt",
+    "NOTICE",
+    "NOTICE.md",
+    "THIRD_PARTY_NOTICES.md"
+  ]
+}
