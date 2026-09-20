@@ -9,6 +9,18 @@ internal enum DefenderReadState { NotQueried, Complete, Partial, AccessDenied, U
 internal sealed record DefenderProtection(bool? ServiceEnabled, bool? AntivirusEnabled,
     bool? RealTimeProtectionEnabled, DateTimeOffset? SignatureUpdated);
 
+internal sealed record DefenderExtendedProtection(bool? BehaviorMonitorEnabled, bool? IoavProtectionEnabled,
+    bool? NetworkInspectionEnabled, bool? OnAccessProtectionEnabled, bool? TamperProtected,
+    bool? SignaturesOutOfDate, string? RunningMode)
+{
+    internal bool ValuesKnown => BehaviorMonitorEnabled.HasValue && IoavProtectionEnabled.HasValue &&
+        NetworkInspectionEnabled.HasValue && OnAccessProtectionEnabled.HasValue && TamperProtected.HasValue &&
+        SignaturesOutOfDate.HasValue && RunningMode is not null;
+    internal bool NeedsAttention => BehaviorMonitorEnabled == false || IoavProtectionEnabled == false ||
+        NetworkInspectionEnabled == false || OnAccessProtectionEnabled == false || TamperProtected == false ||
+        SignaturesOutOfDate == true || (RunningMode is not null && RunningMode != "Normal");
+}
+
 // Only typed, non-identifying fields cross the provider boundary. No paths, users, process names,
 // computer IDs, raw exceptions, or provider-generated text are retained.
 internal sealed record DefenderDetection(long? ThreatId, DateTimeOffset? DetectedAt,
@@ -34,6 +46,15 @@ internal sealed record DefenderDetection(long? ThreatId, DateTimeOffset? Detecte
 internal sealed record DefenderSnapshot(DateTimeOffset ObservedAt, DefenderReadState ProtectionState,
     DefenderProtection? Protection, DefenderReadState HistoryState, IReadOnlyList<DefenderDetection> Detections)
 {
+    internal DefenderReadState ExtendedProtectionState { get; init; } = DefenderReadState.NotQueried;
+    internal DefenderExtendedProtection? ExtendedProtection { get; init; }
+    internal DefenderQueryStage? ExtendedFailureStage { get; init; }
+    internal int? ExtendedErrorCode { get; init; }
+    internal string ProtectionAssessment => Protection?.ServiceEnabled == false || Protection?.AntivirusEnabled == false ||
+        Protection?.RealTimeProtectionEnabled == false || ExtendedProtection?.NeedsAttention == true ? "attention-required" :
+        ProtectionState != DefenderReadState.Complete || ExtendedProtectionState != DefenderReadState.Complete ||
+        Protection?.ServiceEnabled != true || Protection?.AntivirusEnabled != true || Protection?.RealTimeProtectionEnabled != true ||
+        Protection.SignatureUpdated is null || ExtendedProtection?.ValuesKnown != true ? "unknown" : "reported-enabled";
     internal DefenderConnectionStage? ConnectionFailureStage { get; init; }
     internal int? ConnectionErrorCode { get; init; }
     internal DefenderQueryStage? ProtectionFailureStage { get; init; }
@@ -61,6 +82,11 @@ internal sealed record DefenderSnapshot(DateTimeOffset ObservedAt, DefenderReadS
         historyIsCurrentSafetyProof = false,
         protectionState = ProtectionState.ToString(),
         protection = Protection,
+        extendedProtectionState = ExtendedProtectionState.ToString(),
+        extendedProtection = ExtendedProtection,
+        extendedFailureStage = ExtendedFailureStage?.ToString(),
+        extendedErrorCode = ExtendedErrorCode,
+        protectionAssessment = ProtectionAssessment,
         historyState = HistoryState.ToString(),
         historyLimit = DefenderReader.MaxHistory,
         detections = Detections.Select(item => new
@@ -80,6 +106,9 @@ internal sealed record DefenderSnapshot(DateTimeOffset ObservedAt, DefenderReadS
         var text = new StringBuilder();
         text.AppendLine(japanese ? "Microsoft Defender — 読み取り専用" : "Microsoft Defender — read only");
         text.AppendLine($"{(japanese ? "取得時刻" : "Observed")}: {ObservedAt:O}");
+        text.AppendLine(japanese ? "取得時点の記録です。現在の状態は再取得して確認してください。" :
+            "Point-in-time observation; refresh to check the current state.");
+        text.AppendLine($"{(japanese ? "保護の確認結果" : "Protection assessment")}: {ProtectionAssessment}");
         text.AppendLine(japanese
             ? "新しいスキャンは実行していません。履歴なしは安全の証明ではありません。"
             : "No new scan was performed. No history is not proof of safety.");
@@ -101,6 +130,18 @@ internal sealed record DefenderSnapshot(DateTimeOffset ObservedAt, DefenderReadS
             text.AppendLine($"{(japanese ? "リアルタイム保護" : "Real-time protection")}: {Flag(protection.RealTimeProtectionEnabled, japanese)}");
             text.AppendLine($"{(japanese ? "定義更新" : "Signature updated")}: {Stamp(protection.SignatureUpdated)}");
         }
+        text.AppendLine($"{(japanese ? "追加保護項目の取得" : "Extended protection retrieval")}: {Describe(ExtendedProtectionState, japanese)}");
+        if (ExtendedFailureStage is { } extendedStage) text.AppendLine($"{extendedStage} / 0x{ExtendedErrorCode:X8}");
+        DefenderExtendedProtection? extended = ExtendedProtection;
+        text.AppendLine($"{(japanese ? "振る舞い監視" : "Behavior monitor")}: {Flag(extended?.BehaviorMonitorEnabled, japanese)}");
+        text.AppendLine($"{(japanese ? "ダウンロード・添付ファイル保護" : "Downloaded-file / attachment protection")}: {Flag(extended?.IoavProtectionEnabled, japanese)}");
+        text.AppendLine($"{(japanese ? "ネットワーク検査" : "Network inspection")}: {Flag(extended?.NetworkInspectionEnabled, japanese)}");
+        text.AppendLine($"{(japanese ? "アクセス時保護" : "On-access protection")}: {Flag(extended?.OnAccessProtectionEnabled, japanese)}");
+        text.AppendLine($"{(japanese ? "改ざん防止" : "Tamper protection")}: {Flag(extended?.TamperProtected, japanese)}");
+        text.AppendLine($"{(japanese ? "定義が期限切れ" : "Signatures out of date")}: {Flag(extended?.SignaturesOutOfDate, japanese)}");
+        text.AppendLine($"{(japanese ? "実行モード" : "Running mode")}: {extended?.RunningMode ?? "unknown"}");
+        text.AppendLine(japanese ? "reported-enabledは確認項目が有効との報告であり、安全・完全隔離の保証ではありません。" :
+            "reported-enabled describes reported settings, not safety or complete isolation.");
         text.AppendLine();
         text.AppendLine($"{(japanese ? "履歴の取得" : "History retrieval")}: {Describe(HistoryState, japanese)}");
         if (HistoryFailureStage is { } historyStage) text.AppendLine($"{historyStage} / 0x{HistoryErrorCode:X8}");

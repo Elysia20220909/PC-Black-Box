@@ -2,6 +2,7 @@
 
 The optional read-only Microsoft Defender view shows protection state and existing detection/action
 history. It does not start scans or quarantine files. [Usage and boundaries](docs/defender-readonly.md)
+Use `--protection-status` for extended protection fields and Sandboxie Plus/QEMU registration hints. Registration is not proof of effective isolation.
 
 [日本語](README.md) / [Changelog](CHANGELOG.md) / [Security policy](SECURITY.md) / [Threat model](THREAT_MODEL.md)
 

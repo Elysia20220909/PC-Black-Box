@@ -9,6 +9,7 @@
     "DefenderWmi.cs",
     "FileInspector.cs",
     "FileViewQuery.cs",
+    "IsolationToolPresence.cs",
     "Models.cs",
     "NetworkIsolationGuard.cs",
     "OfflineSignatureVerifier.cs",

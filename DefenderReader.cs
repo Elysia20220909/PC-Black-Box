@@ -15,31 +15,40 @@ internal sealed class DefenderReader
 {
     internal const int MaxHistory = 256;
     internal static readonly TimeSpan QueryBudget = TimeSpan.FromSeconds(8);
-    internal static readonly DefenderReader Shared = new(DefenderWmi.Read);
-    private readonly Func<DefenderSnapshot> _read;
+    internal static readonly DefenderReader Shared = new(report => DefenderWmi.Read(report));
+    private readonly Func<Action<DefenderSnapshot>, DefenderSnapshot> _read;
     private readonly object _gate = new();
     private Task<DefenderSnapshot>? _pending;
 
-    internal DefenderReader(Func<DefenderSnapshot> read) => _read = read;
+    internal DefenderReader(Func<DefenderSnapshot> read) : this(_ => read()) { }
+    internal DefenderReader(Func<Action<DefenderSnapshot>, DefenderSnapshot> read) => _read = read;
 
     internal async Task<DefenderSnapshot> ReadAsync()
     {
         Task<DefenderSnapshot> pending;
+        DefenderSnapshot? basic = null;
         lock (_gate)
         {
             // A timed-out COM call cannot safely be aborted. Keep at most one worker, even when
             // the user repeatedly refreshes. Never weaken the product's process/network guards.
             if (_pending is { IsCompleted: false }) return DefenderSnapshot.Empty(DefenderReadState.Busy);
-            pending = _pending = Task.Factory.StartNew(ReadSafely, CancellationToken.None,
+            pending = _pending = Task.Factory.StartNew(() => ReadSafely(snapshot => Volatile.Write(ref basic, snapshot)), CancellationToken.None,
                 TaskCreationOptions.LongRunning, TaskScheduler.Default);
         }
         try { return await pending.WaitAsync(QueryBudget + TimeSpan.FromSeconds(2)).ConfigureAwait(false); }
-        catch (TimeoutException) { return DefenderSnapshot.Empty(DefenderReadState.Timeout); }
+        catch (TimeoutException)
+        {
+            // Keep only this request's already collected basic status/history if the optional
+            // native query stalls. The pending worker still blocks overlapping requests.
+            return Volatile.Read(ref basic) is { } saved
+                ? saved with { ExtendedProtectionState = DefenderReadState.Timeout }
+                : DefenderSnapshot.Empty(DefenderReadState.Timeout);
+        }
     }
 
-    private DefenderSnapshot ReadSafely()
+    private DefenderSnapshot ReadSafely(Action<DefenderSnapshot> reportBasic)
     {
-        try { return _read(); }
+        try { return _read(reportBasic); }
         catch (DefenderConnectionException error)
         {
             return DefenderSnapshot.Empty(Classify(error.InnerException!)) with

@@ -26,6 +26,16 @@ The managed network guard does not constrain Defender's independent service/clou
 Native COM calls have cooperative deadlines, not a guaranteed forced interruption; only one worker
 may remain pending after the caller times out. All existing required controls remain mandatory.
 
+Extended Defender fields use a separate fixed query; unavailable optional fields never erase basic
+status or history. A reported-enabled assessment describes observed settings, not a malware verdict.
+The protection overview also checks twelve fixed local registry-key locations for Sandboxie Plus and
+QEMU registration hints. It reads no registry values, paths, executable files or process lists and never
+loads or starts either tool. Stale or spoofed keys cannot establish authenticity, running state or
+effective isolation. Missing keys do not rule out portable or differently registered installations.
+The registry probe has a one-second cooperative budget and a two-second caller timeout, with at most
+one pending worker. OS calls already in progress cannot be forcibly interrupted. No new security gate,
+privilege, package dependency, remediation capability or external isolation guarantee is introduced.
+
 - The target is never launched, loaded as code, repaired, moved, quarantined, or deleted.
 - Inspection does not continue unless every required control in `SECURITY-BASELINE-2` is enforced.
 - The process holds none of the standard .NET network-transport assemblies used by this source tree; loading one terminates it.

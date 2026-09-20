@@ -13,8 +13,11 @@ internal static class DefenderWmi
         ["AMServiceEnabled", "AntivirusEnabled", "RealTimeProtectionEnabled", "AntivirusSignatureLastUpdated"];
     private static readonly string[] HistoryFields =
         ["ThreatID", "InitialDetectionTime", "LastThreatStatusChangeTime", "ThreatStatusID", "ActionSuccess", "AdditionalActionsBitMask"];
+    private static readonly string[] ExtendedFields =
+        ["BehaviorMonitorEnabled", "IoavProtectionEnabled", "NISEnabled", "OnAccessProtectionEnabled",
+            "IsTamperProtected", "DefenderSignaturesOutOfDate", "AMRunningMode"];
 
-    internal static DefenderSnapshot Read()
+    internal static DefenderSnapshot Read(Action<DefenderSnapshot>? reportBasic = null)
     {
         var clock = Stopwatch.StartNew();
         DateTimeOffset observed = DateTimeOffset.UtcNow;
@@ -41,7 +44,12 @@ internal static class DefenderWmi
                 ProtectionFields, 1, () => clock.Elapsed);
             QueryResult history = Query(new NativeQueryCursor(services, "MSFT_MpThreatDetection", HistoryFields),
                 HistoryFields, DefenderReader.MaxHistory, () => clock.Elapsed);
-            return Project(observed, status, history);
+            DefenderSnapshot basic = Project(observed, status, history);
+            reportBasic?.Invoke(basic);
+            // Optional/newer provider fields cannot invalidate the original status/history queries.
+            QueryResult extended = Query(new NativeQueryCursor(services, "MSFT_MpComputerStatus", ExtendedFields),
+                ExtendedFields, 1, () => clock.Elapsed);
+            return ProjectExtended(basic, extended);
         }
         catch (Exception error) { throw new DefenderConnectionException(stage, error); }
         finally
@@ -54,6 +62,29 @@ internal static class DefenderWmi
 
     internal sealed record QueryResult(DefenderReadState State, IReadOnlyList<object?[]> Rows,
         DefenderQueryStage? FailureStage = null, int? ErrorCode = null);
+
+    internal static DefenderSnapshot ProjectExtended(DefenderSnapshot snapshot, QueryResult result)
+    {
+        DefenderReadState state = result.State;
+        DefenderExtendedProtection? protection = null;
+        if (result.Rows.Count == 1 && result.Rows[0].Length == ExtendedFields.Length)
+        {
+            object?[] row = result.Rows[0];
+            string? mode = row[6] is string text && text is "Normal" or "Passive Mode" or "EDR Block Mode" or "Not running"
+                ? text : null;
+            protection = new(DefenderReader.Boolean(row[0]), DefenderReader.Boolean(row[1]), DefenderReader.Boolean(row[2]),
+                DefenderReader.Boolean(row[3]), DefenderReader.Boolean(row[4]), DefenderReader.Boolean(row[5]), mode);
+            if (state == DefenderReadState.Complete && !protection.ValuesKnown) state = DefenderReadState.Partial;
+        }
+        else if (state == DefenderReadState.Complete) state = DefenderReadState.InvalidData;
+        return snapshot with
+        {
+            ExtendedProtection = protection,
+            ExtendedProtectionState = state,
+            ExtendedFailureStage = result.FailureStage,
+            ExtendedErrorCode = result.ErrorCode
+        };
+    }
 
     internal static DefenderSnapshot Project(DateTimeOffset observed, QueryResult status, QueryResult history)
     {

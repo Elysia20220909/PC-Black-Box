@@ -9,6 +9,7 @@ internal static partial class ProductSelfTest
     private static void TestDefenderReadOnly(ref int checks)
     {
         TestDefenderQueryBoundary(ref checks);
+        TestProtectionOverview(ref checks);
         const string timestamp = "20260917123456.000000+540";
         DateTimeOffset observed = new(2026, 9, 17, 3, 34, 56, TimeSpan.Zero);
         var status = new DefenderWmi.QueryResult(DefenderReadState.Complete, [new object?[] { true, true, false, timestamp }]);
@@ -215,6 +216,120 @@ internal static partial class ProductSelfTest
         Require(result.State == DefenderReadState.Timeout && result.FailureStage == DefenderQueryStage.Property, ref checks);
         Require(result.Rows.Count == 0 && lateGet.NextCount == 1, ref checks);
         Require(lateProperty.DisposeCount == 1 && lateGet.DisposeCount == 1, ref checks);
+    }
+
+    private static void TestProtectionOverview(ref int checks)
+    {
+        const string timestamp = "20260917123456.000000+540";
+        DefenderSnapshot basic = DefenderWmi.Project(DateTimeOffset.UtcNow,
+            new(DefenderReadState.Complete, [new object?[] { true, true, true, timestamp }]), new(DefenderReadState.Complete, []));
+        Require(basic.ProtectionAssessment == "unknown", ref checks);
+        object?[] enabled = [true, true, true, true, true, false, "Normal"];
+        DefenderSnapshot complete = DefenderWmi.ProjectExtended(basic, new(DefenderReadState.Complete, [enabled]));
+        Require(complete.ProtectionAssessment == "reported-enabled" && complete.ExtendedProtectionState == DefenderReadState.Complete, ref checks);
+        Require(complete.ToDisplay(false).Contains("not safety or complete isolation", StringComparison.Ordinal), ref checks);
+        Require(complete.ToDisplay(true).Contains("再取得", StringComparison.Ordinal), ref checks);
+        for (int index = 0; index < enabled.Length; index++)
+        {
+            object?[] missing = (object?[])enabled.Clone();
+            missing[index] = null;
+            DefenderSnapshot unknown = DefenderWmi.ProjectExtended(basic, new(DefenderReadState.Complete, [missing]));
+            Require(unknown.ExtendedProtectionState == DefenderReadState.Partial && unknown.ProtectionAssessment == "unknown", ref checks);
+            Require(unknown.RetrievalComplete && unknown.Protection == basic.Protection, ref checks);
+            object?[] disabled = (object?[])enabled.Clone();
+            disabled[index] = index == 6 ? "Passive Mode" : index == 5;
+            Require(DefenderWmi.ProjectExtended(basic, new(DefenderReadState.Complete, [disabled])).ProtectionAssessment == "attention-required", ref checks);
+        }
+        foreach (string mode in new[] { "EDR Block Mode", "Not running" })
+        {
+            object?[] nonActive = (object?[])enabled.Clone();
+            nonActive[6] = mode;
+            Require(DefenderWmi.ProjectExtended(basic, new(DefenderReadState.Complete, [nonActive])).ProtectionAssessment == "attention-required", ref checks);
+        }
+        object?[] untrusted = ["true", 1, null, null, null, "false", "private-provider-text"];
+        DefenderSnapshot filtered = DefenderWmi.ProjectExtended(basic, new(DefenderReadState.Complete, [untrusted]));
+        Require(filtered.ProtectionAssessment == "unknown" && !filtered.ToJson().Contains("private-provider-text", StringComparison.Ordinal), ref checks);
+        foreach (DefenderReadState state in new[] { DefenderReadState.AccessDenied, DefenderReadState.Timeout, DefenderReadState.Unavailable })
+        {
+            DefenderSnapshot failed = DefenderWmi.ProjectExtended(basic, new(state, [], DefenderQueryStage.Query, -1));
+            Require(failed.RetrievalComplete && failed.ExtendedProtectionState == state && failed.ProtectionAssessment == "unknown", ref checks);
+            Require(failed.ExtendedFailureStage == DefenderQueryStage.Query && failed.ExtendedErrorCode == -1, ref checks);
+        }
+        Require(DefenderWmi.ProjectExtended(basic, new(DefenderReadState.Complete, [])).ExtendedProtectionState == DefenderReadState.InvalidData, ref checks);
+        Require(DefenderWmi.ProjectExtended(basic, new(DefenderReadState.Complete, [new object?[] { true }])).ExtendedProtectionState == DefenderReadState.InvalidData, ref checks);
+        Require((complete with { Protection = complete.Protection! with { RealTimeProtectionEnabled = false } }).ProtectionAssessment == "attention-required", ref checks);
+        Require((complete with { Protection = null }).ProtectionAssessment == "unknown", ref checks);
+
+        int calls = 0;
+        IsolationPresenceSnapshot absent = IsolationToolReader.Probe((_, _, _) => { calls++; return false; }, () => TimeSpan.Zero);
+        Require(calls == 12 && absent.State == DefenderReadState.Complete, ref checks);
+        Require(absent.Tools.All(tool => tool.RegistrationObserved == false && tool.ProbeComplete), ref checks);
+        Require(absent.ToDisplay(false).Contains("installation not ruled out", StringComparison.Ordinal), ref checks);
+        IsolationPresenceSnapshot observed = IsolationToolReader.Probe((_, _, _) => true, () => TimeSpan.Zero);
+        Require(observed.Tools.All(tool => tool.RegistrationObserved == true), ref checks);
+        Require(observed.ToDisplay(true).Contains("隔離の有効性は未確認", StringComparison.Ordinal), ref checks);
+        using (JsonDocument json = JsonDocument.Parse(observed.WithDefenderJson(complete)))
+        {
+            Require(!json.RootElement.GetProperty("isolationEstablished").GetBoolean(), ref checks);
+            Require(json.RootElement.GetProperty("isolationTools").GetProperty("isolationState").GetString() == "not-verified", ref checks);
+            Require(!json.RootElement.GetProperty("isolationTools").GetProperty("toolsLaunched").GetBoolean(), ref checks);
+            Require(json.RootElement.GetProperty("defender").GetProperty("extendedProtectionState").GetString() == "Complete", ref checks);
+        }
+        IsolationPresenceSnapshot denied = IsolationToolReader.Probe((_, _, _) => throw new UnauthorizedAccessException("private-path"), () => TimeSpan.Zero);
+        Require(denied.State == DefenderReadState.Partial && denied.Tools.All(tool => tool.RegistrationObserved is null), ref checks);
+        Require(!denied.WithDefenderJson(complete).Contains("private-path", StringComparison.Ordinal), ref checks);
+        calls = 0;
+        IsolationPresenceSnapshot partial = IsolationToolReader.Probe((_, _, _) => ++calls == 1 ? true : throw new UnauthorizedAccessException(), () => TimeSpan.Zero);
+        Require(partial.Tools[0].RegistrationObserved == true && !partial.Tools[0].ProbeComplete, ref checks);
+        Require(partial.Tools[1].RegistrationObserved is null && partial.State == DefenderReadState.Partial, ref checks);
+        calls = 0;
+        IsolationPresenceSnapshot expired = IsolationToolReader.Probe((_, _, _) => { calls++; return true; }, () => IsolationToolReader.QueryBudget);
+        Require(calls == 0 && expired.State == DefenderReadState.Timeout && expired.Tools.All(tool => tool.RegistrationObserved is null), ref checks);
+        TimeSpan elapsed = TimeSpan.Zero;
+        IsolationPresenceSnapshot late = IsolationToolReader.Probe((_, _, _) => { elapsed = IsolationToolReader.QueryBudget; return true; }, () => elapsed);
+        Require(late.State == DefenderReadState.Timeout && late.Tools.All(tool => tool.RegistrationObserved is null), ref checks);
+        Require(new IsolationToolReader(() => throw new InvalidOperationException("private")).ReadAsync().GetAwaiter().GetResult().State == DefenderReadState.Unavailable, ref checks);
+
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        using var finished = new ManualResetEventSlim();
+        var slow = new IsolationToolReader(() =>
+        {
+            entered.Set();
+            try { release.Wait(TimeSpan.FromSeconds(10)); return absent; }
+            finally { finished.Set(); }
+        });
+        try
+        {
+            Task<IsolationPresenceSnapshot> first = slow.ReadAsync();
+            Require(entered.Wait(TimeSpan.FromSeconds(5)), ref checks);
+            Require(slow.ReadAsync().GetAwaiter().GetResult().State == DefenderReadState.Busy, ref checks);
+            Require(first.GetAwaiter().GetResult().State == DefenderReadState.Timeout, ref checks);
+            Require(slow.ReadAsync().GetAwaiter().GetResult().State == DefenderReadState.Busy, ref checks);
+        }
+        finally { release.Set(); finished.Wait(TimeSpan.FromSeconds(5)); }
+
+        using var extendedEntered = new ManualResetEventSlim();
+        using var extendedRelease = new ManualResetEventSlim();
+        using var extendedFinished = new ManualResetEventSlim();
+        var stalledExtension = new DefenderReader(reportBasic =>
+        {
+            reportBasic(basic);
+            extendedEntered.Set();
+            try { extendedRelease.Wait(TimeSpan.FromSeconds(20)); return complete; }
+            finally { extendedFinished.Set(); }
+        });
+        try
+        {
+            Task<DefenderSnapshot> first = stalledExtension.ReadAsync();
+            Require(extendedEntered.Wait(TimeSpan.FromSeconds(5)), ref checks);
+            DefenderSnapshot timedOut = first.GetAwaiter().GetResult();
+            Require(timedOut.RetrievalComplete && timedOut.Protection == basic.Protection, ref checks);
+            Require(timedOut.HistoryState == basic.HistoryState && timedOut.Detections == basic.Detections, ref checks);
+            Require(timedOut.ExtendedProtectionState == DefenderReadState.Timeout && timedOut.ProtectionAssessment == "unknown", ref checks);
+            Require(stalledExtension.ReadAsync().GetAwaiter().GetResult().ProtectionState == DefenderReadState.Busy, ref checks);
+        }
+        finally { extendedRelease.Set(); extendedFinished.Wait(TimeSpan.FromSeconds(5)); }
     }
 
     private sealed record DefenderTestStep(int Result, uint Returned, DefenderTestRow? Row = null, Action? BeforeReturn = null);

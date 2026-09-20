@@ -21,6 +21,7 @@ public partial class MainWindow : Window
     private bool _isBusy;
     private string _language;
     private DefenderSnapshot? _defenderSnapshot;
+    private IsolationPresenceSnapshot? _isolationPresence;
     private bool _defenderBusy;
 
     private bool IsJapanese => _language == "ja";
@@ -643,7 +644,12 @@ public partial class MainWindow : Window
         _defenderBusy = true;
         RefreshDefenderButton.IsEnabled = false;
         UpdateDefenderText();
-        try { _defenderSnapshot = await DefenderReader.Shared.ReadAsync(); }
+        _isolationPresence = null;
+        try
+        {
+            _defenderSnapshot = await DefenderReader.Shared.ReadAsync();
+            _isolationPresence = await IsolationToolReader.Shared.ReadAsync();
+        }
         catch { _defenderSnapshot = DefenderSnapshot.Empty(DefenderReadState.Unavailable); }
         finally
         {
@@ -655,12 +661,14 @@ public partial class MainWindow : Window
 
     private void UpdateDefenderText()
     {
-        RefreshDefenderButton.Content = IsJapanese ? "状態・履歴を取得" : "READ STATUS / HISTORY";
+        RefreshDefenderButton.Content = IsJapanese ? "保護状態・登録情報を取得" : "READ PROTECTION / REGISTRATION";
         DefenderStatusText.Text = _defenderBusy
             ? (IsJapanese ? "読み取り中です。スキャンは開始していません。" : "Reading existing state; no scan is being started.")
             : _defenderSnapshot?.ToDisplay(IsJapanese) ?? (IsJapanese
                 ? "まだ取得していません。ボタンを押すと、このPCのDefenderの保護状態と既存の検出・対処履歴を読み取ります。\n\nスキャン、隔離、削除、復元、設定変更は行いません。ファイルパスやユーザー名も取得しません。"
                 : "Not queried. Use the button to read this PC's Defender protection state and existing detection/action history.\n\nNo scanning, quarantine, deletion, restoration or settings changes. File paths and user names are not collected.");
+        if (!_defenderBusy && _isolationPresence is not null)
+            DefenderStatusText.Text += "\n\n" + _isolationPresence.ToDisplay(IsJapanese);
     }
 
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
