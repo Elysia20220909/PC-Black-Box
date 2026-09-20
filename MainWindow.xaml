@@ -8,14 +8,17 @@
         Icon="assets/pc-black-box.ico"
         WindowStyle="None"
         ResizeMode="CanResizeWithGrip"
-        Background="Transparent"
-        AllowsTransparency="True"
+        Background="{StaticResource WindowBrush}"
         UseLayoutRounding="True"
         SnapsToDevicePixels="True"
         AllowDrop="True"
         Drop="Window_Drop"
         DragOver="Window_DragOver"
         PreviewKeyDown="Window_PreviewKeyDown">
+    <WindowChrome.WindowChrome>
+        <WindowChrome CaptionHeight="46" ResizeBorderThickness="6" GlassFrameThickness="0"
+                      CornerRadius="4" UseAeroCaptionButtons="False" />
+    </WindowChrome.WindowChrome>
     <Border Background="{StaticResource WindowBrush}" BorderBrush="#3C444F" BorderThickness="1" CornerRadius="4">
         <Grid>
             <Grid.RowDefinitions>
@@ -25,7 +28,7 @@
                 <RowDefinition Height="38" />
             </Grid.RowDefinitions>
 
-            <Grid Grid.Row="0" Background="#13171C" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+            <Grid Grid.Row="0" Background="#13171C">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
@@ -43,9 +46,10 @@
                         <TextBlock x:Name="ReadOnlyBadgeText" Text="READ ONLY" Foreground="{StaticResource GoodBrush}" FontSize="9" FontWeight="Bold" />
                     </Border>
                 </StackPanel>
-                <StackPanel Grid.Column="1" Orientation="Horizontal">
-                    <Button Content="—" Style="{StaticResource NavButton}" Width="44" Click="Minimize_Click" />
-                    <Button Content="×" Style="{StaticResource NavButton}" Width="44" FontSize="17" Click="Close_Click" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal" WindowChrome.IsHitTestVisibleInChrome="True">
+                    <Button x:Name="MinimizeButton" Content="—" Style="{StaticResource NavButton}" Width="44" Padding="0" Click="Minimize_Click" />
+                    <Button x:Name="MaximizeButton" Content="□" Style="{StaticResource NavButton}" Width="44" Padding="0" Click="Maximize_Click" />
+                    <Button x:Name="CloseButton" Content="×" Style="{StaticResource NavButton}" Width="44" Padding="0" FontSize="17" Click="Close_Click" />
                 </StackPanel>
             </Grid>
 

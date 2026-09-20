@@ -76,6 +76,13 @@ internal static partial class ProductSelfTest
                 ref checks);
             Require(TestNetworkIsolationNames(), ref checks);
             TestDefenderReadOnly(ref checks);
+            Require(MainWindow.ToggleMaximizedState(System.Windows.WindowState.Normal) == System.Windows.WindowState.Maximized, ref checks);
+            Require(MainWindow.ToggleMaximizedState(System.Windows.WindowState.Maximized) == System.Windows.WindowState.Normal, ref checks);
+            Require(MainWindow.ToggleMaximizedState(System.Windows.WindowState.Minimized) == System.Windows.WindowState.Maximized, ref checks);
+            Require(MainWindow.MaximizeActionName(System.Windows.WindowState.Normal, true) == "最大化", ref checks);
+            Require(MainWindow.MaximizeActionName(System.Windows.WindowState.Maximized, true) == "元に戻す", ref checks);
+            Require(MainWindow.MaximizeActionName(System.Windows.WindowState.Normal, false) == "Maximize", ref checks);
+            Require(MainWindow.MaximizeActionName(System.Windows.WindowState.Maximized, false) == "Restore", ref checks);
 
             var result = new ScanResult
             {

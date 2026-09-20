@@ -30,6 +30,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         _language = SettingsStore.LoadLanguage();
+        StateChanged += (_, _) => UpdateWindowControls();
         ApplyLanguage();
         ShowPage(OverviewPage, OverviewNav);
     }
@@ -753,6 +754,7 @@ public partial class MainWindow : Window
     private void ApplyLanguage()
     {
         bool ja = IsJapanese;
+        UpdateWindowControls();
         SecurityPosture posture = WindowsProcessHardening.Current;
         string postureCount = $"{posture.EnforcedCount}/{posture.RequiredCount}";
         string reinforcementCount = $"{posture.ReinforcementEnforcedCount}/{posture.ReinforcementCount}";
@@ -834,11 +836,29 @@ public partial class MainWindow : Window
 
     private Brush RiskBrush(int score) => score >= 60 ? (Brush)FindResource("DangerBrush") : score >= 25 ? (Brush)FindResource("WarnBrush") : (Brush)FindResource("GoodBrush");
 
-    private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    internal static WindowState ToggleMaximizedState(WindowState state) =>
+        state == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+
+    internal static string MaximizeActionName(WindowState state, bool japanese) =>
+        state == WindowState.Maximized
+            ? (japanese ? "元に戻す" : "Restore")
+            : (japanese ? "最大化" : "Maximize");
+
+    private void UpdateWindowControls()
     {
-        if (e.LeftButton == MouseButtonState.Pressed) DragMove();
+        SetWindowControlName(MinimizeButton, IsJapanese ? "最小化" : "Minimize");
+        SetWindowControlName(MaximizeButton, MaximizeActionName(WindowState, IsJapanese));
+        SetWindowControlName(CloseButton, IsJapanese ? "閉じる" : "Close");
+        MaximizeButton.Content = WindowState == WindowState.Maximized ? "❐" : "□";
     }
 
+    private static void SetWindowControlName(Button button, string name)
+    {
+        button.ToolTip = name;
+        AutomationProperties.SetName(button, name);
+    }
+
+    private void Maximize_Click(object sender, RoutedEventArgs e) => WindowState = ToggleMaximizedState(WindowState);
     private void Minimize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
     private void Close_Click(object sender, RoutedEventArgs e) => Close();
 }
