@@ -37,8 +37,10 @@ internal static class DefenderWmi
                 null, IntPtr.Zero, out services));
             stage = DefenderConnectionStage.SecureProxy;
             SecureProxy(services);
-            QueryResult status = Query(services, "MSFT_MpComputerStatus", ProtectionFields, 1, clock);
-            QueryResult history = Query(services, "MSFT_MpThreatDetection", HistoryFields, DefenderReader.MaxHistory, clock);
+            QueryResult status = Query(new NativeQueryCursor(services, "MSFT_MpComputerStatus", ProtectionFields),
+                ProtectionFields, 1, () => clock.Elapsed);
+            QueryResult history = Query(new NativeQueryCursor(services, "MSFT_MpThreatDetection", HistoryFields),
+                HistoryFields, DefenderReader.MaxHistory, () => clock.Elapsed);
             return Project(observed, status, history);
         }
         catch (Exception error) { throw new DefenderConnectionException(stage, error); }
@@ -90,29 +92,40 @@ internal static class DefenderWmi
         };
     }
 
-    private static QueryResult Query(IWbemServices services, string className, string[] fields, int limit, Stopwatch clock)
+    // The production loop owns the cursor and each returned row, including failure paths. Tests
+    // substitute only the OS responses and clock; no runtime option replaces the native adapter.
+    internal interface IQueryCursor : IDisposable
+    {
+        void Open();
+        void Secure();
+        int Next(int timeout, out IQueryRow? item, out uint returned);
+    }
+
+    internal interface IQueryRow : IDisposable
+    {
+        int Get(string name, out object? value);
+    }
+
+    internal static QueryResult Query(IQueryCursor cursor, string[] fields, int limit, Func<TimeSpan> elapsed)
     {
         var rows = new List<object?[]>();
-        IEnumWbemClassObject? results = null;
         DefenderQueryStage stage = DefenderQueryStage.Query;
         try
         {
-            CheckBudget(clock);
-            // Both class names and every property are private fixed literals above, never user input.
-            Marshal.ThrowExceptionForHR(services.ExecQuery("WQL", $"SELECT {String.Join(',', fields)} FROM {className}",
-                0x30, IntPtr.Zero, out results)); // RETURN_IMMEDIATELY | FORWARD_ONLY
+            CheckBudget(elapsed);
+            cursor.Open();
             stage = DefenderQueryStage.SecureProxy;
-            SecureProxy(results);
+            cursor.Secure();
             while (true)
             {
-                CheckBudget(clock);
-                IWbemClassObject? item = null;
+                CheckBudget(elapsed);
+                IQueryRow? item = null;
                 try
                 {
                     stage = DefenderQueryStage.Enumerate;
-                    int result = results.Next(200, 1, out item, out uint returned);
+                    int result = cursor.Next(200, out item, out uint returned);
                     Marshal.ThrowExceptionForHR(result);
-                    CheckBudget(clock);
+                    CheckBudget(elapsed);
                     if (returned == 0 && result == 1) return new(DefenderReadState.Complete, rows);
                     if (returned == 0 && result == 0x40004) continue; // WBEM_S_TIMEDOUT is not EOF
                     if (returned != 1 || item is null) return new(DefenderReadState.InvalidData, rows);
@@ -121,10 +134,12 @@ internal static class DefenderWmi
                     stage = DefenderQueryStage.Property;
                     for (int index = 0; index < fields.Length; index++)
                     {
-                        CheckBudget(clock);
-                        int propertyResult = item.Get(fields[index], 0, out object? value, out _, out _);
+                        CheckBudget(elapsed);
+                        int propertyResult = item.Get(fields[index], out object? value);
+                        if (propertyResult != unchecked((int)0x80041002)) Marshal.ThrowExceptionForHR(propertyResult);
+                        // A synchronous Get can cross the deadline, including the final property.
+                        CheckBudget(elapsed);
                         if (propertyResult == unchecked((int)0x80041002)) continue; // missing is unknown
-                        Marshal.ThrowExceptionForHR(propertyResult);
                         // Reject unexpected types/large strings before retaining provider values.
                         values[index] = value is bool or byte or sbyte or short or ushort or int or uint or long or ulong ||
                             value is string { Length: <= 25 } ? value : null;
@@ -132,16 +147,55 @@ internal static class DefenderWmi
                     rows.Add(values);
                     if (result == 1) return new(DefenderReadState.Complete, rows);
                 }
-                finally { Release(item); }
+                finally { item?.Dispose(); }
             }
         }
         catch (Exception error) { return new(DefenderReader.Classify(error), rows, stage, error.HResult); }
-        finally { Release(results); }
+        finally { cursor.Dispose(); }
     }
 
-    private static void CheckBudget(Stopwatch clock)
+    private static void CheckBudget(Func<TimeSpan> elapsed)
     {
-        if (clock.Elapsed >= DefenderReader.QueryBudget) throw new TimeoutException();
+        if (elapsed() >= DefenderReader.QueryBudget) throw new TimeoutException();
+    }
+
+    private sealed class NativeQueryCursor(IWbemServices services, string className, string[] fields) : IQueryCursor
+    {
+        private IEnumWbemClassObject? _results;
+
+        // Both class names and every property originate from the private fixed literals above.
+        public void Open() => Marshal.ThrowExceptionForHR(services.ExecQuery("WQL",
+            $"SELECT {String.Join(',', fields)} FROM {className}",
+            0x30, IntPtr.Zero, out _results)); // RETURN_IMMEDIATELY | FORWARD_ONLY
+
+        public void Secure() => SecureProxy(_results!);
+
+        public int Next(int timeout, out IQueryRow? item, out uint returned)
+        {
+            int result = _results!.Next(timeout, 1, out IWbemClassObject? nativeItem, out returned);
+            // Preserve ownership even when Next returns a failure HRESULT along with an object.
+            item = nativeItem is null ? null : new NativeQueryRow(nativeItem);
+            return result;
+        }
+
+        public void Dispose()
+        {
+            Release(_results);
+            _results = null;
+        }
+    }
+
+    private sealed class NativeQueryRow(IWbemClassObject item) : IQueryRow
+    {
+        private IWbemClassObject? _item = item;
+
+        public int Get(string name, out object? value) => _item!.Get(name, 0, out value, out _, out _);
+
+        public void Dispose()
+        {
+            Release(_item);
+            _item = null;
+        }
     }
 
     // Preserve each interface's proxy pointer. Marshaling object as IUnknown would configure the

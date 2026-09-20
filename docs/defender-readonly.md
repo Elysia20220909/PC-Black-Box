@@ -35,11 +35,27 @@ WindowsのWMIプロバイダーとCOM登録は信頼するOS境界です。管�
 
 ## 検証と復元
 
-専用ブランチ `agent/defender-readonly` は `adff137` を基点とします。前回の難読化ツリーと既存の署名済みEXEは変更しません。このツリーの `bin/Release` にあるDLLだけが本変更の検証対象です。旧版へ戻るときは前のツリーを利用できます。配布、コミット、push、mergeは今回行いません。
+専用ブランチ `agent/defender-readonly` は `adff137` を基点とし、初回実装は `f1ec435` に記録されています。前回の難読化ツリーと既存の署名済みEXEは、この連携の検証対象ではありません。検証にはこのツリーの `bin/Release/net10.0-windows10.0.17763.0/PC Black Box.dll` を使います。旧版を確認するときは前のツリーを利用でき、既存の署名済みEXEを上書きする必要はありません。
 
-自己テストは合成データで欠落・不正値・上限・失敗・タイムアウト・同時要求・機微情報の非出力を検証します。通常の自己テストではDefenderへ接続せず、ウイルスやEICARも作りません。実接続は `--defender-status` を明示して別に検証します。
+自己テストは合成データで欠落・不正値・上限・失敗・タイムアウト・同時要求・機微情報の非出力を検証します。WMI境界では、OSの応答と経過時間だけをテスト用に差し替え、本番と同じ列挙処理を通します。列挙終了と待機時間切れの区別、256件ちょうどと上限超過、各段階の失敗、取得済み行の保持、不正な応答、プロパティ値の制限、行と列挙カーソルの解放を確認します。
 
-GUIの見た目と操作、別PC、無効化されたDefenderや企業管理下での実動作は別の検証です。成功した範囲は以下の検証記録に追記します。
+通常の自己テストではDefenderへ接続せず、ウイルスやEICARも作りません。合成応答のテストで確認するのは、管理コードによる解放処理の呼び出しまでです。実際のCOM参照カウント、Windowsプロバイダーの応答、接続・認証の成否を保証するものではありません。実接続は `--defender-status` を明示して別に検証します。
+
+### 2026-09-20の修正と検証記録
+
+検証は `f1ec435` に対する修正をコミットする前に実施しました。検証後、利用者からローカルコミットまでの承認を受けています。配布物生成、既存の署名済みEXEの変更、push、merge、fetchは行っていません。リモートの最新状態は未確認です。
+
+追加した回帰テストで、最後のプロパティ取得中に8秒の予算を超えても、その行が取得結果に残ることを再現しました。修正前は `result.Rows.Count == 0 && lateGet.NextCount == 1` の検査で自己テストが失敗しました。プロパティ取得直後にも予算を確認し、期限を超えた行を結果へ追加せず、時間切れとして扱うよう修正しています。開始済みのCOM処理を強制中断する変更ではありません。
+
+Windowsの通常権限、.NET SDK 10.0.300 / ランタイム10.0.8で、次を実測しました。ビルドには `-p:UseAppHost=false` を指定し、配布用EXEを生成していません。
+
+- 本体と `tests/RuntimeBoundaryProbe` のRelease再ビルド：警告0件、エラー0件。
+- 本体DLLの `--self-test`：`passed=true checks=227`。WMI境界の59検査を追加しています。
+- 本体DLLの `--security-status`：`enforced=true controls=16/16 reinforcements=3/4`。
+- `tests/Test-RuntimeBoundaries.ps1 -NoBuild`：`passed=true checks=9`。
+- `dotnet format Destiny2BlackBox.csproj --verify-no-changes --no-restore`：終了コード0。
+
+実Defenderへの再接続、GUIの見た目と操作、別PC、Defender無効時や企業管理下での実動作は、今回の検証に含めていません。初回コミットのメッセージにある実接続の成功記録も、今回再検証した結果とは区別します。
 
 ## 公式資料
 
@@ -47,4 +63,5 @@ GUIの見た目と操作、別PC、無効化されたDefenderや企業管理下�
 - [検出・対処履歴のクラス](https://learn.microsoft.com/en-us/previous-versions/windows/desktop/defender/msft-mpthreatdetection)
 - [WMIの読み取りクエリ](https://learn.microsoft.com/en-us/windows/win32/api/wbemcli/nf-wbemcli-iwbemservices-execquery)
 - [列挙の待機と終了条件](https://learn.microsoft.com/en-us/windows/win32/api/wbemcli/nf-wbemcli-ienumwbemclassobject-next)
+- [プロパティ取得と戻り値](https://learn.microsoft.com/en-us/windows/win32/api/wbemcli/nf-wbemcli-iwbemclassobject-get)
 - [接続の最大待機指定](https://learn.microsoft.com/en-us/windows/win32/api/wbemcli/nf-wbemcli-iwbemlocator-connectserver)

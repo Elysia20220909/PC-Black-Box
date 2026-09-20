@@ -8,6 +8,7 @@ internal static partial class ProductSelfTest
     // Deterministic data only: the ordinary self-test never queries Defender or creates malware.
     private static void TestDefenderReadOnly(ref int checks)
     {
+        TestDefenderQueryBoundary(ref checks);
         const string timestamp = "20260917123456.000000+540";
         DateTimeOffset observed = new(2026, 9, 17, 3, 34, 56, TimeSpan.Zero);
         var status = new DefenderWmi.QueryResult(DefenderReadState.Complete, [new object?[] { true, true, false, timestamp }]);
@@ -87,5 +88,179 @@ internal static partial class ProductSelfTest
             release.Set();
             finished.Wait(TimeSpan.FromSeconds(5));
         }
+    }
+
+    private static void TestDefenderQueryBoundary(ref int checks)
+    {
+        const int end = 1;
+        const int waitTimeout = 0x40004;
+        const int accessDenied = unchecked((int)0x80041003);
+        const int notFound = unchecked((int)0x80041002);
+        static DefenderWmi.QueryResult Run(DefenderTestCursor cursor, int limit = 1,
+            Func<TimeSpan>? elapsed = null, string[]? fields = null) =>
+            DefenderWmi.Query(cursor, fields ?? ["Value"], limit, elapsed ?? (() => TimeSpan.Zero));
+
+        var empty = new DefenderTestCursor([new(end, 0)]);
+        DefenderWmi.QueryResult result = Run(empty);
+        Require(result.State == DefenderReadState.Complete && result.Rows.Count == 0, ref checks);
+        Require(empty.OpenCount == 1 && empty.SecureCount == 1 && empty.NextCount == 1 && empty.DisposeCount == 1, ref checks);
+
+        // A per-call wait timeout is not EOF; a later object must still be read and released.
+        var row = new DefenderTestRow(_ => (0, true));
+        var waiting = new DefenderTestCursor([new(waitTimeout, 0), new(0, 1, row), new(end, 0)]);
+        result = Run(waiting);
+        Require(result.State == DefenderReadState.Complete && result.Rows.Count == 1 && Equals(result.Rows[0][0], true), ref checks);
+        Require(waiting.NextCount == 3 && waiting.DisposeCount == 1 && row.DisposeCount == 1 && row.GetCount == 1, ref checks);
+        Require(waiting.Timeouts.All(timeout => timeout == 200), ref checks);
+
+        // EOF may carry data. Do not discard the final row or request another one after EOF.
+        var lastRow = new DefenderTestRow(_ => (0, 7));
+        var final = new DefenderTestCursor([new(end, 1, lastRow)]);
+        result = Run(final);
+        Require(result.State == DefenderReadState.Complete && Equals(result.Rows.Single()[0], 7), ref checks);
+        Require(final.NextCount == 1 && final.DisposeCount == 1 && lastRow.DisposeCount == 1, ref checks);
+
+        foreach (int count in new[] { DefenderReader.MaxHistory, DefenderReader.MaxHistory + 1 })
+        {
+            DefenderTestRow[] rows = Enumerable.Range(0, count).Select(index => new DefenderTestRow(_ => (0, index))).ToArray();
+            var cursor = new DefenderTestCursor(rows.Select(item => new DefenderTestStep(0, 1, item))
+                .Append(new(end, 0)).ToArray());
+            result = Run(cursor, DefenderReader.MaxHistory);
+            Require(result.State == (count == DefenderReader.MaxHistory ? DefenderReadState.Complete : DefenderReadState.Partial), ref checks);
+            Require(result.Rows.Count == DefenderReader.MaxHistory && cursor.NextCount == DefenderReader.MaxHistory + 1, ref checks);
+            Require(rows.All(item => item.DisposeCount == 1) && cursor.DisposeCount == 1, ref checks);
+            Require(rows.Take(DefenderReader.MaxHistory).All(item => item.GetCount == 1), ref checks);
+            if (count > DefenderReader.MaxHistory) Require(rows[^1].GetCount == 0, ref checks);
+        }
+
+        foreach (DefenderQueryStage stage in Enum.GetValues<DefenderQueryStage>())
+        {
+            var good = new DefenderTestRow(_ => (0, 42));
+            var rejected = new DefenderTestRow(_ => (accessDenied, null));
+            var cursor = new DefenderTestCursor([new(0, 1, good),
+                new(stage == DefenderQueryStage.Enumerate ? accessDenied : 0, 1, rejected)])
+            {
+                OpenError = stage == DefenderQueryStage.Query ? new COMException("private", accessDenied) : null,
+                SecureError = stage == DefenderQueryStage.SecureProxy ? new COMException("private", accessDenied) : null
+            };
+            result = Run(cursor, 2);
+            Require(result.State == DefenderReadState.AccessDenied && result.FailureStage == stage && result.ErrorCode == accessDenied, ref checks);
+            Require(cursor.DisposeCount == 1, ref checks);
+            bool enumerated = stage is DefenderQueryStage.Enumerate or DefenderQueryStage.Property;
+            Require(result.Rows.Count == (enumerated ? 1 : 0), ref checks);
+            Require(good.DisposeCount == (enumerated ? 1 : 0) && rejected.DisposeCount == (enumerated ? 1 : 0), ref checks);
+            if (enumerated)
+            {
+                Require(Equals(result.Rows[0][0], 42), ref checks);
+                Require(rejected.GetCount == (stage == DefenderQueryStage.Property ? 1 : 0), ref checks);
+            }
+            else Require(cursor.NextCount == 0, ref checks);
+        }
+
+        foreach (uint returned in new uint[] { 0, 1, 2 })
+        {
+            // Missing object for a reported row, unexpected count, and empty success without EOF.
+            var invalidRow = returned == 1 ? null : new DefenderTestRow(_ => (0, true));
+            var cursor = new DefenderTestCursor([new(0, returned, invalidRow)]);
+            result = Run(cursor);
+            Require(result.State == DefenderReadState.InvalidData && result.Rows.Count == 0, ref checks);
+            Require(cursor.DisposeCount == 1 && (invalidRow is null || invalidRow.DisposeCount == 1), ref checks);
+            Require(invalidRow is null || invalidRow.GetCount == 0, ref checks);
+        }
+
+        var requested = new List<string>();
+        var values = new DefenderTestRow(name =>
+        {
+            requested.Add(name);
+            return name switch
+            {
+                "Missing" => (notFound, "private"),
+                "Object" => (0, new object()),
+                "Long" => (0, new string('x', 26)),
+                _ => (0, false)
+            };
+        });
+        string[] fields = ["Missing", "Object", "Long", "Flag"];
+        var filtered = new DefenderTestCursor([new(0, 1, values), new(end, 0)]);
+        result = Run(filtered, fields: fields);
+        Require(result.State == DefenderReadState.Complete && requested.SequenceEqual(fields), ref checks);
+        Require(result.Rows.Single().Take(3).All(value => value is null) && Equals(result.Rows[0][3], false), ref checks);
+        Require(values.DisposeCount == 1 && filtered.DisposeCount == 1, ref checks);
+
+        TimeSpan elapsed = DefenderReader.QueryBudget;
+        var expired = new DefenderTestCursor([]);
+        result = Run(expired, elapsed: () => elapsed);
+        Require(result.State == DefenderReadState.Timeout && result.FailureStage == DefenderQueryStage.Query, ref checks);
+        Require(expired.OpenCount == 0 && expired.SecureCount == 0 && expired.NextCount == 0 && expired.DisposeCount == 1, ref checks);
+
+        elapsed = TimeSpan.Zero;
+        var timedWait = new DefenderTestCursor(Enumerable.Repeat(
+            new DefenderTestStep(waitTimeout, 0, BeforeReturn: () => elapsed += TimeSpan.FromSeconds(1)), 8).ToArray());
+        result = Run(timedWait, elapsed: () => elapsed);
+        Require(result.State == DefenderReadState.Timeout && result.FailureStage == DefenderQueryStage.Enumerate && result.Rows.Count == 0, ref checks);
+        Require(timedWait.NextCount == 8 && timedWait.DisposeCount == 1, ref checks);
+
+        elapsed = TimeSpan.Zero;
+        var lateRow = new DefenderTestRow(_ => (0, true));
+        var lateNext = new DefenderTestCursor([new(0, 1, lateRow, () => elapsed = DefenderReader.QueryBudget)]);
+        result = Run(lateNext, elapsed: () => elapsed);
+        Require(result.State == DefenderReadState.Timeout && result.FailureStage == DefenderQueryStage.Enumerate, ref checks);
+        Require(result.Rows.Count == 0 && lateRow.GetCount == 0 && lateRow.DisposeCount == 1 && lateNext.DisposeCount == 1, ref checks);
+
+        // The last property can exhaust the budget too: never retain a row completed after it.
+        elapsed = TimeSpan.Zero;
+        var lateProperty = new DefenderTestRow(_ => { elapsed = DefenderReader.QueryBudget; return (0, true); });
+        var lateGet = new DefenderTestCursor([new(0, 1, lateProperty), new(end, 0)]);
+        result = Run(lateGet, elapsed: () => elapsed);
+        Require(result.State == DefenderReadState.Timeout && result.FailureStage == DefenderQueryStage.Property, ref checks);
+        Require(result.Rows.Count == 0 && lateGet.NextCount == 1, ref checks);
+        Require(lateProperty.DisposeCount == 1 && lateGet.DisposeCount == 1, ref checks);
+    }
+
+    private sealed record DefenderTestStep(int Result, uint Returned, DefenderTestRow? Row = null, Action? BeforeReturn = null);
+
+    private sealed class DefenderTestCursor(IReadOnlyList<DefenderTestStep> steps) : DefenderWmi.IQueryCursor
+    {
+        internal Exception? OpenError { get; init; }
+        internal Exception? SecureError { get; init; }
+        internal int OpenCount { get; private set; }
+        internal int SecureCount { get; private set; }
+        internal int NextCount { get; private set; }
+        internal int DisposeCount { get; private set; }
+        internal List<int> Timeouts { get; } = [];
+
+        public void Open() { OpenCount++; if (OpenError is not null) throw OpenError; }
+        public void Secure()
+        {
+            if (OpenCount != 1) throw new InvalidOperationException("Query must open before securing its proxy.");
+            SecureCount++;
+            if (SecureError is not null) throw SecureError;
+        }
+        public int Next(int timeout, out DefenderWmi.IQueryRow? item, out uint returned)
+        {
+            if (SecureCount != 1 || DisposeCount != 0) throw new InvalidOperationException("Query cursor is not active.");
+            DefenderTestStep step = steps[NextCount++];
+            Timeouts.Add(timeout);
+            item = step.Row;
+            returned = step.Returned;
+            step.BeforeReturn?.Invoke();
+            return step.Result;
+        }
+        public void Dispose() => DisposeCount++;
+    }
+
+    private sealed class DefenderTestRow(Func<string, (int Result, object? Value)> read) : DefenderWmi.IQueryRow
+    {
+        internal int GetCount { get; private set; }
+        internal int DisposeCount { get; private set; }
+
+        public int Get(string name, out object? value)
+        {
+            if (DisposeCount != 0) throw new InvalidOperationException("Query row was already released.");
+            GetCount++;
+            (int result, value) = read(name);
+            return result;
+        }
+        public void Dispose() => DisposeCount++;
     }
 }
