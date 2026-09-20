@@ -35,6 +35,16 @@ public partial class MainWindow : Window
         ShowPage(OverviewPage, OverviewNav);
     }
 
+    internal void ShowImportedDieResult(ScanResult result)
+    {
+        _result = result;
+        _selectedPath = null;
+        TargetPathText.Text = SecurityPolicy.SanitizeText(result.TargetName, 512);
+        InspectButton.IsEnabled = false;
+        ShowResult(result);
+        ShowPage(ReportPage, ReportNav);
+    }
+
     private void SelectFile_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new OpenFileDialog
@@ -150,7 +160,11 @@ public partial class MainWindow : Window
 
         try
         {
-            _result = await _inspector.ScanAsync(_selectedPath, progress, _scanCancellation.Token);
+            ScanResult pendingResult = await _inspector.ScanAsync(_selectedPath, progress, _scanCancellation.Token);
+            ProgressText.Text = IsJapanese ? "DiEの分離解析を実行中…" : "Running isolated DiE analysis…";
+            await DieSessionClient.AttachAsync(pendingResult, _selectedPath, _scanCancellation.Token);
+            _scanCancellation.Token.ThrowIfCancellationRequested();
+            _result = pendingResult;
             ShowResult(_result);
         }
         catch (OperationCanceledException)
@@ -201,6 +215,7 @@ public partial class MainWindow : Window
         AssessmentText.Text = $"{result.AssessmentCode} / {result.RiskScore}";
         AssessmentText.Foreground = assessmentBrush;
         VerdictText.Text = BuildVerdict(result);
+        ProgressText.Text += " / DiE: " + result.DieStatus;
 
         List<(FileAnalysis File, Indicator Indicator)> findings = result.Files
             .SelectMany(file => file.Indicators.Select(indicator => (file, indicator)))

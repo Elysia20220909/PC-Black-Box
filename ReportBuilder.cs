@@ -11,6 +11,14 @@ public static class ReportBuilder
         var builder = new StringBuilder();
         builder.AppendLine("# PC Black Box — Download Inspection Report");
         builder.AppendLine();
+        builder.AppendLine("DiE status: " + Escape(result.DieStatus));
+        if (result.Die is { } die)
+        {
+            builder.AppendLine("## Detect It Easy — supplementary classification");
+            builder.AppendLine("External untrusted evidence, matched by SHA-256. Not a malware verdict or proof of isolation.");
+            foreach (string label in die.Labels) builder.AppendLine("- " + Escape(label));
+            builder.AppendLine();
+        }
         builder.AppendLine($"- {(ja ? "対象" : "Target")}: `{Escape(result.TargetName)}`");
         builder.AppendLine($"- {(ja ? "開始" : "Started")}: {result.StartedAt:yyyy-MM-dd HH:mm:ss}");
         builder.AppendLine($"- {(ja ? "所要時間" : "Duration")}: {result.Duration.TotalSeconds:F1} s");
@@ -174,6 +182,8 @@ public static class ReportBuilder
             schema = "pc-black-box-report-v7",
             generatedAt = DateTimeOffset.UtcNow,
             target = Clean(result.TargetName),
+            die = result.Die,
+            dieStatus = result.DieStatus,
             security = new
             {
                 profile = Clean(result.SecurityProfile),

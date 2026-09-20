@@ -12,13 +12,6 @@ public enum SecurityControlTier
     PlatformReinforcement
 }
 
-public enum SecurityControlState
-{
-    NotEnforced,
-    Enforced,
-    Unavailable
-}
-
 public sealed record SecurityControlStatus(string Code, SecurityControlTier Tier, SecurityControlState State)
 {
     public bool Enforced => State == SecurityControlState.Enforced;

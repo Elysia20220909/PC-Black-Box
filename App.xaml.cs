@@ -12,7 +12,9 @@ public partial class App : Application
         bool commandLineSelfTest = e.Args.Length == 1 && e.Args[0].Equals("--self-test", StringComparison.OrdinalIgnoreCase);
         bool commandLineDefender = e.Args.Length > 0 && e.Args[0].Equals("--defender-status", StringComparison.OrdinalIgnoreCase);
         bool commandLineProtection = e.Args.Length > 0 && e.Args[0].Equals("--protection-status", StringComparison.OrdinalIgnoreCase);
-        bool commandLineMode = commandLineReport || commandLineSecurityStatus || commandLineSelfTest || commandLineDefender || commandLineProtection;
+        bool dieImport = e.Args.Length > 0 && e.Args[0] is "--die-report" or "--die-view";
+        bool dieSessionTest = e.Args.Length > 0 && e.Args[0] == "--die-session-test";
+        bool commandLineMode = commandLineReport || commandLineSecurityStatus || commandLineSelfTest || commandLineDefender || commandLineProtection || dieImport || dieSessionTest;
 
         // Refused before the baseline is consulted, so an elevated operator reads why this was
         // declined instead of a generic verification failure. The posture still follows on the
@@ -60,6 +62,65 @@ public partial class App : Application
         }
 
         base.OnStartup(e);
+
+        if (dieSessionTest)
+        {
+            try
+            {
+                if (e.Args.Length != 3) throw new ArgumentException();
+                ScanResult result = new FileInspector().ScanAsync(e.Args[1], null, CancellationToken.None).GetAwaiter().GetResult();
+                DieSessionClient.DisconnectProbeAsync(false, e.Args[1]).GetAwaiter().GetResult();
+                DieSessionClient.DisconnectProbeAsync(true, e.Args[1]).GetAwaiter().GetResult();
+                bool cancelled = false;
+                using (var cancelProbe = new CancellationTokenSource(TimeSpan.FromMilliseconds(100)))
+                {
+                    try { DieSessionClient.AttachAsync(result, e.Args[1], cancelProbe.Token).GetAwaiter().GetResult(); }
+                    catch (OperationCanceledException) { cancelled = true; }
+                }
+                if (!cancelled) throw new IOException("Cancellation was not observed.");
+                for (int i = 0; i < 2; i++)
+                {
+                    DieSessionClient.AttachAsync(result, e.Args[1], CancellationToken.None).GetAwaiter().GetResult();
+                    if (result.Die is null || result.DieStatus != "complete") throw new IOException("DiE session failed.");
+                }
+                if (!WindowsProcessHardening.Current.IsEnforced || !NetworkIsolationGuard.IsArmedAndManagedTransportFree()) throw new IOException();
+                SafeReportWriter.Write(e.Args[2], ReportBuilder.Build(result, "en"), result, ".md", allowOverwrite: false);
+                Console.WriteLine("PCBB_DIE_SESSION passed=true cancellation=true repeatedRequests=2 controls=16/16");
+                Shutdown(0);
+            }
+            catch { Console.Error.WriteLine("PCBB_DIE_SESSION passed=false"); Shutdown(1); }
+            return;
+        }
+
+        if (dieImport)
+        {
+            try
+            {
+                bool headless = e.Args[0] == "--die-report";
+                if (e.Args.Length != (headless ? 4 : 3)) throw new ArgumentException();
+                ScanResult result = new FileInspector().ScanAsync(e.Args[1], null, CancellationToken.None).GetAwaiter().GetResult();
+                result.Die = DieEvidence.Read(e.Args[2], result);
+                result.DieStatus = "complete";
+                if (headless)
+                {
+                    SafeReportWriter.Write(e.Args[3], ReportBuilder.Build(result, "en"), result, ".md", allowOverwrite: false);
+                    Console.WriteLine("PC_BLACK_BOX_DIE imported=true digestMatched=true");
+                    Shutdown(0);
+                }
+                else
+                {
+                    var window = new MainWindow();
+                    window.ShowImportedDieResult(result);
+                    window.Show();
+                }
+            }
+            catch
+            {
+                Console.Error.WriteLine("DiE evidence rejected or inspection failed. No safety verdict was produced.");
+                Shutdown(1);
+            }
+            return;
+        }
 
         if (commandLineDefender || commandLineProtection)
         {

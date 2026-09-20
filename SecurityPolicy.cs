@@ -28,7 +28,7 @@ public static class SecurityPolicy
 
         if (File.Exists(fullPath) && new FileInfo(fullPath).Length > MaxTargetBytes)
         {
-            throw new IOException($"The selected file exceeds the {FileAnalysis.FormatSize(MaxTargetBytes)} safety limit.");
+            throw new IOException($"The selected file exceeds the {MaxTargetBytes} byte safety limit.");
         }
 
         return fullPath;

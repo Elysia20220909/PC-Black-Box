@@ -20,6 +20,7 @@ internal static partial class ProductSelfTest
         int checks = 0;
         try
         {
+            TestDieEvidence(ref checks);
             var high = CreateFile("danger.ps1", "Script / active text", "NotSigned", "—", "example.invalid",
                 new("danger", "process-injection", "プロセス注入", "Process injection", 60));
             var review = CreateFile("review.exe", "Windows PE", "Valid", "Microsoft Windows", "—",

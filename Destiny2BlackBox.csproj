@@ -43,5 +43,6 @@
   <ItemGroup>
     <Resource Include="assets\pc-black-box.ico" />
     <Compile Remove="tests\**\*.cs" />
+    <Compile Remove="tools\**\*.cs" />
   </ItemGroup>
 </Project>
