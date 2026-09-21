@@ -1,0 +1,92 @@
+StillLens / PC Black Box
+Noncommercial Personal Use and No Redistribution License
+非商用個人利用・再配布禁止ライセンス
+
+Licensor / 許諾者: Elysia20220909
+Version / 条件の版: 2026-09-10
+
+Scope / 対象
+
+These terms apply only to the application source code, application binaries,
+and accompanying documentation in a revision distributed with these terms,
+to the extent the Licensor has the right to license them ("Application").
+Third-party components and material carrying separate license notices are
+excluded and remain governed by their own terms.
+
+この条件は、この条件を添付した改訂の本体ソース、本体バイナリ、関連文書のうち、
+許諾者が許諾する権利を持つ部分（以下「本体」）に適用します。
+第三者コンポーネントと別のライセンス表示がある素材は対象外で、それぞれの条件に従います。
+
+Permitted use / 許可する利用
+
+You may obtain, retain, inspect, build, run, and privately modify the Application
+solely for your own noncommercial personal use or evaluation. You may make
+copies needed for that use, including personal backups. Keep copyright and
+license notices with your copies. No other rights are granted by these terms.
+
+非商用の個人利用・試用のために限り、本体の取得、保管、閲覧、ビルド、実行、
+手元での改変を許可します。その利用に必要な複製と個人用バックアップも許可します。
+複製には著作権表示と利用条件を保持してください。この条件でそれ以外の権利は与えません。
+
+Prohibited use / 禁止する利用
+
+Commercial use is prohibited. This includes use for work or business,
+internal business operations, revenue-generating activities, or incorporation
+into a paid product or service, even when the Application itself is free.
+
+Redistribution is prohibited, whether paid or free. Do not publish, rehost,
+sell, sublicense, transfer, or otherwise provide the Application or its
+modified versions to third parties, including application source, binaries,
+or accompanying documentation. Private modification does not authorize
+sharing patches containing Application code. Sharing a link to the owner's
+official project page, without copying the Application, is not redistribution.
+
+商用利用は禁止します。本体が無料でも、仕事・業務での利用、社内業務、
+収益を得る活動、有料の製品やサービスへの組み込みを含みます。
+
+有償・無償を問わず再配布は禁止します。本体のソース、バイナリ、関連文書や
+改変版を再公開、転載、販売、再許諾、譲渡、その他の方法で第三者へ提供しないでください。
+手元での改変の許可には、本体のコードを含むパッチの共有は含まれません。
+本体を複製せず、所有者の公式プロジェクトページへのリンクを紹介することは再配布ではありません。
+
+Rights not restricted / 制限しない権利
+
+These terms do not restrict rights granted under third-party licenses,
+rights that applicable law does not allow to be restricted, or rights
+separately granted under GitHub's Terms of Service, including applicable
+public-repository viewing and forking rights within that service.
+They do not revoke rights previously granted under other applicable terms.
+No general commercial-use or off-platform redistribution permission follows
+from the repository being public.
+
+第三者ライセンスが与える権利、適用法が制限を認めない権利、GitHub利用規約が
+別途認める権利（同サービス内での公開リポジトリの閲覧・フォーク等）は制限しません。
+以前に別の適用条件で与えられた権利を取り消すものでもありません。
+リポジトリが公開されていることは、一般の商用利用やサービス外での再配布の許可を意味しません。
+
+Third-party conditions / 第三者の条件
+
+The Application's permissions do not replace Microsoft SDK terms, establish
+recipient agreement, or restrict rights in MPL-covered source.
+Consult the applicable third-party notices and licenses. Adding this file
+does not relicense an earlier release or update an existing release archive.
+
+本体の許可はMicrosoft SDKの条件の代わりにはならず、受領者の同意を成立させず、
+MPL対象ソースの権利を制限しません。該当する第三者通知とライセンスを確認してください。
+このファイルの追加だけで過去のリリースへ条件を適用したり、既存の配布アーカイブを更新したりしません。
+
+Disclaimer / 免責
+
+To the extent permitted by applicable law, the Application is provided
+"as is", without warranties of any kind. The Licensor is not liable for
+loss or damage arising from its use. This does not exclude liability or
+rights that applicable law does not allow to be excluded. Inspection
+results are not a guarantee of safety. No support or response time is promised.
+
+適用法が認める範囲で、本体は現状のまま提供し、いかなる保証もしません。
+利用から生じる損失・損害について許諾者は責任を負いません。ただし、
+適用法が排除を認めない責任や権利を排除するものではありません。
+検査結果は安全保証ではありません。サポートや返信時期は保証しません。
+
+This is a custom license, not the MIT License or an open-source license.
+これは独自の利用条件であり、MITライセンスやオープンソースライセンスではありません。

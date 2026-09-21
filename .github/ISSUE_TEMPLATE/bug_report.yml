@@ -1,0 +1,79 @@
+name: "不具合報告 / Bug report"
+description: "機密情報を含まない一般の不具合を報告します。 / Report a general bug without sensitive information."
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        このIssueは公開されます。日本語・英語のどちらでもかまいません。
+        実際の調査対象、疑わしい実行ファイル、未編集のレポートやログ、認証情報、非公開URL、個人パスは投稿しないでください。
+        This issue is public. Japanese or English is welcome. Do not post inspected files, suspicious executables, raw reports or logs, credentials, private URLs, or personal paths.
+
+        脆弱性の可能性がある場合はここへ投稿せず、[セキュリティ方針 / Security policy](https://github.com/Elysia20220909/PC-Black-Box/blob/main/SECURITY.md)に従ってください。
+        Do not disclose suspected vulnerabilities here; follow the security policy.
+        一般的な質問は[Discussions](https://github.com/Elysia20220909/PC-Black-Box/discussions)へ、Issuesが無効の場合は[相談案内 / Support](https://github.com/Elysia20220909/PC-Black-Box/blob/main/SUPPORT.md)へ進んでください。
+        Use Discussions for general questions, or the support guide if Issues is disabled. Adding this form does not enable Issues.
+  - type: input
+    id: app-version
+    attributes:
+      label: アプリのバージョン / Application version
+      description: "入手したリリース名またはソースコミットも書いてください。不明ならその旨を記載します。 / Include the release name or source commit; say if unknown."
+    validations:
+      required: true
+  - type: input
+    id: windows-version
+    attributes:
+      label: Windowsのバージョン / Windows version
+      description: "版とビルド番号が分かれば記載してください。端末名・ユーザー名は不要です。 / Include the version and build if known; omit device and user names."
+    validations:
+      required: true
+  - type: input
+    id: runtime-version
+    attributes:
+      label: .NET Desktop Runtimeのバージョン / Runtime version
+      description: "分かる場合だけ記載してください。 / Only include this if known."
+    validations:
+      required: false
+  - type: textarea
+    id: observed
+    attributes:
+      label: 起きたこと / What happened
+      description: "どの操作で何が起きたか、文章で説明してください。 / Describe the action and observed behavior in text."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期待していたこと / Expected behavior
+      description: "本来はどうなると思っていたかを書いてください。 / Describe what you expected to happen."
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 再現手順 / Reproduction steps
+      description: "再現条件が分からない場合も、そのまま記載してください。必要なら機密情報を含まない最小限の合成例を文章で説明し、実ファイルは添付しないでください。 / State if the conditions are unknown. Describe a minimal non-sensitive synthetic example if useful; do not attach inspected files."
+    validations:
+      required: true
+  - type: textarea
+    id: checks
+    attributes:
+      label: 補足と確認状況 / Additional context and checks
+      description: "試したことと未確認のことを分けてください。メッセージは機密情報を取り除ける場合だけ必要箇所を記載し、未編集ログは貼らないでください。 / Separate checks performed from unverified behavior. Include only necessary sanitized messages, not raw logs."
+    validations:
+      required: false
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: 投稿前の確認 / Before submitting
+      description: "チェックは自己確認であり、機密情報の自動検出や削除は行いません。 / These are self-checks, not automatic detection or removal of sensitive data."
+      options:
+        - label: "脆弱性の詳細や機密情報を含めていません。 / I have not included vulnerability details or sensitive information."
+          required: true
+        - label: "実ファイル、未編集レポート・ログ、認証情報、非公開URL、個人パスを含めていません。 / I have not included inspected files, raw reports or logs, credentials, private URLs, or personal paths."
+          required: true
+        - label: "[行動規範 / Code of conduct](https://github.com/Elysia20220909/PC-Black-Box/blob/main/CODE_OF_CONDUCT.md)を確認しました。 / I have read the code of conduct."
+          required: true
+        - label: "返信・解決・提案の採用・対応期限は保証されないことを理解しています。 / I understand that replies, fixes, acceptance, and response deadlines are not guaranteed."
+          required: true

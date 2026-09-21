@@ -1,0 +1,65 @@
+name: "改善提案 / Feature request"
+description: "困りごとと改善のアイデアを共有します。 / Describe a problem and a bounded improvement."
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        このIssueは公開されます。日本語・英語のどちらでもかまいません。
+        実際の調査対象、疑わしい実行ファイル、未編集のレポートやログ、認証情報、非公開URL、個人パスは投稿しないでください。
+        This issue is public. Japanese or English is welcome. Do not post inspected files, suspicious executables, raw reports or logs, credentials, private URLs, or personal paths.
+
+        脆弱性の可能性がある場合はここへ投稿せず、[セキュリティ方針 / Security policy](https://github.com/Elysia20220909/PC-Black-Box/blob/main/SECURITY.md)に従ってください。
+        Do not disclose suspected vulnerabilities here; follow the security policy.
+        一般的な質問は[Discussions](https://github.com/Elysia20220909/PC-Black-Box/discussions)へ、Issuesが無効の場合は[相談案内 / Support](https://github.com/Elysia20220909/PC-Black-Box/blob/main/SUPPORT.md)へ進んでください。
+        Use Discussions for general questions, or the support guide if Issues is disabled. Adding this form does not enable Issues.
+  - type: markdown
+    attributes:
+      value: |
+        対象ファイルの実行・アップロード、保護機能の回避、ゲームメモリの読み取り、パケット取得は対象外です。
+        ソースやパッチを添える前に、[提出条件 / Contribution terms](https://github.com/Elysia20220909/PC-Black-Box/blob/main/CONTRIBUTING.md)を確認し、許可を得てください。
+        Executing or uploading inspected files, bypassing protections, reading game memory, and capturing packets are out of scope.
+        Check contribution terms and obtain permission before including source or patches. Submitting this form does not grant usage or code-submission permission.
+  - type: textarea
+    id: problem
+    attributes:
+      label: 困っていること / Problem
+      description: "どのような場面で何が使いにくいか、機密情報を含めずに説明してください。 / Describe the situation and difficulty without sensitive information."
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 提案する変更 / Proposed improvement
+      description: "どうなると使いやすいかを書いてください。実装方法が分からなくても大丈夫です。 / Describe the desired improvement; you do not need to know how to implement it."
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: ほかに考えた方法 / Alternatives
+      description: "現在の機能で試した工夫や別の案があれば記載してください。 / Include workarounds or other ideas if any."
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: 補足 / Additional context
+      description: "必要なら機密情報を含まない例を文章で説明してください。実ファイルや未編集レポートは添付しないでください。 / Describe a non-sensitive example if needed; do not attach inspected files or raw reports."
+    validations:
+      required: false
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: 投稿前の確認 / Before submitting
+      description: "チェックは自己確認であり、機密情報の自動検出や削除は行いません。 / These are self-checks, not automatic detection or removal of sensitive data."
+      options:
+        - label: "脆弱性の詳細や機密情報を含めていません。 / I have not included vulnerability details or sensitive information."
+          required: true
+        - label: "実ファイル、未編集レポート・ログ、認証情報、非公開URL、個人パスを含めていません。 / I have not included inspected files, raw reports or logs, credentials, private URLs, or personal paths."
+          required: true
+        - label: "[行動規範 / Code of conduct](https://github.com/Elysia20220909/PC-Black-Box/blob/main/CODE_OF_CONDUCT.md)を確認しました。 / I have read the code of conduct."
+          required: true
+        - label: "返信・解決・提案の採用・対応期限は保証されないことを理解しています。 / I understand that replies, fixes, acceptance, and response deadlines are not guaranteed."
+          required: true
