@@ -8,14 +8,17 @@
         Icon="assets/pc-black-box.ico"
         WindowStyle="None"
         ResizeMode="CanResizeWithGrip"
-        Background="Transparent"
-        AllowsTransparency="True"
+        Background="{StaticResource WindowBrush}"
         UseLayoutRounding="True"
         SnapsToDevicePixels="True"
         AllowDrop="True"
         Drop="Window_Drop"
         DragOver="Window_DragOver"
         PreviewKeyDown="Window_PreviewKeyDown">
+    <WindowChrome.WindowChrome>
+        <WindowChrome CaptionHeight="46" ResizeBorderThickness="6" GlassFrameThickness="0"
+                      CornerRadius="4" UseAeroCaptionButtons="False" />
+    </WindowChrome.WindowChrome>
     <Border Background="{StaticResource WindowBrush}" BorderBrush="#3C444F" BorderThickness="1" CornerRadius="4">
         <Grid>
             <Grid.RowDefinitions>
@@ -25,7 +28,7 @@
                 <RowDefinition Height="38" />
             </Grid.RowDefinitions>
 
-            <Grid Grid.Row="0" Background="#13171C" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+            <Grid Grid.Row="0" Background="#13171C">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
@@ -43,9 +46,10 @@
                         <TextBlock x:Name="ReadOnlyBadgeText" Text="READ ONLY" Foreground="{StaticResource GoodBrush}" FontSize="9" FontWeight="Bold" />
                     </Border>
                 </StackPanel>
-                <StackPanel Grid.Column="1" Orientation="Horizontal">
-                    <Button Content="—" Style="{StaticResource NavButton}" Width="44" Click="Minimize_Click" />
-                    <Button Content="×" Style="{StaticResource NavButton}" Width="44" FontSize="17" Click="Close_Click" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal" WindowChrome.IsHitTestVisibleInChrome="True">
+                    <Button x:Name="MinimizeButton" Content="—" Style="{StaticResource NavButton}" Width="44" Padding="0" Click="Minimize_Click" />
+                    <Button x:Name="MaximizeButton" Content="□" Style="{StaticResource NavButton}" Width="44" Padding="0" Click="Maximize_Click" />
+                    <Button x:Name="CloseButton" Content="×" Style="{StaticResource NavButton}" Width="44" Padding="0" FontSize="17" Click="Close_Click" />
                 </StackPanel>
             </Grid>
 
@@ -58,6 +62,7 @@
                     <Button x:Name="OverviewNav" Content="OVERVIEW" Style="{StaticResource NavButton}" Tag="active" Click="OverviewNav_Click" />
                     <Button x:Name="FilesNav" Content="FILES" Style="{StaticResource NavButton}" Click="FilesNav_Click" />
                     <Button x:Name="ReportNav" Content="REPORT" Style="{StaticResource NavButton}" Click="ReportNav_Click" />
+                    <Button x:Name="DefenderNav" Content="DEFENDER" Style="{StaticResource NavButton}" Click="DefenderNav_Click" />
                 </StackPanel>
                 <Button x:Name="LanguageButton" Grid.Column="1" Content="JA / EN" Style="{StaticResource NavButton}" Margin="0,0,8,0" Click="Language_Click" />
             </Grid>
@@ -214,6 +219,19 @@
                             </StackPanel>
                         </Grid>
                     </Border>
+                </Grid>
+
+                <Grid x:Name="DefenderPage" Visibility="Collapsed">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                    <DockPanel Margin="0,0,0,12">
+                        <Button x:Name="RefreshDefenderButton" DockPanel.Dock="Right" HorizontalAlignment="Right"
+                                Style="{StaticResource GhostButton}" Click="RefreshDefender_Click" />
+                        <TextBlock x:Name="DefenderTitleText" Text="Microsoft Defender" FontSize="15" VerticalAlignment="Center" />
+                    </DockPanel>
+                    <TextBox x:Name="DefenderStatusText" Grid.Row="1" IsReadOnly="True" TextWrapping="Wrap"
+                             VerticalScrollBarVisibility="Auto" Background="{StaticResource PanelBrush}"
+                             Foreground="{StaticResource TextBrush}" BorderBrush="{StaticResource BorderBrush}"
+                             Padding="14" FontSize="12" AutomationProperties.Name="Microsoft Defender read-only status" />
                 </Grid>
 
                 <Grid x:Name="ReportPage" Visibility="Collapsed">

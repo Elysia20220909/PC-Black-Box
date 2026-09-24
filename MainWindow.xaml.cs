@@ -20,6 +20,9 @@ public partial class MainWindow : Window
     private string _fileRiskFilter = "ALL";
     private bool _isBusy;
     private string _language;
+    private DefenderSnapshot? _defenderSnapshot;
+    private IsolationPresenceSnapshot? _isolationPresence;
+    private bool _defenderBusy;
 
     private bool IsJapanese => _language == "ja";
 
@@ -27,8 +30,19 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         _language = SettingsStore.LoadLanguage();
+        StateChanged += (_, _) => UpdateWindowControls();
         ApplyLanguage();
         ShowPage(OverviewPage, OverviewNav);
+    }
+
+    internal void ShowImportedDieResult(ScanResult result)
+    {
+        _result = result;
+        _selectedPath = null;
+        TargetPathText.Text = SecurityPolicy.SanitizeText(result.TargetName, 512);
+        InspectButton.IsEnabled = false;
+        ShowResult(result);
+        ShowPage(ReportPage, ReportNav);
     }
 
     private void SelectFile_Click(object sender, RoutedEventArgs e)
@@ -146,14 +160,20 @@ public partial class MainWindow : Window
 
         try
         {
-            _result = await _inspector.ScanAsync(_selectedPath, progress, _scanCancellation.Token);
+            ScanResult pendingResult = await _inspector.ScanAsync(_selectedPath, progress, _scanCancellation.Token);
+            ProgressText.Text = IsJapanese ? "DiEの分離解析を実行中…" : "Running isolated DiE analysis…";
+            await DieSessionClient.AttachAsync(pendingResult, _selectedPath, _scanCancellation.Token);
+            _scanCancellation.Token.ThrowIfCancellationRequested();
+            _result = pendingResult;
             ShowResult(_result);
         }
         catch (OperationCanceledException)
         {
-            ProgressText.Text = IsJapanese ? "調査を停止しました。変更は行っていません。" : "Inspection cancelled. No changes were made.";
+            ProgressText.Text = IsJapanese ? "調査を停止しました。入力ファイルは変更していません。" : "Inspection cancelled. The input was not modified.";
             AssessmentText.Text = "CANCELLED";
-            VerdictText.Text = IsJapanese ? "途中結果は保存していません。" : "Partial results were not retained.";
+            VerdictText.Text = IsJapanese
+                ? "途中結果は保存していません。DiE実行中の停止では、後始末を確認できず、一時データが残る可能性があります。"
+                : "Partial results were not retained. If DiE was running, cleanup is unverified and temporary data may remain.";
         }
         catch (Exception)
         {
@@ -197,6 +217,12 @@ public partial class MainWindow : Window
         AssessmentText.Text = $"{result.AssessmentCode} / {result.RiskScore}";
         AssessmentText.Foreground = assessmentBrush;
         VerdictText.Text = BuildVerdict(result);
+        ProgressText.Text += " / DiE: " + result.DieStatus;
+        if (result.DieCleanup.NeedsAttention)
+        {
+            ProgressText.Text += " / " + result.DieCleanup.Describe(IsJapanese);
+            VerdictText.Text += Environment.NewLine + result.DieCleanup.Describe(IsJapanese);
+        }
 
         List<(FileAnalysis File, Indicator Indicator)> findings = result.Files
             .SelectMany(file => file.Indicators.Select(indicator => (file, indicator)))
@@ -633,9 +659,49 @@ public partial class MainWindow : Window
     private void OverviewNav_Click(object sender, RoutedEventArgs e) => ShowPage(OverviewPage, OverviewNav);
     private void FilesNav_Click(object sender, RoutedEventArgs e) => ShowPage(FilesPage, FilesNav);
     private void ReportNav_Click(object sender, RoutedEventArgs e) => ShowPage(ReportPage, ReportNav);
+    private void DefenderNav_Click(object sender, RoutedEventArgs e) => ShowPage(DefenderPage, DefenderNav);
+
+    private async void RefreshDefender_Click(object sender, RoutedEventArgs e)
+    {
+        if (_defenderBusy) return;
+        _defenderBusy = true;
+        RefreshDefenderButton.IsEnabled = false;
+        UpdateDefenderText();
+        _isolationPresence = null;
+        try
+        {
+            _defenderSnapshot = await DefenderReader.Shared.ReadAsync();
+            _isolationPresence = await IsolationToolReader.Shared.ReadAsync();
+        }
+        catch { _defenderSnapshot = DefenderSnapshot.Empty(DefenderReadState.Unavailable); }
+        finally
+        {
+            _defenderBusy = false;
+            RefreshDefenderButton.IsEnabled = true;
+            UpdateDefenderText();
+        }
+    }
+
+    private void UpdateDefenderText()
+    {
+        RefreshDefenderButton.Content = IsJapanese ? "保護状態・登録情報を取得" : "READ PROTECTION / REGISTRATION";
+        DefenderStatusText.Text = _defenderBusy
+            ? (IsJapanese ? "読み取り中です。スキャンは開始していません。" : "Reading existing state; no scan is being started.")
+            : _defenderSnapshot?.ToDisplay(IsJapanese) ?? (IsJapanese
+                ? "まだ取得していません。ボタンを押すと、このPCのDefenderの保護状態と既存の検出・対処履歴を読み取ります。\n\nスキャン、隔離、削除、復元、設定変更は行いません。ファイルパスやユーザー名も取得しません。"
+                : "Not queried. Use the button to read this PC's Defender protection state and existing detection/action history.\n\nNo scanning, quarantine, deletion, restoration or settings changes. File paths and user names are not collected.");
+        if (!_defenderBusy && _isolationPresence is not null)
+            DefenderStatusText.Text += "\n\n" + _isolationPresence.ToDisplay(IsJapanese);
+    }
 
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
     {
+        if (e.Key == Key.F5 && DefenderPage.Visibility == Visibility.Visible)
+        {
+            RefreshDefender_Click(sender, e);
+            e.Handled = true;
+            return;
+        }
         ModifierKeys modifiers = Keyboard.Modifiers;
         bool control = (modifiers & ModifierKeys.Control) != 0;
         bool shift = (modifiers & ModifierKeys.Shift) != 0;
@@ -690,9 +756,11 @@ public partial class MainWindow : Window
         OverviewPage.Visibility = Visibility.Collapsed;
         FilesPage.Visibility = Visibility.Collapsed;
         ReportPage.Visibility = Visibility.Collapsed;
+        DefenderPage.Visibility = Visibility.Collapsed;
         OverviewNav.Tag = null;
         FilesNav.Tag = null;
         ReportNav.Tag = null;
+        DefenderNav.Tag = null;
         page.Visibility = Visibility.Visible;
         nav.Tag = "active";
     }
@@ -708,6 +776,7 @@ public partial class MainWindow : Window
     private void ApplyLanguage()
     {
         bool ja = IsJapanese;
+        UpdateWindowControls();
         SecurityPosture posture = WindowsProcessHardening.Current;
         string postureCount = $"{posture.EnforcedCount}/{posture.RequiredCount}";
         string reinforcementCount = $"{posture.ReinforcementEnforcedCount}/{posture.ReinforcementCount}";
@@ -715,6 +784,7 @@ public partial class MainWindow : Window
         OverviewNav.Content = ja ? "概要" : "OVERVIEW";
         FilesNav.Content = ja ? "ファイル" : "FILES";
         ReportNav.Content = ja ? "レポート" : "REPORT";
+        UpdateDefenderText();
         AllFilterButton.Content = ja ? "すべて" : "ALL";
         HighFilterButton.Content = ja ? "高" : "HIGH";
         ReviewFilterButton.Content = ja ? "確認" : "REVIEW";
@@ -788,11 +858,29 @@ public partial class MainWindow : Window
 
     private Brush RiskBrush(int score) => score >= 60 ? (Brush)FindResource("DangerBrush") : score >= 25 ? (Brush)FindResource("WarnBrush") : (Brush)FindResource("GoodBrush");
 
-    private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    internal static WindowState ToggleMaximizedState(WindowState state) =>
+        state == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+
+    internal static string MaximizeActionName(WindowState state, bool japanese) =>
+        state == WindowState.Maximized
+            ? (japanese ? "元に戻す" : "Restore")
+            : (japanese ? "最大化" : "Maximize");
+
+    private void UpdateWindowControls()
     {
-        if (e.LeftButton == MouseButtonState.Pressed) DragMove();
+        SetWindowControlName(MinimizeButton, IsJapanese ? "最小化" : "Minimize");
+        SetWindowControlName(MaximizeButton, MaximizeActionName(WindowState, IsJapanese));
+        SetWindowControlName(CloseButton, IsJapanese ? "閉じる" : "Close");
+        MaximizeButton.Content = WindowState == WindowState.Maximized ? "❐" : "□";
     }
 
+    private static void SetWindowControlName(Button button, string name)
+    {
+        button.ToolTip = name;
+        AutomationProperties.SetName(button, name);
+    }
+
+    private void Maximize_Click(object sender, RoutedEventArgs e) => WindowState = ToggleMaximizedState(WindowState);
     private void Minimize_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
     private void Close_Click(object sender, RoutedEventArgs e) => Close();
 }

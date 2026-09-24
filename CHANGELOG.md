@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- Corrected OLE body coverage at the exact byte limit without reading beyond the budget. A fully observed logical stream is no longer marked incomplete solely because an extra EOF read did not fit; short EOF still marks both content and structure incomplete.
+- Added real CFB fixtures around the 64 MiB stream boundary and synthetic production-reader tests for declared-length mismatches, short reads, zero/exact/over-limit budgets, and cancellation propagation.
+- Made the hosted-account removal check fail on lookup errors instead of treating them as proof of absence. Added non-mutating regression tests for absence, a remaining account, and failed or partial enumeration.
+- Kept OLE regex timeouts inside the per-file inspection boundary, recording incomplete content and structure instead of aborting the scan.
+- Marked top-level MSI/MSP tables as undecoded even without a literal CustomAction stream name. Ordinary non-installer OLE files retain their existing completeness rules.
+- Replaced eager OLE entry materialization with bounded lazy traversal, reconciled observed stream EOF with the declared length, and shared one file clock across OLE and trailing ZIP inspection.
+- Added target-free OLE regression fixtures for normal input preservation, installer names, regex failure, shared byte/time budgets, depth and entry boundaries, and corrupt directory/FAT/miniFAT/DIFAT structures.
+- Locked NuGet package versions and content hashes, restricted package sources, and added Windows build, formatting, advisory, and headless runtime gates. CI uses a disposable standard user without weakening the product's administrator-launch refusal; no distribution artifacts are created or uploaded.
+
+## 0.13.0 — 2026-09-07
+
+- Opened the OLE compound-file storage tree instead of stopping at the container name. A top-level MSI or legacy Office file is walked under the same byte and time budgets as ZIP entry bodies, using a read-only view of the already-open inspection stream. Nothing is extracted, launched, or written back.
+- Recorded VBA and MSI CustomAction names as findings. Those streams are capability-scanned as bytes; the macro body and installer tables themselves stay undecoded, so the structure aspect remains `INCOMPLETE`. A well-formed tree no longer emits `ole-structure-unparsed`.
+- Kept a malformed OLE header (magic plus strings, no valid FAT) fail-closed as `ole-structure-unparsed` and `INCOMPLETE`. Nested OLE inside a ZIP is still unopened. Added OpenMcdf 3.3.0 as the first PackageReference; net10.0 brings no transitive packages.
+
 ## 0.12.0 — 2026-08-24
 
 - Promoted an exhausted ZIP-body budget from a prose-only warning to structured tail inventory. The window, Markdown, and JSON now retain the entry bodies left after that budget and the subsets whose names declare active content or another container.

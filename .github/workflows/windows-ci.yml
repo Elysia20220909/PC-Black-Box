@@ -1,0 +1,81 @@
+name: Windows source checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-source-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: windows-2025
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+      DOTNET_INSTALL_DIR: 'C:\Program Files\dotnet'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          global-json-file: global.json
+      - name: Locked restore and dependency advisory gate
+        run: |
+          dotnet restore Destiny2BlackBox.csproj --locked-mode --force --configfile NuGet.Config
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet restore tests/RuntimeBoundaryProbe/RuntimeBoundaryProbe.csproj --locked-mode --force --configfile NuGet.Config
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet restore tools/DieBridge/DieBridge.csproj --locked-mode --force --configfile NuGet.Config
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet restore tests/DieSandboxProbe/DieSandboxProbe.csproj --locked-mode --force --configfile NuGet.Config
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Release builds with security analyzers
+        run: |
+          dotnet build Destiny2BlackBox.csproj -c Release --no-restore --no-incremental
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet build tests/RuntimeBoundaryProbe/RuntimeBoundaryProbe.csproj -c Release --no-restore --no-incremental
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet build tools/DieBridge/DieBridge.csproj -c Release --no-restore --no-incremental
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet build tests/DieSandboxProbe/DieSandboxProbe.csproj -c Release --no-restore --no-incremental
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & ./tests/DieSandboxProbe/build-native.cmd
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Formatting
+        run: |
+          dotnet format Destiny2BlackBox.csproj --verify-no-changes --no-restore
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet format tests/RuntimeBoundaryProbe/RuntimeBoundaryProbe.csproj --verify-no-changes --no-restore
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet format tools/DieBridge/DieBridge.csproj --verify-no-changes --no-restore
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet format tests/DieSandboxProbe/DieSandboxProbe.csproj --verify-no-changes --no-restore
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Obfuscation preparation and transformed source build
+        run: ./tests/Test-ObfuscationPreparation.ps1 -AssemblyPath './bin/Release/net10.0-windows10.0.17763.0/PC Black Box.dll' -BuildTransformedCopy
+      - name: Obtain hash-pinned DiE test input (never uploaded)
+        run: |
+          $null = New-Item -ItemType Directory -Path obj/die-ci -Force
+          Invoke-WebRequest -Uri 'https://github.com/horsicq/DIE-engine/releases/download/3.21/die_win32_portable_3.21_x86.zip' -OutFile obj/die-ci/engine.zip -TimeoutSec 120
+          if ((Get-FileHash -LiteralPath obj/die-ci/engine.zip -Algorithm SHA256).Hash -cne '7D7195F757C45F6B69364D167C9958FA60339D53876A87E4A1EDBCBF67D1E477') {
+            throw 'Official DiE test archive hash mismatch.'
+          }
+      - name: Headless runtime gates as a temporary standard user
+        run: ./tests/Invoke-HostedRuntimeGates.ps1
+      - name: Source-only checkout remains unchanged
+        run: |
+          git diff --exit-code
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (git ls-files --others --exclude-standard) { throw 'Unexpected untracked files after verification.' }

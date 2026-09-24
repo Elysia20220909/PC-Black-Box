@@ -57,6 +57,16 @@ Use `JA / EN` to switch languages. Settings remain in `%LOCALAPPDATA%\PCBlackBox
 
 The target and report are not sent automatically. Reports can nevertheless contain file names, origin hosts, hashes, and strings stored inside the target. Review them before sharing. Opening a copied lookup URL in a browser discloses the hash to the external service; clipboard history and synchronization also depend on Windows settings.
 
+## Integration source additions
+
+These describe the integration source, not the published preview. Top-level OLE storage trees and stream bodies are inspected within budgets, but VBA bodies and MSI tables are not decoded. Malformed structures and undecoded content remain completeness limitations. OLE nested in ZIPs is not opened and remains `INCOMPLETE`.
+
+Microsoft Defender protection state and existing history are read-only; no scans or quarantine are started. Sandboxie Plus / QEMU registration hints from `--protection-status` do not prove effective isolation. [Defender integration](docs/defender-readonly.md)
+
+DiE provides supplementary classification in a separate AppContainer process for one file up to 64 MiB. Building the main application alone does not supply the integrated launcher or engine. The target is not executed; classification is not a safety verdict or isolation of the entire application. [Architecture and verification](docs/die-integration.md) / [Window control implementation](docs/window-controls.md)
+
+The table and technical references below record the named older versions, not the integration source's complete feature set.
+
 ## Source and preview are different versions
 
 This mapping was checked on 2026-09-10. Recheck tags and commits for later updates.
