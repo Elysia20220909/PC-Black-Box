@@ -18,6 +18,50 @@ internal static partial class ProductSelfTest
         scan.Die = evidence;
         Require(ReportBuilder.Build(scan, "en").Contains("Plain text", StringComparison.Ordinal), ref checks);
         Require(!ReportBuilder.BuildJson(scan, "en").Contains("secret", StringComparison.Ordinal), ref checks);
+        int riskBefore = scan.RiskScore;
+        var completeCleanup = new DieCleanupStatus("complete", "complete", "complete");
+        foreach (var cleanup in new[]
+        {
+            completeCleanup, new DieCleanupStatus("failed", "complete", "complete"),
+            new DieCleanupStatus("complete", "failed", "complete"), new DieCleanupStatus("complete", "complete", "failed"),
+            DieCleanupStatus.Unknown
+        })
+        {
+            DieSessionClient.ApplyResponse(DieSessionResponse.Write(valid, "complete", cleanup), scan);
+            Require(scan.DieStatus == "complete" && scan.Die is not null && scan.DieCleanup == cleanup, ref checks);
+            Require(scan.RiskScore == riskBefore, ref checks);
+            Require(ReportBuilder.Build(scan, "en").Contains(cleanup.Describe(false), StringComparison.Ordinal), ref checks);
+            using var report = JsonDocument.Parse(ReportBuilder.BuildJson(scan, "en"));
+            Require(report.RootElement.GetProperty("dieCleanup").GetProperty("temporaryData").GetString() == cleanup.TemporaryData, ref checks);
+            Require(cleanup.NeedsAttention == (cleanup != completeCleanup), ref checks);
+        }
+        foreach (string status in new[] { "failed", "cancelled" })
+        {
+            DieSessionClient.ApplyResponse(DieSessionResponse.Write(null, status, new("failed", "not-required", "not-required")), scan);
+            Require(scan.Die is null && scan.DieStatus == status && scan.DieCleanup.NeedsAttention, ref checks);
+        }
+        byte[] responseBytes = DieSessionResponse.Write(valid, "complete", completeCleanup);
+        bool RejectResponse(byte[] response)
+        {
+            try { DieSessionClient.ApplyResponse(response, scan); return false; }
+            catch (Exception ex) when (ex is InvalidDataException or JsonException or InvalidOperationException or KeyNotFoundException) { return true; }
+        }
+        Require(RejectResponse(valid), ref checks); // Old sessions cannot assert successful cleanup.
+        Require(RejectResponse(Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(responseBytes).Replace("\"temporaryData\":\"complete\"", "\"temporaryData\":\"complete\",\"temporaryData\":\"failed\"", StringComparison.Ordinal))), ref checks);
+        Require(RejectResponse(DieSessionResponse.Write(valid, "complete", new("unrecognized", "complete", "complete"))), ref checks);
+        Require(RejectResponse(DieSessionResponse.Write(null, "complete", completeCleanup)), ref checks);
+        Require(RejectResponse(DieSessionResponse.Write(valid, "failed", completeCleanup)), ref checks);
+        Require(RejectResponse(new byte[DiePipeProtocol.MaxFrame + 1]), ref checks);
+        foreach (byte[] invalidEvidence in new[] { Envelope(new { detects = Array.Empty<object>() }, new('B', 64)), Envelope(new { name = "C:\\private\\secret", type = "format", version = "" }) })
+        {
+            var failedCleanup = new DieCleanupStatus("failed", "failed", "complete");
+            Require(RejectResponse(DieSessionResponse.Write(invalidEvidence, "complete", failedCleanup)), ref checks);
+            Require(scan.Die is null && scan.DieStatus == "rejected-evidence" && scan.DieCleanup == failedCleanup, ref checks);
+            Require(ReportBuilder.Build(scan, "en").Contains(failedCleanup.Describe(false), StringComparison.Ordinal), ref checks);
+            using var rejectedReport = JsonDocument.Parse(ReportBuilder.BuildJson(scan, "en"));
+            Require(rejectedReport.RootElement.GetProperty("dieCleanup").GetProperty("temporaryData").GetString() == "failed", ref checks);
+        }
+        scan.Die = evidence;
         bool Reject(byte[] bytes)
         {
             try { DieEvidence.Parse(bytes, scan); return false; }

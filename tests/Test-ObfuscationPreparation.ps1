@@ -1,6 +1,6 @@
 #requires -Version 7.0
 [CmdletBinding()]
-param([Parameter(Mandatory)][string] $AssemblyPath)
+param([Parameter(Mandatory)][string] $AssemblyPath, [switch] $BuildTransformedCopy)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -25,7 +25,7 @@ $map = Get-Content -LiteralPath $first.MappingFile -Raw | ConvertFrom-Json
 Assert-True $map.complete 'The completed mapping marker was not written.'
 $layout = Get-Content -LiteralPath (Join-Path $root 'obfuscation/source-layout.json') -Raw | ConvertFrom-Json
 $notices = @($layout.optionalNotices | Where-Object { Test-Path -LiteralPath (Join-Path $root $_) -PathType Leaf })
-Assert-True ($first.FileCount -eq (32 + $notices.Count)) 'Unexpected source-only input count.'
+Assert-True ($first.FileCount -eq ($layout.renamedSources.Count + $layout.preservedFiles.Count + 1 + $notices.Count)) 'Unexpected source-only input count.'
 Assert-True (!$first.MappingFile.StartsWith($first.SourceDirectory + [IO.Path]::DirectorySeparatorChar)) 'The private map leaked into source/.'
 foreach ($entry in $map.files) {
     $original = Join-Path $root $entry.original
@@ -34,12 +34,15 @@ foreach ($entry in $map.files) {
     Assert-True ((Get-FileHash -LiteralPath $transformed).Hash -eq $entry.sha256) 'Source content changed in the copy.'
 }
 $renamed = @($map.files | Where-Object { $_.transformed -match '^s/' })
-Assert-True ($renamed.Count -eq 22) 'Not all reviewed source paths were renamed.'
+Assert-True ($renamed.Count -eq $layout.renamedSources.Count) 'Not all reviewed source paths were renamed.'
 Assert-True (@($renamed | Where-Object { $_.transformed -cnotmatch '^s/[0-9a-f]{32}/[0-9a-f]{32}\.cs$' }).Count -eq 0) 'A path still describes its responsibility.'
 $copiedFiles = @(Get-ChildItem -LiteralPath $first.SourceDirectory -Recurse -File -Force)
 Assert-True ($copiedFiles.Count -eq $map.files.Count) 'An unlisted file was copied.'
 Assert-True (@($copiedFiles | Where-Object { $_.Extension -in @('.dll', '.exe', '.pdb', '.ps1') -or ($_.Extension -eq '.json' -and $_.Name -notin @('global.json', 'packages.lock.json')) }).Count -eq 0) 'Unexpected metadata or binary in the source-only copy.'
 Assert-True (@($map.files | Where-Object { $_.original -eq 'ProductSelfTest.Ole.cs' }).Count -eq 1) 'OLE self-tests omitted.'
+foreach ($file in @('DieEvidence.cs', 'DiePipeProtocol.cs', 'DieSessionClient.cs', 'DieSessionResponse.cs', 'ProductSelfTest.Die.cs', 'SecurityControlState.cs')) {
+    Assert-True (@($map.files | Where-Object { $_.original -eq $file }).Count -eq 1) "Integrated source omitted: $file"
+}
 foreach ($file in @('global.json', 'NuGet.Config', 'packages.lock.json') + $notices) {
     Assert-True ((Get-FileHash -LiteralPath (Join-Path $root $file)).Hash -eq (Get-FileHash -LiteralPath (Join-Path $first.SourceDirectory $file)).Hash) "Build configuration or notice changed: $file"
 }
@@ -81,6 +84,21 @@ $oldProject.SelectSingleNode('/Project/PropertyGroup/Version').InnerText = '0.12
 $oldProject.Save((Join-Path $versionFixture 'Destiny2BlackBox.csproj'))
 Assert-Rejected { & $sourceTool -SourceRoot $versionFixture } 'Source version must'
 $extraDirectory = Join-Path $fixtureRoot 'Extra'
+# Both excluded trees may contain C#, including nested files, without entering the product copy.
+foreach ($excluded in @('tools', 'tests')) {
+    $excludedPath = Join-Path $fixtureRoot "$excluded/nested"
+    $null = New-Item -ItemType Directory -Path $excludedPath -Force
+    Write-NewUtf8File (Join-Path $excludedPath 'Excluded.cs') '// excluded from the application project'
+}
+$excludedCopy = & $sourceTool -SourceRoot $fixtureRoot
+$excludedMap = Get-Content -LiteralPath $excludedCopy.MappingFile -Raw | ConvertFrom-Json
+Assert-True (@($excludedMap.files | Where-Object { $_.original -match '^(tools|tests)/' }).Count -eq 0) 'An excluded project source was copied.'
+[xml] $changedProject = Get-Content -LiteralPath (Join-Path $versionFixture 'Destiny2BlackBox.csproj') -Raw
+$changedProject.SelectSingleNode('/Project/PropertyGroup/Version').InnerText = $layout.applicationVersion
+$compileRemoval = $changedProject.SelectSingleNode('/Project/ItemGroup/Compile[@Remove]')
+$null = $compileRemoval.ParentNode.RemoveChild($compileRemoval)
+$changedProject.Save((Join-Path $versionFixture 'Destiny2BlackBox.csproj'))
+Assert-Rejected { & $sourceTool -SourceRoot $versionFixture } 'compile exclusions changed'
 $null = New-Item -ItemType Directory -Path $extraDirectory
 Write-NewUtf8File (Join-Path $extraDirectory 'Added.cs') '// nested source must fail closed'
 Assert-Rejected { & $sourceTool -SourceRoot $fixtureRoot } 'inventory changed'
@@ -138,10 +156,20 @@ $wrongRunId = $runId + '-wrong-version'
 Assert-Rejected { & $configTool -AssemblyPath $wrongBinary -ResolutionDirectory $root -RunId $wrongRunId } 'Assembly file version must'
 Assert-True (!(Test-Path -LiteralPath (Join-Path $root "obj/structure-obfuscation/$wrongRunId"))) 'Rejected version created an output run.'
 
+if ($BuildTransformedCopy) {
+    $copiedProject = Join-Path $first.SourceDirectory 'Application.csproj'
+    & dotnet restore $copiedProject --locked-mode --configfile (Join-Path $first.SourceDirectory 'NuGet.Config')
+    if ($LASTEXITCODE -ne 0) { throw 'Transformed source locked restore failed.' }
+    & dotnet build $copiedProject -c Release --no-restore --no-incremental
+    if ($LASTEXITCODE -ne 0) { throw 'Transformed source build failed.' }
+    $script:checks++
+}
+
 [pscustomobject]@{
     Passed = $true
     Checks = $script:checks
     SourceDirectory = $first.SourceDirectory
     ConfigurationFile = $result.ConfigurationFile
     BinaryObfuscationExecuted = $false
+    TransformedCopyBuilt = [bool]$BuildTransformedCopy
 }

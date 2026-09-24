@@ -9,6 +9,7 @@ namespace DestinyBlackBox;
 internal static class DiePipeProtocol
 {
     internal const int MaxFrame = 1024 * 1024;
+    internal static ReadOnlySpan<byte> ParserStarted => "pcbb-die-started-v1"u8;
 
     internal static async Task WriteAsync(Stream stream, byte[] payload, CancellationToken cancellation)
     {

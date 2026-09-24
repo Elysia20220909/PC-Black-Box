@@ -19,5 +19,6 @@
     <Compile Include="../../ProcessObjectLockdown.cs" Link="ProcessObjectLockdown.cs" />
     <Compile Include="../../SecurityControlState.cs" Link="SecurityControlState.cs" />
     <Compile Include="../../DiePipeProtocol.cs" Link="DiePipeProtocol.cs" />
+    <Compile Include="../../DieSessionResponse.cs" Link="DieSessionResponse.cs" />
   </ItemGroup>
 </Project>

@@ -19,7 +19,14 @@ internal static class SessionHost
         using var stopped = new CancellationTokenSource();
         if (test) stopped.CancelAfter(TimeSpan.FromMinutes(4));
         using var first = NewPipe(name);
-        var start = new ProcessStartInfo(host) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Path.GetDirectoryName(app)! };
+        var start = new ProcessStartInfo(host)
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WorkingDirectory = Path.GetDirectoryName(app)!,
+            RedirectStandardOutput = test,
+            RedirectStandardError = test
+        };
         start.ArgumentList.Add(app);
         if (test)
         {
@@ -30,7 +37,10 @@ internal static class SessionHost
         start.Environment["PCBB_DIE_PIPE"] = name;
         start.Environment["PCBB_DIE_SERVER"] = Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture);
         using var application = Process.Start(start) ?? throw new IOException("Main application launch failed.");
-        Task serving = ServeAsync(first, (uint)application.Id, archive, stopped.Token);
+        Task<string>? testOutput = test ? application.StandardOutput.ReadToEndAsync() : null;
+        Task<string>? testError = test ? application.StandardError.ReadToEndAsync() : null;
+        var audit = test ? new SessionAudit() : null;
+        Task serving = ServeAsync(first, (uint)application.Id, archive, stopped.Token, audit);
         try
         {
             Task exited = application.WaitForExitAsync(stopped.Token);
@@ -50,14 +60,23 @@ internal static class SessionHost
         {
             stopped.Cancel();
             try { await serving; } catch (Exception ex) when (ex is OperationCanceledException or IOException or InvalidOperationException) { }
+            if (testOutput is not null) Console.Out.Write(await testOutput);
+            if (testError is not null) Console.Error.Write(await testError);
+            if (audit is not null) Console.WriteLine($"PCBB_DIE_SESSION_CLEANUP requests={audit.Requests} attention={audit.Attention}");
         }
-        return application.ExitCode;
+        return application.ExitCode == 0 && (audit is null || audit.Requests == 4 && audit.Attention == 0) ? 0 : 1;
     }
 
     private static NamedPipeServerStream NewPipe(string name) => new(name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte,
         PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly | PipeOptions.FirstPipeInstance);
 
-    private static async Task ServeAsync(NamedPipeServerStream pipe, uint client, string archive, CancellationToken stop)
+    private sealed class SessionAudit
+    {
+        internal int Requests;
+        internal int Attention;
+    }
+
+    private static async Task ServeAsync(NamedPipeServerStream pipe, uint client, string archive, CancellationToken stop, SessionAudit? audit)
     {
         while (!stop.IsCancellationRequested)
         {
@@ -77,7 +96,15 @@ internal static class SessionHost
                     Task disconnected = WatchDisconnectAsync(pipe, request);
                     try
                     {
-                        byte[] result = await Task.Run(() => Program.AnalyzeAsync(archive, target, request.Token), request.Token);
+                        byte[] result = await Task.Run(() => Program.AnalyzeAsync(archive, target, request.Token,
+                            () => DiePipeProtocol.WriteAsync(pipe, DiePipeProtocol.ParserStarted.ToArray(), request.Token).GetAwaiter().GetResult()), request.Token);
+                        // Observe even requests whose client has disconnected: a successful later
+                        // request must not conceal an earlier cancellation's failed cleanup.
+                        if (audit is not null)
+                        {
+                            audit.Requests++;
+                            if (DieSessionResponse.Read(result).Cleanup.NeedsAttention) audit.Attention++;
+                        }
                         await DiePipeProtocol.WriteAsync(pipe, result, request.Token);
                     }
                     finally

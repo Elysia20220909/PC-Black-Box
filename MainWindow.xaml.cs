@@ -169,9 +169,11 @@ public partial class MainWindow : Window
         }
         catch (OperationCanceledException)
         {
-            ProgressText.Text = IsJapanese ? "調査を停止しました。変更は行っていません。" : "Inspection cancelled. No changes were made.";
+            ProgressText.Text = IsJapanese ? "調査を停止しました。入力ファイルは変更していません。" : "Inspection cancelled. The input was not modified.";
             AssessmentText.Text = "CANCELLED";
-            VerdictText.Text = IsJapanese ? "途中結果は保存していません。" : "Partial results were not retained.";
+            VerdictText.Text = IsJapanese
+                ? "途中結果は保存していません。DiE実行中の停止では、後始末を確認できず、一時データが残る可能性があります。"
+                : "Partial results were not retained. If DiE was running, cleanup is unverified and temporary data may remain.";
         }
         catch (Exception)
         {
@@ -216,6 +218,11 @@ public partial class MainWindow : Window
         AssessmentText.Foreground = assessmentBrush;
         VerdictText.Text = BuildVerdict(result);
         ProgressText.Text += " / DiE: " + result.DieStatus;
+        if (result.DieCleanup.NeedsAttention)
+        {
+            ProgressText.Text += " / " + result.DieCleanup.Describe(IsJapanese);
+            VerdictText.Text += Environment.NewLine + result.DieCleanup.Describe(IsJapanese);
+        }
 
         List<(FileAnalysis File, Indicator Indicator)> findings = result.Files
             .SelectMany(file => file.Indicators.Select(indicator => (file, indicator)))

@@ -48,6 +48,8 @@ try
         $account.SID, 'Modify', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
     $acl.AddAccessRule($rule)
     Set-Acl -LiteralPath $logDirectory -AclObject $acl
+    $engineArchive = Join-Path $logDirectory 'die-engine.zip'
+    [IO.File]::Copy((Join-Path $repositoryRoot 'obj/die-ci/engine.zip'), $engineArchive, $false)
 
     $credential = [Management.Automation.PSCredential]::new(".\$accountName", $password)
     $stdout = Join-Path $logDirectory 'stdout.txt'
@@ -58,7 +60,7 @@ try
         FilePath = $shell
         Credential = $credential
         LoadUserProfile = $true
-        ArgumentList = ('-NoProfile -NonInteractive -File "{0}" -TemporaryDirectory "{1}"' -f $gate, $logDirectory)
+        ArgumentList = ('-NoProfile -NonInteractive -File "{0}" -TemporaryDirectory "{1}" -EngineArchive "{2}"' -f $gate, $logDirectory, $engineArchive)
         WorkingDirectory = $repositoryRoot
         WindowStyle = 'Hidden'
         RedirectStandardOutput = $stdout

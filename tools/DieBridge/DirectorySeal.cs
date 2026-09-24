@@ -8,6 +8,7 @@ using Microsoft.Win32.SafeHandles;
 internal sealed class DirectorySeal : IDisposable
 {
     private readonly List<(SafeFileHandle Handle, byte[] Original)> entries = [];
+    internal bool Restored { get; private set; } = true;
 
     public DirectorySeal(string root, SecurityIdentifier container)
     {
@@ -62,7 +63,7 @@ internal sealed class DirectorySeal : IDisposable
     {
         foreach (var item in entries.AsEnumerable().Reverse())
         {
-            if (!SetKernelObjectSecurity(item.Handle, 4, item.Original)) Console.Error.WriteLine("PCBB_DIE directoryAclRestore=false");
+            if (!SetKernelObjectSecurity(item.Handle, 4, item.Original)) Restored = false;
             item.Handle.Dispose();
         }
         entries.Clear();

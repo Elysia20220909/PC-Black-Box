@@ -31,7 +31,8 @@ The bridge accepts only the official 3.21 x86 portable ZIP with SHA-256 `7D7195F
 - A unique temporary AppContainer profile has zero capabilities. Its token is checked before resuming the child. The Job Object permits one process, limits its memory to 256 MiB, and kills it on close. Parser deadline: 30 seconds. Each output stream: 512 KiB. JSON depth and record/label counts are bounded. There is no unsandboxed fallback.
 - Temporary engine directories grant the container read/execute only. File handles deny write/delete while input, engine, database, and evidence are consumed. Engine directory ACLs additionally prevent new DLL/database planting; retained handles restore ACLs for cleanup.
 - The original file is held read-only; the staged copy's SHA-256 is checked. The main process independently matches the evidence digest against its inspection. This detects mismatched inputs, not a malicious parser's lies. Imported data is always untrusted classification, never a malware or isolation verdict, and does not reduce the risk score.
-- A temporary local profile and scratch directory are created and removed for each parser request. No firewall rules, certificate-store entries, system PATH or startup entries are changed. Cleanup failures are reported; abrupt termination or OS crash can leave temporary data. Session mode cleans up after each response. Legacy view mode retains input/evidence until the main window exits; legacy report mode has a two-minute main-process deadline.
+- A temporary local profile and scratch directory are created and removal is attempted for each parser request. No firewall rules, certificate-store entries, system PATH or startup entries are changed. Session responses are sent only after cleanup attempts finish. Analysis status and cleanup status are separate: temporary-data removal, AppContainer-profile removal, and directory-permission restoration each report `complete`, `failed`, `unknown`, or `not-required`. Cleanup failures/unknowns produce a GUI warning and appear in Markdown/JSON without disclosing local paths. Successful classification is not proof of successful cleanup.
+- Cancellation/disconnection can prevent a final cleanup acknowledgement; the client then reports cleanup as unknown, not successful. Abrupt termination or an OS crash can leave temporary data. Legacy view mode retains input/evidence until the main window exits; legacy report mode has a two-minute main-process deadline. Legacy evidence contains no post-cleanup acknowledgement, so imports explicitly show unknown cleanup. A legacy bridge cleanup failure returns a nonzero exit code.
 
 AppContainer is not a VM. Kernel/admin compromise, pre-existing process handles, parser vulnerabilities, denial of service, and the correctness of Windows confinement remain outside the claims. Same-user manipulation before bridge startup is not eliminated. Full internet traffic tracing and an adversarial sandbox-escape audit are not performed.
 
@@ -48,6 +49,21 @@ dotnet tests/DieSandboxProbe/bin/Release/net10.0-windows10.0.17763.0/DieSandboxP
 ```
 
 Never rebuild the main application concurrently with its self-tests: the running DLL is locked. Runtime boundary checks must run after self-tests complete.
+
+### Repeatable headless review gates
+
+The native probe also locks a real temporary file to force removal failure, simulates an AppContainer deletion failure, and verifies a successful retry after releasing the lock. Product self-tests verify that successful analysis can retain cleanup warnings, that warnings survive Markdown/JSON rendering, and that malformed or ambiguous session status is rejected.
+
+After building the main application, bridge, native probe, and managed probe, run:
+
+```powershell
+./tests/Test-DieIntegration.ps1 -EngineArchive C:/path/die_win32_portable_3.21_x86.zip
+./tests/Test-ObfuscationPreparation.ps1 -AssemblyPath './bin/Release/net10.0-windows10.0.17763.0/PC Black Box.dll' -BuildTransformedCopy
+```
+
+The integration script uses a private temporary fixture, not the installed signed build or a release directory. It checks the archive hash, native isolation/cleanup probes, disconnect before a request, disconnect after parser startup, cancellation after parser startup, and two successful reconnections. The native hanging-child probe independently checks cancellation of a running parser. Session tests require successful cleanup as well as classification. The fixture is removed even on failure.
+
+The output records HEAD, dirty status, and a SHA-256 fingerprint of non-documentation source/configuration inputs, including untracked inputs. A dirty run is explicitly not evidence for the unchanged commit alone. Windows CI builds the bridge/probes, performs the transformed-source build, obtains the hash-pinned official archive solely as a test input, and runs runtime gates under the existing temporary standard-user mechanism. No test artifact upload is configured. A workflow change or a local pass does not establish a successful hosted run.
 
 ## Dependencies and distribution
 
@@ -79,3 +95,5 @@ The approved signed-build-831eb7f directory now contains the unified launcher, p
 Post-deployment verification passed: product self-test 314 checks; all 16 required controls; root signed EXE headless session with immediate disconnect, request disconnect, cancellation and two successful subsequent analyses; four valid signatures; deployed binary hashes matching the pre-deployment snapshot. Runtime boundary test passed nine checks. The native probe additionally verified cancellation after the parser process was resumed. The reviewed GUI pending-result publication and pipe reconnection defects were fixed; bounded independent re-review reported no remaining P1/P2 in those fixes.
 
 The actual GUI was not opened or operated. The installed README-LOCAL.md documents single-file/64 MiB scope, runtime requirements, limitations and folder-level rollback. Nothing was uploaded or published. Source changes were uncommitted at the time of this deployment.
+
+The subsequent PR #27 review fixes and their local verification are recorded separately in [pr27-review-validation.md](pr27-review-validation.md). That record does not update or revalidate the installed package.

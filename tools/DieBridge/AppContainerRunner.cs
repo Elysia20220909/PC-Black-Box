@@ -7,8 +7,9 @@ using Microsoft.Win32.SafeHandles;
 
 internal static class AppContainerRunner
 {
-    internal static async Task<string> RunAsync(string directory, Action? verifyStaging = null, CancellationToken cancellation = default, Action? started = null)
+    internal static async Task<string> RunAsync(string directory, Action? verifyStaging = null, CancellationToken cancellation = default, Action? started = null, CleanupTracker? cleanup = null)
     {
+        cleanup ??= new CleanupTracker();
         string profile = "PCBB.Die." + Guid.NewGuid().ToString("N");
         nint sid = 0, attributes = 0, capabilities = 0, handleList = 0, environment = 0;
         nint job = 0;
@@ -21,12 +22,14 @@ internal static class AppContainerRunner
         {
             Marshal.ThrowExceptionForHR(CreateAppContainerProfile(profile, profile, "Temporary offline DiE parser", 0, 0, out sid));
             createdProfile = true;
+            cleanup.AppContainerProfile = "unknown";
             var principal = new SecurityIdentifier(sid);
             var directoryInfo = new DirectoryInfo(directory);
             var acl = directoryInfo.GetAccessControl();
             acl.AddAccessRule(new FileSystemAccessRule(principal, FileSystemRights.ReadAndExecute,
                 InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
             directoryInfo.SetAccessControl(acl);
+            cleanup.DirectoryPermissions = "unknown";
             seal = new DirectorySeal(directory, principal);
             verifyStaging?.Invoke();
 
@@ -72,6 +75,7 @@ internal static class AppContainerRunner
             // Attach and inspect the suspended child before a single instruction of parser code runs.
             Check(AssignProcessToJobObject(job, process.Process));
             VerifyAppContainer(process.Process);
+            using var killOnCancel = timeout.Token.Register(() => TerminateJobObject(job, 1));
             Check(ResumeThread(process.Thread) != uint.MaxValue);
             started?.Invoke();
             writeHandle.Dispose();
@@ -80,7 +84,6 @@ internal static class AppContainerRunner
             using var errorStream = new FileStream(errorReadHandle, FileAccess.Read);
             Task<string> stdout = Task.Run(() => ReadBounded(outputStream));
             Task<string> stderr = Task.Run(() => ReadBounded(errorStream));
-            using var killOnCancel = timeout.Token.Register(() => TerminateJobObject(job, 1));
             while (WaitForSingleObject(process.Process, 50) == 258)
             {
                 timeout.Token.ThrowIfCancellationRequested();
@@ -107,8 +110,12 @@ internal static class AppContainerRunner
             if (handleList != 0) Marshal.FreeHGlobal(handleList);
             if (environment != 0) Marshal.FreeHGlobal(environment);
             if (sid != 0) FreeSid(sid);
-            if (createdProfile && DeleteAppContainerProfile(profile) < 0) Console.Error.WriteLine("PCBB_DIE profileCleanup=false");
-            seal?.Dispose();
+            if (createdProfile) cleanup.DeleteProfile(() => DeleteAppContainerProfile(profile));
+            if (seal is not null)
+            {
+                string disposed = CleanupTracker.Attempt(seal.Dispose);
+                cleanup.DirectoryPermissions = disposed == "complete" && seal.Restored ? "complete" : "failed";
+            }
         }
     }
 

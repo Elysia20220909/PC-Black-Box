@@ -21,15 +21,34 @@ internal static class Program
         return await RunLegacyAsync(args);
     }
 
-    internal static async Task<byte[]> AnalyzeAsync(string archive, string target, CancellationToken cancellation)
+    internal static async Task<byte[]> AnalyzeAsync(string archive, string target, CancellationToken cancellation, Action? started = null)
     {
         byte[]? result = null;
-        int code = await RunLegacyAsync(["--report", archive, target, "", ""], bytes => result = bytes, cancellation);
-        if (code != 0 || result is null) throw new IOException("DiE analysis failed.");
-        return result;
+        var cleanup = new CleanupTracker();
+        string analysis;
+        try
+        {
+            int code = await RunCoreAsync(["--report", archive, target, "", ""], cleanup, bytes => result = bytes, cancellation, started);
+            analysis = code == 0 && result is not null ? "complete" : "failed";
+        }
+        catch (OperationCanceledException) { analysis = "cancelled"; }
+        // RunCoreAsync has finished its finally block before any response is serialized.
+        return DieSessionResponse.Write(analysis == "complete" ? result : null, analysis, cleanup.Snapshot);
     }
 
-    private static async Task<int> RunLegacyAsync(string[] args, Action<byte[]>? receive = null, CancellationToken cancellation = default)
+    private static async Task<int> RunLegacyAsync(string[] args)
+    {
+        var cleanup = new CleanupTracker();
+        int code = await RunCoreAsync(args, cleanup);
+        if (cleanup.Snapshot.NeedsAttention)
+        {
+            Console.Error.WriteLine("PCBB_DIE cleanupAttention=true " + cleanup.Snapshot.Describe(false));
+            return 1;
+        }
+        return code;
+    }
+
+    private static async Task<int> RunCoreAsync(string[] args, CleanupTracker cleanup, Action<byte[]>? receive = null, CancellationToken cancellation = default, Action? started = null)
     {
         if (args.Length != 5 || args[0] is not ("--report" or "--view"))
         {
@@ -44,6 +63,7 @@ internal static class Program
         string root = Path.Combine(SecurityPolicy.ValidateLocalDirectory(Path.GetTempPath(), true), "PCBB-Die-" + Guid.NewGuid().ToString("N"));
         try
         {
+            cleanup.TemporaryData = "unknown";
             Directory.CreateDirectory(root);
             var acl = new DirectorySecurity();
             acl.SetAccessRuleProtection(true, false);
@@ -102,7 +122,7 @@ internal static class Program
             {
                 var actual = Directory.EnumerateFiles(engine, "*", SearchOption.AllDirectories).ToHashSet(StringComparer.OrdinalIgnoreCase);
                 if (!actual.SetEquals(expectedFiles)) throw new InvalidDataException("Unexpected staged files.");
-            }, cancellation);
+            }, cancellation, started, cleanup);
             using var result = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = 20 });
             string evidence = Path.Combine(root, "evidence.json");
             byte[] evidenceBytes = JsonSerializer.SerializeToUtf8Bytes(new { schema = "pcbb-die-v1", sha256 = digest, result = result.RootElement });
@@ -140,13 +160,12 @@ internal static class Program
         }
         finally
         {
-            foreach (var resource in held.AsEnumerable().Reverse()) resource.Dispose();
+            bool released = true;
+            foreach (var resource in held.AsEnumerable().Reverse())
+                released &= CleanupTracker.Attempt(resource.Dispose) == "complete";
             // This unique directory is created by this invocation, never supplied by a caller.
-            if (Directory.Exists(root) && (File.GetAttributes(root) & FileAttributes.ReparsePoint) == 0)
-            {
-                try { Directory.Delete(root, true); }
-                catch { Console.Error.WriteLine("PCBB_DIE cleanup=false (temporary data remains)"); }
-            }
+            cleanup.DeleteTemporaryDirectory(root);
+            if (!released) cleanup.TemporaryData = "failed";
         }
     }
 

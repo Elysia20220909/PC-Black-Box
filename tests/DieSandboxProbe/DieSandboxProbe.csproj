@@ -10,5 +10,8 @@
   <ItemGroup>
     <Compile Include="../../tools/DieBridge/AppContainerRunner.cs" Link="AppContainerRunner.cs" />
     <Compile Include="../../tools/DieBridge/DirectorySeal.cs" Link="DirectorySeal.cs" />
+    <Compile Include="../../tools/DieBridge/CleanupTracker.cs" Link="CleanupTracker.cs" />
+    <Compile Include="../../DieSessionResponse.cs" Link="DieSessionResponse.cs" />
+    <Compile Include="../../DiePipeProtocol.cs" Link="DiePipeProtocol.cs" />
   </ItemGroup>
 </Project>

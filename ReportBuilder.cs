@@ -11,7 +11,8 @@ public static class ReportBuilder
         var builder = new StringBuilder();
         builder.AppendLine("# PC Black Box — Download Inspection Report");
         builder.AppendLine();
-        builder.AppendLine("DiE status: " + Escape(result.DieStatus));
+        builder.AppendLine("DiE analysis status: " + Escape(result.DieStatus));
+        builder.AppendLine(Escape(result.DieCleanup.Describe(ja)));
         if (result.Die is { } die)
         {
             builder.AppendLine("## Detect It Easy — supplementary classification");
@@ -184,6 +185,13 @@ public static class ReportBuilder
             target = Clean(result.TargetName),
             die = result.Die,
             dieStatus = result.DieStatus,
+            dieCleanup = new
+            {
+                temporaryData = result.DieCleanup.TemporaryData,
+                appContainerProfile = result.DieCleanup.AppContainerProfile,
+                directoryPermissions = result.DieCleanup.DirectoryPermissions,
+                needsAttention = result.DieCleanup.NeedsAttention
+            },
             security = new
             {
                 profile = Clean(result.SecurityProfile),

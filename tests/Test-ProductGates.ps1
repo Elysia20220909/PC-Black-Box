@@ -1,6 +1,6 @@
 #Requires -Version 7.0
 [CmdletBinding()]
-param([string] $TemporaryDirectory)
+param([string] $TemporaryDirectory, [string] $EngineArchive)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -46,3 +46,5 @@ if (-not ($selfTest -match '^PC_BLACK_BOX_SELF_TEST passed=true checks=\d+$'))
     throw 'The product self-test success marker is missing.'
 }
 & (Join-Path $PSScriptRoot 'Test-RuntimeBoundaries.ps1') -NoBuild
+if (!$EngineArchive) { throw 'The complete product gate requires a pinned DiE archive.' }
+& (Join-Path $PSScriptRoot 'Test-DieIntegration.ps1') -EngineArchive $EngineArchive

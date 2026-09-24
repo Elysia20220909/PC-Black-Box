@@ -115,6 +115,7 @@ public sealed class ScanResult
 {
     public DieEvidence? Die { get; set; }
     public string DieStatus { get; set; } = "not-requested";
+    public DieCleanupStatus DieCleanup { get; set; } = DieCleanupStatus.NotRequired;
     public string TargetPath { get; init; } = String.Empty;
     public string TargetName { get; init; } = String.Empty;
     public string SecurityProfile { get; init; } = String.Empty;

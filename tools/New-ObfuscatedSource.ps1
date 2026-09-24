@@ -31,6 +31,14 @@ if ($null -eq $version -or $version.InnerText -cne $layout.applicationVersion) {
     throw "Source version must be $($layout.applicationVersion); a different baseline needs a separate profile."
 }
 $expectedCode = @($inputs | Where-Object { $_.EndsWith('.cs', [StringComparison]::OrdinalIgnoreCase) } | Sort-Object)
+# Keep the traversal tied to the reviewed project, not just a silent hard-coded skip.
+# If the compile model changes, review it before copying anything.
+$removals = @($project.SelectNodes('/Project/ItemGroup/Compile/@Remove') | ForEach-Object { $_.Value.Replace('\', '/') } | Sort-Object)
+if ($removals.Count -ne 2 -or (Compare-Object @('tests/**/*.cs', 'tools/**/*.cs') $removals) -or
+    $project.SelectNodes('/Project/ItemGroup/Compile[@Include or @Update or @Condition] | /Project/ItemGroup[@Condition]/Compile | /Project/Import | /Project/Target').Count -ne 0 -or
+    $project.SelectNodes('/Project/PropertyGroup/EnableDefaultCompileItems | /Project/PropertyGroup/DefaultItemExcludes | /Project/PropertyGroup/DefaultExcludesInProjectFolder').Count -ne 0) {
+    throw 'Project compile exclusions changed; review the source inventory policy first.'
+}
 $codePaths = [Collections.Generic.List[string]]::new()
 $directories = [Collections.Generic.Queue[string]]::new()
 $directories.Enqueue($SourceRoot)
@@ -42,7 +50,7 @@ while ($directories.Count -gt 0) {
     }
     foreach ($child in Get-ChildItem -LiteralPath $directory -Directory -Force) {
         # Match this project's known top-level generated/test exclusions, not arbitrary subfolders.
-        if ($directory -eq $SourceRoot -and $child.Name -in @('.git', 'bin', 'obj', 'tests')) { continue }
+        if ($directory -eq $SourceRoot -and $child.Name -in @('.git', 'bin', 'obj', 'tests', 'tools')) { continue }
         $directories.Enqueue($child.FullName)
     }
 }

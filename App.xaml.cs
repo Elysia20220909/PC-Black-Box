@@ -72,20 +72,28 @@ public partial class App : Application
                 DieSessionClient.DisconnectProbeAsync(false, e.Args[1]).GetAwaiter().GetResult();
                 DieSessionClient.DisconnectProbeAsync(true, e.Args[1]).GetAwaiter().GetResult();
                 bool cancelled = false;
-                using (var cancelProbe = new CancellationTokenSource(TimeSpan.FromMilliseconds(100)))
+                bool parserStarted = false;
+                using (var cancelProbe = new CancellationTokenSource(TimeSpan.FromSeconds(90)))
                 {
-                    try { DieSessionClient.AttachAsync(result, e.Args[1], cancelProbe.Token).GetAwaiter().GetResult(); }
+                    try
+                    {
+                        DieSessionClient.AttachAsync(result, e.Args[1], cancelProbe.Token, () =>
+                        {
+                            parserStarted = true;
+                            cancelProbe.Cancel();
+                        }).GetAwaiter().GetResult();
+                    }
                     catch (OperationCanceledException) { cancelled = true; }
                 }
-                if (!cancelled) throw new IOException("Cancellation was not observed.");
+                if (!cancelled || !parserStarted || !result.DieCleanup.NeedsAttention) throw new IOException("Post-start cancellation was not observed.");
                 for (int i = 0; i < 2; i++)
                 {
                     DieSessionClient.AttachAsync(result, e.Args[1], CancellationToken.None).GetAwaiter().GetResult();
-                    if (result.Die is null || result.DieStatus != "complete") throw new IOException("DiE session failed.");
+                    if (result.Die is null || result.DieStatus != "complete" || result.DieCleanup.NeedsAttention) throw new IOException("DiE session or cleanup failed.");
                 }
                 if (!WindowsProcessHardening.Current.IsEnforced || !NetworkIsolationGuard.IsArmedAndManagedTransportFree()) throw new IOException();
                 SafeReportWriter.Write(e.Args[2], ReportBuilder.Build(result, "en"), result, ".md", allowOverwrite: false);
-                Console.WriteLine("PCBB_DIE_SESSION passed=true cancellation=true repeatedRequests=2 controls=16/16");
+                Console.WriteLine("PCBB_DIE_SESSION passed=true disconnectBeforeRequest=true disconnectAfterStart=true cancellationAfterStart=true repeatedRequests=2 cleanup=true controls=16/16");
                 Shutdown(0);
             }
             catch { Console.Error.WriteLine("PCBB_DIE_SESSION passed=false"); Shutdown(1); }
@@ -101,6 +109,8 @@ public partial class App : Application
                 ScanResult result = new FileInspector().ScanAsync(e.Args[1], null, CancellationToken.None).GetAwaiter().GetResult();
                 result.Die = DieEvidence.Read(e.Args[2], result);
                 result.DieStatus = "complete";
+                // Legacy evidence files contain no post-cleanup acknowledgement.
+                result.DieCleanup = DieCleanupStatus.Unknown;
                 if (headless)
                 {
                     SafeReportWriter.Write(e.Args[3], ReportBuilder.Build(result, "en"), result, ".md", allowOverwrite: false);
