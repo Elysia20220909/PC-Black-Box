@@ -39,6 +39,8 @@ pc-black-box-*.json
 *.pfx
 *.p12
 settings.json
+# Shared Claude Code project settings are source (the cloud SessionStart hook), not local state.
+!.claude/settings.json
 
 # IDE and operating-system state
 .vs/
