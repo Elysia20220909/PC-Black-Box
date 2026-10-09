@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Security.Cryptography;
@@ -97,6 +98,7 @@ internal static class ProductSelfTest
             Require(FileInspector.IsActiveContentExtension(".LnK"), ref checks);
             Require(TestRiskBands(), ref checks);
             Require(TestReportOmitsAbsolutePathAndSanitizesCells(), ref checks);
+            Require(TestReportIgnoresRegionalFormats(), ref checks);
             Require(TestTextInspectionHashesWithoutExecuting(), ref checks);
             Require(TestScriptCapabilitiesRaiseReview(), ref checks);
             Require(TestEmbeddedZipMarkerDoesNotHideScript(), ref checks);
@@ -246,6 +248,51 @@ internal static class ProductSelfTest
                document.RootElement.GetProperty("schema").GetString() is "pc-black-box-report-v7" &&
                document.RootElement.GetProperty("files")[0].GetProperty("path").GetString()
                    is "folder|name`\uFFFD\uFFFD.ps1";
+    }
+
+    /// <summary>
+    /// Keeps a shared report identical on every machine. Thai defaults to the Buddhist calendar, Finnish
+    /// separates time with dots, and German writes a decimal comma; none of them may reach the dates,
+    /// durations, or sizes, including a size already written into a finding during the scan.
+    /// </summary>
+    private static bool TestReportIgnoresRegionalFormats()
+    {
+        CultureInfo original = CultureInfo.CurrentCulture;
+        try
+        {
+            string[] expected = RenderRegionalSample(CultureInfo.InvariantCulture);
+            string[] regionalCultures = ["th-TH", "fi-FI", "de-DE"];
+
+            return expected[0].Contains("Started: 2026-10-09 09:05:07", StringComparison.Ordinal) &&
+                   expected[0].Contains("Duration: 1.5 s", StringComparison.Ordinal) &&
+                   expected[0].Contains("Total size: 1.5 KB", StringComparison.Ordinal) &&
+                   expected[0].Contains("2.5 KB of uninterpreted data", StringComparison.Ordinal) &&
+                   expected[2] is "7.50" &&
+                   regionalCultures.All(name =>
+                       RenderRegionalSample(CultureInfo.GetCultureInfo(name)).SequenceEqual(expected, StringComparer.Ordinal));
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = original;
+        }
+    }
+
+    /// <summary>Writes a finding and both Markdown reports under one culture, as a scan and its report would.</summary>
+    private static string[] RenderRegionalSample(CultureInfo culture)
+    {
+        CultureInfo.CurrentCulture = culture;
+        string prefix = FileAnalysis.FormatSize(2560);
+        var file = new FileAnalysis { RelativePath = "regional.bin", Size = 1536, Entropy = 7.5 };
+        file.Indicators.Add(new("watch", "archive-prefix",
+            $"ZIP本体の前に{prefix}の未解釈データがあります", $"{prefix} of uninterpreted data precede the ZIP body", 10));
+        var result = new ScanResult
+        {
+            TargetName = "regional.bin",
+            StartedAt = new DateTime(2026, 10, 9, 9, 5, 7, DateTimeKind.Local),
+            Duration = TimeSpan.FromSeconds(1.5)
+        };
+        result.Files.Add(file);
+        return [ReportBuilder.Build(result, "en"), ReportBuilder.Build(result, "ja"), file.EntropyText];
     }
 
     /// <summary>
