@@ -44,6 +44,35 @@ public static class SafeReportWriter
         }
     }
 
+    public static void WriteBatch(string path, string content, string expectedExtension, bool allowOverwrite)
+    {
+        string fullPath = SecurityPolicy.ValidateReportPath(path);
+        if (!Path.GetExtension(fullPath).Equals(expectedExtension, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new IOException($"The report must use the {expectedExtension} extension.");
+        }
+
+        string parent = Path.GetDirectoryName(fullPath)!;
+        using SafeFileHandle parentGuard = SecureFileReader.OpenDirectoryGuard(parent);
+
+        if (!allowOverwrite)
+        {
+            WriteNew(fullPath, content);
+            return;
+        }
+
+        string temporaryPath = Path.Combine(parent, $".{Path.GetFileName(fullPath)}.{RandomNumberGenerator.GetHexString(16)}.tmp");
+        try
+        {
+            WriteNew(temporaryPath, content);
+            File.Move(temporaryPath, fullPath, overwrite: true);
+        }
+        finally
+        {
+            try { if (File.Exists(temporaryPath)) File.Delete(temporaryPath); } catch { }
+        }
+    }
+
     private static void WriteNew(string path, string content)
     {
         using var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, 64 * 1024, FileOptions.WriteThrough);

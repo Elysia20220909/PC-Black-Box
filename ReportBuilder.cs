@@ -262,6 +262,92 @@ public static class ReportBuilder
         return JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
     }
 
+    public static string BuildBatchJson(IReadOnlyList<ScanResult> results, string language)
+    {
+        bool ja = !language.Equals("en", StringComparison.OrdinalIgnoreCase);
+        var payload = new
+        {
+            schema = "pc-black-box-batch-report-v1",
+            generatedAt = DateTimeOffset.UtcNow,
+            targetCount = results.Count,
+            targets = results.Select(r => new
+            {
+                target = Clean(r.TargetName),
+                path = Clean(r.TargetPath),
+                security = new
+                {
+                    profile = Clean(r.SecurityProfile),
+                    enforced = r.SecurityControlsEnforced == r.SecurityControlsRequired && r.SecurityControlsRequired > 0,
+                    controlsEnforced = r.SecurityControlsEnforced,
+                    controlsRequired = r.SecurityControlsRequired,
+                    reinforcementsEnforced = r.SecurityReinforcementsEnforced,
+                    reinforcementsAvailable = r.SecurityReinforcementsAvailable
+                },
+                result = new
+                {
+                    risk = r.RiskCode,
+                    completeness = r.CompletenessCode,
+                    assessment = r.AssessmentCode,
+                    score = r.RiskScore,
+                    fileCount = r.Files.Count,
+                    totalBytes = r.TotalBytes,
+                    highCount = r.HighCount,
+                    reviewCount = r.ReviewCount,
+                    signedCount = r.SignedCount,
+                    activeContentCount = r.ActiveContentCount,
+                    isPartial = r.IsPartial,
+                    partialReason = Clean(r.PartialReason),
+                    traversalComplete = r.TraversalComplete,
+                    durationSeconds = Math.Round(r.Duration.TotalSeconds, 3),
+                    files = r.Files.Select(file => new
+                    {
+                        path = Clean(file.RelativePath),
+                        file.Size,
+                        fileType = Clean(file.FileType),
+                        architecture = Clean(file.Architecture),
+                        file.Sha256,
+                        file.Entropy,
+                        signatureStatus = Clean(file.SignatureStatus),
+                        signer = Clean(file.Signer),
+                        file.InternetZone,
+                        sourceHost = file.SourceHost == "—" ? null : Clean(file.SourceHost),
+                        archiveEntries = file.ArchiveEntries,
+                        embeddedZipPayload = file.EmbeddedZipPayload,
+                        archiveContentScanApplicable = file.ArchiveContentScanApplicable,
+                        archiveContentScannedBytes = file.ArchiveContentScannedBytes,
+                        shortcutTarget = file.ShortcutTarget == "—" ? null : Clean(file.ShortcutTarget),
+                        shortcutArguments = file.ShortcutArguments == "—" ? null : Clean(file.ShortcutArguments),
+                        file.InspectionLimited,
+                        unexamined = InspectionAspects.All.Where(aspect => (file.Limits & aspect) != 0).Select(InspectionAspects.Code).ToArray(),
+                        file.CapabilityScanApplicable,
+                        file.CapabilityScannedBytes,
+                        riskScore = file.RiskScore,
+                        risk = file.RiskCode,
+                        indicators = file.Indicators.Select(indicator => new
+                        {
+                            severity = Clean(indicator.Severity),
+                            code = Clean(indicator.Code),
+                            score = indicator.Score,
+                            message = Clean(ja ? indicator.Japanese : indicator.English)
+                        })
+                    })
+                }
+            }).ToList(),
+            summary = new
+            {
+                totalFiles = results.Sum(r => r.Files.Count),
+                totalBytes = results.Sum(r => r.TotalBytes),
+                totalHigh = results.Sum(r => r.HighCount),
+                totalReview = results.Sum(r => r.ReviewCount),
+                overallRisk = results.Count == 0
+                    ? "CLEAR"
+                    : (results.Max(r => r.RiskScore) >= 60 ? "HIGH" : results.Max(r => r.RiskScore) >= 25 ? "REVIEW" : "LOW"),
+                skippedTargets = results.Count(r => r.IsPartial && r.Files.Count == 0)
+            }
+        };
+        return JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
+    }
+
     private static string Clean(string value) => SecurityPolicy.SanitizeText(value, 2048).Trim();
 
     private static string Escape(string value) => Clean(value).Replace("|", "/").Replace("`", "'");
