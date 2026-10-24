@@ -49,6 +49,13 @@ pwsh tests/Test-RuntimeBoundaries.ps1
 
 この境界テストは、引数なしでアプリを起動します（`tests/Test-RuntimeBoundaries.ps1`）。`-WindowStyle Hidden` はヘッドレス実行の保証ではありません。GUI禁止の作業では実行せず、未検証として残してください。テストを省略した状態を全ゲート合格と報告しないこと。変更提案と検証記録の扱いは [CONTRIBUTING.md](CONTRIBUTING.md) にまとめています。
 
+### Claude Code クラウドセッション（Linux）
+
+`.claude/hooks/session-start.sh` が .NET 10 SDK を入れ、`EnableWindowsTargeting=true` を設定します。そのため上記の `dotnet build` と
+`dotnet format Destiny2BlackBox.csproj --verify-no-changes --no-restore` は Linux でも実行できます。
+一方、Linux には WPF の実行環境がないため、`--security-status`・`--self-test`・`Test-RuntimeBoundaries.ps1` は動きません。
+これらは **未実行** と記録し、Windows で確認してください。
+
 ### 起動方法の落とし穴
 
 環境によって挙動が変わります。**起動に失敗しても、製品の不具合と決めつけないでください。**
