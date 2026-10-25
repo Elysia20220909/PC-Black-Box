@@ -66,8 +66,11 @@ and reported as `unavailable` where it does not. Reinforcements are displayed, n
     not shared with any process outside this security domain.
 19. Speculative store bypass disabled.
 20. Hardware-enforced shadow stacks (CET) observed as active. This cannot be switched on for a running
-    process, and a cleared flag is indistinguishable from a CPU without CET, so it is read only and is
-    never treated as a failure.
+    process, so the observation remains read only. An inactive result keeps `state=unavailable` and
+    distinguishes `reason=cpu-unsupported` (successful policy read and CPUID confirms missing hardware),
+    `reason=query-failed` (policy read failed), and `reason=not-enabled` (readable policy with a clear
+    enable flag, CPU support present or unknown). CPU-query failure is not evidence of non-support.
+    These diagnostics do not change the required tier or the reinforcement counts.
 
 ### Verification limits within the baseline
 
