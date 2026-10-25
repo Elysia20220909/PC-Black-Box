@@ -1,4 +1,5 @@
 using Microsoft.Win32;
+using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -189,7 +190,7 @@ public partial class MainWindow : Window
         FilesValue.Text = result.Files.Count.ToString();
         ActiveValue.Text = result.ActiveContentCount.ToString();
         SignedValue.Text = result.SignedCount.ToString();
-        TimeValue.Text = $"{result.Duration.TotalSeconds:F1}s";
+        TimeValue.Text = String.Create(CultureInfo.InvariantCulture, $"{result.Duration.TotalSeconds:F1}s");
         ScanProgressBar.Value = 100;
         ProgressText.Text = result.IsPartial
             ? $"INCOMPLETE: {DescribeScope(result)} — {result.PartialReason}"
@@ -571,7 +572,7 @@ public partial class MainWindow : Window
         {
             Title = IsJapanese ? "Markdownレポートを保存" : "Save Markdown report",
             Filter = "Markdown (*.md)|*.md",
-            FileName = $"pc-black-box-{DateTime.Now:yyyyMMdd-HHmmss}.md",
+            FileName = String.Create(CultureInfo.InvariantCulture, $"pc-black-box-{DateTime.Now:yyyyMMdd-HHmmss}.md"),
             AddExtension = true
         };
         if (dialog.ShowDialog(this) == true)
@@ -595,7 +596,7 @@ public partial class MainWindow : Window
         {
             Title = IsJapanese ? "JSONレポートを保存" : "Save JSON report",
             Filter = "JSON (*.json)|*.json",
-            FileName = $"pc-black-box-{DateTime.Now:yyyyMMdd-HHmmss}.json",
+            FileName = String.Create(CultureInfo.InvariantCulture, $"pc-black-box-{DateTime.Now:yyyyMMdd-HHmmss}.json"),
             AddExtension = true
         };
         if (dialog.ShowDialog(this) == true)

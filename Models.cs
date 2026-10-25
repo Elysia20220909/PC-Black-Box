@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO;
 
 namespace DestinyBlackBox;
@@ -63,7 +64,7 @@ public sealed class FileAnalysis
     public string ProductName { get; set; } = "—";
     public string CompanyName { get; set; } = "—";
     public double? Entropy { get; set; }
-    public string EntropyText => Entropy.HasValue ? Entropy.Value.ToString("F2") : "—";
+    public string EntropyText => Entropy.HasValue ? Entropy.Value.ToString("F2", CultureInfo.InvariantCulture) : "—";
     public string SignatureStatus { get; set; } = "Not checked";
     public string Signer { get; set; } = "—";
     public int? InternetZone { get; set; }
@@ -97,6 +98,10 @@ public sealed class FileAnalysis
     public string RiskCode => RiskScore >= 60 ? "HIGH" : RiskScore >= 25 ? "REVIEW" : Indicators.Count > 0 ? "LOW" : "CLEAR";
     public string RiskDisplay => $"{RiskCode} {RiskScore}";
 
+    /// <summary>
+    /// Sizes reach shared reports, including findings written during the scan, so they keep one format
+    /// instead of following the operator's regional settings.
+    /// </summary>
     public static string FormatSize(long bytes)
     {
         string[] units = ["B", "KB", "MB", "GB", "TB"];
@@ -107,7 +112,7 @@ public sealed class FileAnalysis
             value /= 1024;
             unit++;
         }
-        return $"{value:0.##} {units[unit]}";
+        return String.Create(CultureInfo.InvariantCulture, $"{value:0.##} {units[unit]}");
     }
 }
 

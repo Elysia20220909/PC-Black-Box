@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 
@@ -12,8 +13,9 @@ public static class ReportBuilder
         builder.AppendLine("# PC Black Box — Download Inspection Report");
         builder.AppendLine();
         builder.AppendLine($"- {(ja ? "対象" : "Target")}: `{Escape(result.TargetName)}`");
-        builder.AppendLine($"- {(ja ? "開始" : "Started")}: {result.StartedAt:yyyy-MM-dd HH:mm:ss}");
-        builder.AppendLine($"- {(ja ? "所要時間" : "Duration")}: {result.Duration.TotalSeconds:F1} s");
+        // A shared report reads the same on every machine: no regional calendar, time separator, or decimal comma.
+        builder.AppendLine(CultureInfo.InvariantCulture, $"- {(ja ? "開始" : "Started")}: {result.StartedAt:yyyy-MM-dd HH:mm:ss}");
+        builder.AppendLine(CultureInfo.InvariantCulture, $"- {(ja ? "所要時間" : "Duration")}: {result.Duration.TotalSeconds:F1} s");
         builder.AppendLine($"- {(ja ? "セキュリティ基準" : "Security baseline")}: {Escape(result.SecurityProfile)} — {result.SecurityControlsEnforced}/{result.SecurityControlsRequired} {(ja ? "強制確認済み" : "controls enforced")}");
         builder.AppendLine($"- {(ja ? "追加防御" : "Platform reinforcements")}: {result.SecurityReinforcementsEnforced}/{result.SecurityReinforcementsAvailable} {(ja ? "この環境で有効" : "active on this system")}");
         builder.AppendLine($"- {(ja ? "判定" : "Assessment")}: **{result.AssessmentCode} ({result.RiskScore}/100)**");

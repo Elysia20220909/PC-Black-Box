@@ -66,6 +66,17 @@ pwsh tests/Test-RuntimeBoundaries.ps1
   出力が必要なら `Start-Process -NoNewWindow -Wait -RedirectStandardOutput` を使う
   （ただし上の制約と両立しない環境がある）。
 
+### Claude Code のクラウドセッション（Linux）
+
+クラウドセッションの開始時だけ、`.claude/hooks/session-start.sh` が（未導入なら）Ubuntu アーカイブの .NET 10 SDK を入れ、
+`EnableWindowsTargeting=true` を設定して本体と `tests/RuntimeBoundaryProbe` を復元します。ローカルのセッションでは何もしません。
+
+- Linux で回せるのは、Release ビルド（アナライザーと警告ゼロを含む）、`dotnet format --verify-no-changes`、
+  `dotnet list package --vulnerable --include-transitive`、`git diff --check` まで。
+- `--security-status` と `--self-test` は、Linux 用の Windows Desktop ランタイムがないため起動できない。
+  境界テストも Windows 専用。いずれも**未実行**として記録し、Linux のビルド結果で埋めない。
+- Ubuntu の SDK は 10.0.1xx 系で、Windows で使う SDK と版が異なることがある。記録には SDK の版を添える。
+
 ## 4. 分担と衝突回避
 
 - **同じ作業ツリーを同時に触らない。** ブランチは `agent/<topic>`。必要なら `git worktree` で物理的に分ける。
