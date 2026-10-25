@@ -74,6 +74,7 @@ internal static class ProductSelfTest
                     .SafeLine.EndsWith("state=unavailable", StringComparison.Ordinal),
                 ref checks);
             Require(TestNetworkIsolationNames(), ref checks);
+            CheckHardwareShadowStackDiagnostics(ref checks);
 
             var result = new ScanResult
             {
@@ -147,6 +148,29 @@ internal static class ProductSelfTest
         catch
         {
             return new ProductSelfTestResult(false, checks);
+        }
+    }
+
+    private static void CheckHardwareShadowStackDiagnostics(ref int checks)
+    {
+        (bool PolicyReadSucceeded, uint Flags, bool? CpuSupported, string Expected)[] cases =
+        [
+            (true, 1, true, "state=enforced"),
+            (true, 1, null, "state=enforced"),
+            (true, 0, false, "state=unavailable reason=cpu-unsupported"),
+            (false, 0, true, "state=unavailable reason=query-failed"),
+            (false, 1, false, "state=unavailable reason=query-failed"),
+            (false, 0, null, "state=unavailable reason=query-failed"),
+            (true, 0, true, "state=unavailable reason=not-enabled"),
+            (true, 0, null, "state=unavailable reason=not-enabled")
+        ];
+
+        foreach (var test in cases)
+        {
+            SecurityControlStatus status = WindowsProcessHardening.DescribeHardwareShadowStack(
+                test.PolicyReadSucceeded, test.Flags, test.CpuSupported);
+            Require(status.SafeLine.Equals($"control=user-shadow-stack tier=reinforcement {test.Expected}",
+                StringComparison.Ordinal), ref checks);
         }
     }
 

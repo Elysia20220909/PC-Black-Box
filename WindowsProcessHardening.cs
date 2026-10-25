@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Runtime.Intrinsics.X86;
 
 namespace DestinyBlackBox;
 
@@ -19,11 +20,22 @@ public enum SecurityControlState
     Unavailable
 }
 
+public enum SecurityControlReason
+{
+    None,
+    CpuUnsupported,
+    QueryFailed,
+    NotEnabled
+}
+
 public sealed record SecurityControlStatus(string Code, SecurityControlTier Tier, SecurityControlState State)
 {
+    public SecurityControlReason Reason { get; init; }
+
     public bool Enforced => State == SecurityControlState.Enforced;
 
-    public string SafeLine => $"control={Code} tier={TierText} state={StateText}";
+    public string SafeLine => $"control={Code} tier={TierText} state={StateText}" +
+        (Reason == SecurityControlReason.None ? String.Empty : $" reason={ReasonText}");
 
     private string TierText => Tier == SecurityControlTier.Required ? "required" : "reinforcement";
 
@@ -32,6 +44,14 @@ public sealed record SecurityControlStatus(string Code, SecurityControlTier Tier
         SecurityControlState.Enforced => "enforced",
         SecurityControlState.Unavailable => "unavailable",
         _ => "not-enforced"
+    };
+
+    private string ReasonText => Reason switch
+    {
+        SecurityControlReason.CpuUnsupported => "cpu-unsupported",
+        SecurityControlReason.QueryFailed => "query-failed",
+        SecurityControlReason.NotEnabled => "not-enabled",
+        _ => "unknown"
     };
 }
 
@@ -180,7 +200,7 @@ public static class WindowsProcessHardening
             Record(controls, "speculative-store-bypass", ApplyAndVerify(
                 ProcessMitigationPolicy.SideChannelIsolation,
                 SpeculativeStoreBypassDisable));
-            Record(controls, "user-shadow-stack", VerifyHardwareShadowStack());
+            controls.Add(VerifyHardwareShadowStack());
         }
         catch
         {
@@ -258,18 +278,51 @@ public static class WindowsProcessHardening
         StateOf(VerifyPolicy(policy, requiredFlags));
 
     /// <summary>
-    /// Hardware-enforced stack protection cannot be switched on for a running process, and a cleared flag
-    /// is indistinguishable from a CPU without CET. It is therefore read only and never treated as a failure.
+    /// Observes hardware-enforced stack protection without changing it. A missing enable flag is
+    /// explained using CPU capabilities; failure to read the policy is never evidence of CPU non-support.
     /// </summary>
-    private static SecurityControlState VerifyHardwareShadowStack()
+    private static SecurityControlStatus VerifyHardwareShadowStack()
     {
-        if (!TryGetPolicy(ProcessMitigationPolicy.UserShadowStack, out uint flags))
+        bool policyReadSucceeded = TryGetPolicy(ProcessMitigationPolicy.UserShadowStack, out uint flags);
+        bool? cpuSupported = policyReadSucceeded && (flags & EnableUserShadowStack) == 0
+            ? ReadCpuShadowStackSupport()
+            : null;
+        return DescribeHardwareShadowStack(policyReadSucceeded, flags, cpuSupported);
+    }
+
+    internal static SecurityControlStatus DescribeHardwareShadowStack(bool policyReadSucceeded, uint flags, bool? cpuSupported)
+    {
+        bool enabled = policyReadSucceeded && (flags & EnableUserShadowStack) != 0;
+        SecurityControlReason reason = (policyReadSucceeded, enabled, cpuSupported) switch
         {
-            return SecurityControlState.Unavailable;
+            (false, _, _) => SecurityControlReason.QueryFailed,
+            (true, true, _) => SecurityControlReason.None,
+            (true, false, false) => SecurityControlReason.CpuUnsupported,
+            _ => SecurityControlReason.NotEnabled
+        };
+
+        return new SecurityControlStatus("user-shadow-stack", SecurityControlTier.PlatformReinforcement,
+            enabled ? SecurityControlState.Enforced : SecurityControlState.Unavailable)
+        {
+            Reason = reason
+        };
+    }
+
+    private static bool? ReadCpuShadowStackSupport()
+    {
+        try
+        {
+            // A missing intrinsic (for example, on ARM64) leaves CPU support unknown, not unsupported.
+            if (!X86Base.IsSupported) return null;
+            if (X86Base.CpuId(0, 0).Item1 < 7) return false;
+
+            // CPUID.(EAX=7, ECX=0):ECX[7] is the CET shadow-stack capability bit (CET_SS).
+            return (X86Base.CpuId(7, 0).Item3 & (1 << 7)) != 0;
         }
-        return (flags & EnableUserShadowStack) != 0
-            ? SecurityControlState.Enforced
-            : SecurityControlState.Unavailable;
+        catch
+        {
+            return null;
+        }
     }
 
     private static bool TryGetPolicy(ProcessMitigationPolicy policy, out uint flags)
