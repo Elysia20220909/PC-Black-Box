@@ -11,6 +11,7 @@ PC Black Box gives the owner prioritized evidence about an untrusted local downl
 | Application | Signed source history and the running managed code | Selected file names, bytes, metadata, archive entries, and signer text |
 | Operating system | Windows process-mitigation state read back through Kernel32 | Paths on network, device, alternate-stream, or reparse namespaces |
 | Archive runtime | The serviced .NET runtime and its native `System.IO.Compression.Native.dll` loaded through restricted DLL discovery | Every compressed byte presented to the inflater |
+| OLE parser | OpenMcdf 3.4.0 core, resolved through the repository NuGet configuration and lock file | CFB headers, storage trees, FAT/DIFAT/miniFAT links, and stream bodies |
 | Output | Sanitized in-memory result and exclusively created local report | Existing report files, reparse destinations, absolute paths, and control characters |
 | Network | No network function is required for inspection | Remote reputation, cloud scanning, download, upload, and browser launch |
 
@@ -26,8 +27,11 @@ PC Black Box gives the owner prioritized evidence about an untrusted local downl
 - All loops, input sizes, filesystem entries, directory depth, retained paths, archive metadata, signature checks, text lengths, and regular-expression evaluation are bounded.
 - ZIP central-directory structure must pass bounded preflight before the standard archive parser can allocate entry objects.
 - ZIP entry bodies are read only through bounded streams and are never extracted to disk; declared size is reconciled with observed EOF. Valid nested ZIPs are recursively inspected in memory under shared depth, count, byte, entry, and time budgets, while unsupported, malformed, unread, or over-limit containers remain explicitly incomplete.
+- Top-level OLE uses a non-writable view of the existing inspection handle and strict parser validation. Lazy traversal is limited to 10,000 entries and storage depth 32; each stream is limited to 64 MiB, each file to 256 MiB, and the scan to 1 GiB of structured body reads. Parser errors, regex timeouts, and unread declared bodies retain explicit incomplete coverage. Inputs are not extracted or written back.
+- OLE and ZIP share one structured-inspection clock per file (30 seconds) and cumulative scan time (120 seconds). Limits are cooperative: a synchronous OS read or parser operation already in progress cannot be forcibly interrupted by these guards. The existing ZIP coverage fields count only ZIP body bytes; OLE reads consume the shared budget separately.
+- VBA macro bodies and Windows Installer tables/actions are not decoded. Recognized VBA names and any top-level OLE with an MSI/MSP extension retain incomplete structure. Name evidence does not identify every renamed installer, encrypted payload, or embedded format; the synthetic fixtures are not a real-world Office/MSI compatibility suite.
 - Decompression may enter the framework's native inflater only after DLL discovery has excluded the target and current directory. Compressed input, expanded output, and elapsed time remain bounded at the managed edge; native inflater correctness is a trusted runtime dependency rather than a claim made by this source tree.
-- Reports exclude absolute paths and personal identifiers and are never written inside the inspected target.
+- Report target metadata uses display names and target-relative file paths, without adding the selected target's absolute path. Display names, source hosts, hashes, and input-held evidence remain and can identify a person or contain absolute paths; this is not report anonymization. Batch schema v2 removes `targets[].path`; target array order remains input order, including duplicate names and failed targets. Empty or drive-root display names use the fixed label `target`.
 - No administrator privilege, UIAccess, external lookup, or child process is required. An elevated
   launch is refused rather than accommodated.
 
@@ -74,6 +78,8 @@ and reported as `unavailable` where it does not. Reinforcements are displayed, n
 
 ### Verification limits within the baseline
 
+- Both report writers reject destinations over or inside their selected targets. The batch API requires all original input paths, including failed inspections; unknown target type does not remove containment protection. Every comparison uses normalized paths and separator boundaries, including drive roots. All targets are checked before creating any output or temporary file.
+- A batch target boundary must be a verifiable local-drive path. Its existing file/directory or nearest existing ancestor is checked with the no-follow reader and final-handle path matching. Ambiguous trailing dots/spaces, reparse points, and access/sharing failures stop the save. A missing target can still be reported when its boundary is verifiable and the destination is outside it. These checks do not prove every filesystem alias or atomically prevent concurrent replacement between validation and writing.
 - Heap termination on corruption has no query API in Windows. The `HeapSetInformation` result is the
   only available confirmation; every other control in both tiers is read back from the kernel.
 - The network control blocks the assemblies that can actually move bytes — sockets, MsQuic, the DNS
@@ -138,6 +144,7 @@ would break the running product, and a control that cannot stay on is worse than
 ## Verification gates
 
 - Strict Release rebuild with current .NET analyzers, all security rules enabled, and warnings treated as errors.
+- Restore the application with its checked-in lock file and repository NuGet configuration. Unexpected dependency changes or content hashes must fail locked restore. Check upstream security advisories as well as the NuGet audit, which can lag newly published findings; neither proves parser correctness or SDK/runtime provenance.
 - Dependency audit must report no advisory at any severity, direct or transitive.
 - Runtime `--security-status` result must be `enforced=true` with every required control present, and must
   print one `control=… tier=… state=…` line per control for independent review.
@@ -151,7 +158,8 @@ would break the running product, and a control that cannot stay on is worse than
   `PROCESS_QUERY_LIMITED_INFORMATION` still succeeds so the operator keeps Task Manager visibility.
 - `tests/Test-RuntimeBoundaries.ps1` must reproduce that access check, read back the combined
   side-channel flags, and prove that loading `System.Net.Sockets` terminates a separate probe through
-  the managed network guard.
+  the managed network guard. Its product-DLL test host passes the normal elevation and required-posture
+  checks without creating a window; it does not verify GUI or EXE/apphost-specific startup behavior.
 - Target-free `--self-test` must pass product query, sanitization, report, baseline, directory-budget, ZIP, ZIP64, and ambiguous-record checks.
 - `--self-test` must also inspect fixtures it creates and removes itself, and confirm that a text file's
   reported digest matches the bytes on disk, that script capabilities beyond the first 8 MiB and archive
@@ -171,7 +179,9 @@ would break the running product, and a control that cannot stay on is worse than
   a later active-content entry.
 - `--self-test` must prove that a shortcut is judged by the command line inside it, that a shortcut whose
   declared sizes do not fit ends the walk and reports the result as `INCOMPLETE` rather than throwing, and
-  that an OLE compound file is read for strings and never reported as a complete inspection.
+  that malformed OLE stays incomplete, that well-formed storage trees are walked, and that undecoded VBA
+  or Installer tables retain incomplete structure. OLE fixtures also cover entry/depth/byte limits,
+  shared ZIP/OLE budgets, regex/time failures, corrupt chains and directory trees, truncation, and cancellation.
 - `--self-test` must prove the four completeness aspects stay apart: a container that was never opened
   limits structure alone while digest, content and signature remain complete, and a file that could not be
   opened limits all four without falsely claiming that traversal missed the file. It must also expose every
@@ -180,5 +190,7 @@ would break the running product, and a control that cannot stay on is worse than
   a signed PE plus trailing ZIP receives danger weight.
 - Live process mitigation flags must match the required policy bits.
 - Regression fixtures must preserve signature, capability, hostile-archive, privacy, and path-boundary behavior.
+- Report regressions must decode JSON before checking for selected-path leaks, preserve relative file paths and input-held evidence, and cover failed targets, duplicate names, drive roots, and the batch v2 field contract.
+- Batch-write regressions must reject target-file replacement and output inside any selected folder before changing fixture contents or creating temporary files, including failed/unknown targets and overwrite mode. Outside destinations and similarly prefixed sibling directories must remain writable; normalized relative paths, casing, separators, and drive-root containment must be covered.
 - Regression checks must preserve final-handle path matching, guarded directory writes, directory mutation detection, archive preflight, and cumulative observed-size limits.
 - Secret scanning and tracked-artifact inspection must pass before a signed commit is pushed.

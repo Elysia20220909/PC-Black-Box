@@ -76,6 +76,9 @@ public sealed class FileAnalysis
     public bool ArchiveContentTotalKnown { get; set; }
     public long ArchiveContentEligibleBytes { get; set; }
     public long ArchiveContentScannedBytes { get; set; }
+    // ZIP coverage is a public report contract. OLE shares its budget, not its denominator.
+    internal long OleContentScannedBytes { get; set; }
+    internal long StructuredContentScannedBytes => ArchiveContentScannedBytes + OleContentScannedBytes;
     public int ArchiveBudgetTailEntryBodies { get; set; }
     public int ArchiveBudgetTailActiveEntries { get; set; }
     public int ArchiveBudgetTailContainerEntries { get; set; }

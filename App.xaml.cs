@@ -11,7 +11,8 @@ public partial class App : Application
         bool commandLineSecurityStatus = e.Args.Length == 1 && e.Args[0].Equals("--security-status", StringComparison.OrdinalIgnoreCase);
         bool commandLineSelfTest = e.Args.Length == 1 && e.Args[0].Equals("--self-test", StringComparison.OrdinalIgnoreCase);
         bool commandLineBatch = e.Args.Length >= 2 && e.Args[0].Equals("--batch", StringComparison.OrdinalIgnoreCase);
-        bool commandLineMode = commandLineReport || commandLineSecurityStatus || commandLineSelfTest || commandLineBatch;
+        bool commandLineBoundaryHost = e.Args.Length >= 1 && e.Args[0].Equals("--runtime-boundary-test-host", StringComparison.OrdinalIgnoreCase);
+        bool commandLineMode = commandLineReport || commandLineSecurityStatus || commandLineSelfTest || commandLineBatch || commandLineBoundaryHost;
 
         // Refused before the baseline is consulted, so an elevated operator reads why this was
         // declined instead of a generic verification failure. The posture still follows on the
@@ -59,6 +60,14 @@ public partial class App : Application
         }
 
         base.OnStartup(e);
+
+        if (commandLineBoundaryHost)
+        {
+            int exitCode = RunBoundaryTestHost(e.Args);
+            Environment.ExitCode = exitCode;
+            Shutdown(exitCode);
+            return;
+        }
 
         if (commandLineSecurityStatus)
         {
@@ -152,7 +161,7 @@ public partial class App : Application
                 }
 
                 string json = ReportBuilder.BuildBatchJson(results, "en");
-                SafeReportWriter.WriteBatch(outputPath, json, ".json", allowOverwrite: false);
+                SafeReportWriter.WriteBatch(outputPath, json, targets, ".json", allowOverwrite: false);
                 Environment.ExitCode = 0;
             }
             catch
@@ -166,6 +175,38 @@ public partial class App : Application
         }
 
         new MainWindow().Show();
+    }
+
+    // Only the test runner uses this bounded, redirected session. Reaching readiness requires the
+    // same elevation and required-posture checks as normal startup, before any window is created.
+    private static int RunBoundaryTestHost(string[] args)
+    {
+        try
+        {
+            if (args.Length != 1 || !Console.IsInputRedirected || !Console.IsOutputRedirected || !Console.IsErrorRedirected)
+            {
+                Console.Error.WriteLine("PC_BLACK_BOX_RUNTIME_BOUNDARY_HOST invalid-arguments-or-streams");
+                return 1;
+            }
+
+            Console.Out.WriteLine("PC_BLACK_BOX_RUNTIME_BOUNDARY_HOST ready=true");
+            Console.Out.Flush();
+            // Console.In may wrap a synchronous reader, so its ReadLineAsync can block before
+            // returning a task. Keep the bounded wait separate from that read.
+            Task<string?> request = Task.Run(() => Console.In.ReadLine());
+            if (request.Wait(TimeSpan.FromSeconds(30)) && request.Result == "release")
+            {
+                return 0;
+            }
+
+            Console.Error.WriteLine("PC_BLACK_BOX_RUNTIME_BOUNDARY_HOST invalid-release-or-timeout");
+        }
+        catch
+        {
+            try { Console.Error.WriteLine("PC_BLACK_BOX_RUNTIME_BOUNDARY_HOST failed"); } catch { }
+        }
+
+        return 1;
     }
 
     /// <summary>The operator's own language choice, read the way the main window reads it.</summary>

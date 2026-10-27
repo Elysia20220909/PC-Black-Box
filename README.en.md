@@ -59,6 +59,12 @@ The target and report are not sent automatically. Reports can nevertheless conta
 
 ## Source and preview are different versions
 
+Keep batch output outside every input target. Saving over or inside any target, including a failed inspection, is rejected before an output or temporary file is created. Missing targets can still be reported outside their verifiable boundaries; ambiguous or unverifiable target paths stop the entire save.
+
+Current batch JSON uses `pc-black-box-batch-report-v2`. It removes `targets[].path`, which exposed the selected absolute target path. `targets[].target` is a display name and `targets[].result.files[].path` is relative to that target. Array order matches input order, including duplicate names; empty or drive-root names use `target`. External consumers reading the v1 `path` field must be updated. Paths and personal information in input-held evidence remain; reports are not anonymized.
+
+This working revision selectively ports OLE traversal while preserving the current main's batch CLI, shadow-stack diagnostics, and headless verification. It pins the corrected OpenMcdf 3.4.0. VBA bodies and Installer table semantics are not decoded and retain incomplete structure. The table below records historical versions; consult the [threat model](THREAT_MODEL.md) for current limits and [third-party notices](THIRD-PARTY-NOTICES.md) for dependency provenance.
+
 This mapping was checked on 2026-09-10. Recheck tags and commits for later updates.
 
 | Scope | Source commit | Important distinction |
@@ -79,9 +85,9 @@ dotnet restore .\Destiny2BlackBox.csproj
 dotnet build .\Destiny2BlackBox.csproj -c Release --no-restore
 ~~~
 
-A public clone does not require GitHub login. `dotnet restore` uses the network for dependencies and vulnerability information; this is separate from the application's no-upload handling of inspected files.
+Cloning the private repository requires access and existing GitHub authentication. `dotnet restore` uses the network for dependencies and vulnerability information; this is separate from the application's no-upload handling of inspected files.
 
-See [contribution guidance](CONTRIBUTING.md) and the [development reference](docs/reference-main.en.md#development-and-verification) for verification, CLI reports, and the test that must not run under a no-GUI policy. A local build does not replace a published artifact or an installed application.
+See [contribution guidance](CONTRIBUTING.md) for current verification and CLI reports. The [development reference](docs/reference-main.en.md#development-and-verification) describes the historical revision and its older GUI-based boundary test. The current boundary test is headless. A local build does not replace a published artifact or an installed application.
 
 ## Feedback and documentation
 
