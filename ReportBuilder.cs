@@ -1,3 +1,4 @@
+using System.IO;
 using System.Text;
 using System.Text.Json;
 
@@ -11,7 +12,7 @@ public static class ReportBuilder
         var builder = new StringBuilder();
         builder.AppendLine("# PC Black Box — Download Inspection Report");
         builder.AppendLine();
-        builder.AppendLine($"- {(ja ? "対象" : "Target")}: `{Escape(result.TargetName)}`");
+        builder.AppendLine($"- {(ja ? "対象" : "Target")}: `{Escape(ReportTargetName(result.TargetName))}`");
         builder.AppendLine($"- {(ja ? "開始" : "Started")}: {result.StartedAt:yyyy-MM-dd HH:mm:ss}");
         builder.AppendLine($"- {(ja ? "所要時間" : "Duration")}: {result.Duration.TotalSeconds:F1} s");
         builder.AppendLine($"- {(ja ? "セキュリティ基準" : "Security baseline")}: {Escape(result.SecurityProfile)} — {result.SecurityControlsEnforced}/{result.SecurityControlsRequired} {(ja ? "強制確認済み" : "controls enforced")}");
@@ -134,8 +135,8 @@ public static class ReportBuilder
         builder.AppendLine(ja ? "## プライバシーと制約" : "## Privacy and limitations");
         builder.AppendLine();
         builder.AppendLine(ja
-            ? "対象は実行していません。ファイルのアップロード、外部サイト照会、ネットワーク通信、プロセス注入、メモリ読み取りは行いません。この環境の絶対パス、Windowsユーザー名、IPアドレス、Steam ID、認証情報はレポートに含めません。ショートカットの起動先や引数など、調査対象の中に書かれていた文字列は証拠として掲載します。"
-            : "The target was not executed. No file upload, external lookup, network request, process injection, or memory read is performed. The report omits this machine's absolute paths, Windows user names, IP addresses, Steam IDs, and credentials. Strings held inside the target, such as a shortcut's command line, are shown as evidence.");
+            ? "対象は実行していません。ファイルのアップロード、外部サイト照会、ネットワーク通信、プロセス注入、メモリ読み取りは行いません。選択した対象の絶対パスは対象情報として付加しません。対象の表示名、対象内の相対パス、ショートカットの起動先や引数などの証拠文字列は残ります。これらに個人情報やパスが含まれる場合があるため、共有前に確認してください。"
+            : "The target was not executed. No file upload, external lookup, network request, process injection, or memory read is performed. The selected target's absolute path is not added as target metadata. Display names, relative paths within the target, and evidence strings such as a shortcut's command line remain. They can contain personal information or paths; review the report before sharing.");
         return builder.ToString();
     }
 
@@ -173,7 +174,7 @@ public static class ReportBuilder
         {
             schema = "pc-black-box-report-v7",
             generatedAt = DateTimeOffset.UtcNow,
-            target = Clean(result.TargetName),
+            target = ReportTargetName(result.TargetName),
             security = new
             {
                 profile = Clean(result.SecurityProfile),
@@ -267,13 +268,12 @@ public static class ReportBuilder
         bool ja = !language.Equals("en", StringComparison.OrdinalIgnoreCase);
         var payload = new
         {
-            schema = "pc-black-box-batch-report-v1",
+            schema = "pc-black-box-batch-report-v2",
             generatedAt = DateTimeOffset.UtcNow,
             targetCount = results.Count,
             targets = results.Select(r => new
             {
-                target = Clean(r.TargetName),
-                path = Clean(r.TargetPath),
+                target = ReportTargetName(r.TargetName),
                 security = new
                 {
                     profile = Clean(r.SecurityProfile),
@@ -346,6 +346,14 @@ public static class ReportBuilder
             }
         };
         return JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    // DirectoryInfo.Name returns an absolute path for a drive root. A report label must stay
+    // local to the target, including failed targets with an empty display name.
+    private static string ReportTargetName(string? name)
+    {
+        string leaf = Path.GetFileName(name?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) ?? String.Empty);
+        return String.IsNullOrWhiteSpace(leaf) ? "target" : Clean(leaf);
     }
 
     private static string Clean(string value) => SecurityPolicy.SanitizeText(value, 2048).Trim();

@@ -31,7 +31,7 @@
 
 ## 3. コミット前の検証
 
-完全な一覧は [THREAT_MODEL.md](THREAT_MODEL.md) の「Verification gates」（17項目）にあります。ここでは重複させず、
+完全な一覧は [THREAT_MODEL.md](THREAT_MODEL.md) の「Verification gates」にあります。ここでは重複させず、
 入口となるコマンドだけを示します。**どのエージェントが書いた変更でも、通すゲートは同一**です。実行環境で回せないゲートは、合格ではなく未実行として記録します。
 
 ```
@@ -41,13 +41,15 @@ dotnet "bin/Release/net10.0-windows10.0.17763.0/PC Black Box.dll" --self-test
 pwsh tests/Test-RuntimeBoundaries.ps1
 ```
 
+上のビルド、状態確認、自己テスト、境界テストは `pwsh -NoProfile -NonInteractive -File tests/Invoke-Verification.ps1` でも一括実行できます。結果と未実行項目は `bin/validation/runs/` に記録されます。これは残りの検証ゲートを省略する許可ではありません。
+
 期待する結果:
 
 - `--security-status` → `enforced=true controls=16/16`（`state=not-enforced` の行が1つでもあれば不合格）
 - `--self-test` → `PC_BLACK_BOX_SELF_TEST passed=true`
 - `Test-RuntimeBoundaries.ps1` → `PC_BLACK_BOX_RUNTIME_BOUNDARY_TEST passed=true`
 
-この境界テストは、引数なしでアプリを起動します（`tests/Test-RuntimeBoundaries.ps1`）。`-WindowStyle Hidden` はヘッドレス実行の保証ではありません。GUI禁止の作業では実行せず、未検証として残してください。テストを省略した状態を全ゲート合格と報告しないこと。変更提案と検証記録の扱いは [CONTRIBUTING.md](CONTRIBUTING.md) にまとめています。
+この境界テストは、`dotnet` で製品DLLのテスト専用起動経路を実行します。昇格拒否と必須保護の確認を通ってから、ウィンドウを作らずに外部から検査します。通常のGUI起動やEXE固有の起動経路は対象外です。テストを省略した状態を全ゲート合格と報告しないこと。変更提案と検証記録の扱いは [CONTRIBUTING.md](CONTRIBUTING.md) にまとめています。
 
 ### 起動方法の落とし穴
 
@@ -60,7 +62,7 @@ pwsh tests/Test-RuntimeBoundaries.ps1
   bash の `./PC Black Box.exe` → `Permission denied`、PowerShell の
   `Start-Process -NoNewWindow -RedirectStandardOutput` → `ERROR_ELEVATION_REQUIRED`。
   一方、**リダイレクトなしの `Start-Process`（ShellExecute 経由）なら起動できる**。
-  `Test-RuntimeBoundaries.ps1` が通るのはこのため。
+  ただし、この起動方法ではGUIが開く可能性があるため、GUI禁止時の検証には使わない。
 - したがって `--security-status` と `--self-test` は、上記のとおり **`dotnet` に dll を渡す**のが確実。
 - GUI サブシステムなので `& '.\PC Black Box.exe'` では**出力を取り逃し、`$LASTEXITCODE` も設定されない**。
   出力が必要なら `Start-Process -NoNewWindow -Wait -RedirectStandardOutput` を使う

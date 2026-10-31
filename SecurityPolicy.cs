@@ -86,7 +86,51 @@ public static class SecurityPolicy
         string candidatePath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(candidate));
         string rootPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
         if (candidatePath.Equals(rootPath, StringComparison.OrdinalIgnoreCase)) return true;
-        return candidatePath.StartsWith(rootPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        string prefix = Path.EndsInDirectorySeparator(rootPath) ? rootPath : rootPath + Path.DirectorySeparatorChar;
+        return candidatePath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+    }
+
+    internal static string ValidateReportTargetBoundary(string path)
+    {
+        if (String.IsNullOrWhiteSpace(path)) throw new ArgumentException("A target boundary path is required.", nameof(path));
+        if (path.Length > 32767) throw new PathTooLongException("The target boundary path is too long.");
+        // Inspect the input before GetFullPath can trim a Win32 alias. Ordinary . and .. routing
+        // components remain allowed and are resolved by the same normalization as inspection.
+        foreach (string component in path.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar)
+                     .Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (component is "." or "..") continue;
+            if (component.EndsWith('.') || component.EndsWith(' '))
+                throw new SecurityException("Ambiguous target paths cannot be used as report boundaries.");
+        }
+        string fullPath = Path.TrimEndingDirectorySeparator(ValidateLocalPath(path));
+        EnsureNoReparsePointInPath(fullPath);
+
+        // A missing target still reserves its normalized path. Verify its nearest existing ancestor;
+        // permission, sharing, reparse, or final-handle path failures must stop the batch save.
+        string existing = fullPath;
+        while (true)
+        {
+            FileAttributes attributes;
+            try { attributes = File.GetAttributes(existing); }
+            catch (IOException exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
+            {
+                existing = Path.GetDirectoryName(existing) ?? throw new IOException("The target boundary could not be verified.");
+                continue;
+            }
+
+            if ((attributes & FileAttributes.ReparsePoint) != 0)
+                throw new SecurityException("A reparse point cannot define a report target boundary.");
+            if ((attributes & FileAttributes.Directory) != 0)
+            {
+                using var guard = SecureFileReader.OpenDirectoryGuard(existing);
+            }
+            else
+            {
+                using var stream = SecureFileReader.OpenRead(existing, 4096);
+            }
+            return fullPath;
+        }
     }
 
     public static string SanitizeText(string? value, int maxLength = 1024)
