@@ -9,6 +9,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+. (Join-Path $PSScriptRoot 'Verification.Runtime.ps1')
 
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $applicationProject = Join-Path $repositoryRoot 'Destiny2BlackBox.csproj'
@@ -235,12 +236,17 @@ $targetFailure = $null
 try
 {
     $targetError = $target.StandardError.ReadToEndAsync()
+    $runtimeLine = $target.StandardOutput.ReadLineAsync()
+    if (-not $runtimeLine.Wait(10000)) { throw 'runtime-metadata-timeout' }
+    $runtime = ConvertFrom-RuntimeStatus $runtimeLine.Result
     $ready = $target.StandardOutput.ReadLineAsync()
     if (-not $ready.Wait(10000) -or $ready.Result -cne 'PC_BLACK_BOX_RUNTIME_BOUNDARY_HOST ready=true' -or $target.HasExited)
     {
         throw 'The headless application did not complete its security checks and become ready.'
     }
     $targetOutput = $target.StandardOutput.ReadToEndAsync()
+    # Only forward validated product metadata, never the probe's or PowerShell's own runtime.
+    "PC_BLACK_BOX_RUNTIME version=$($runtime.version) processArchitecture=$($runtime.processArchitecture)"
 
     $accessTests = @(
         [pscustomobject]@{ Name = 'PROCESS_VM_READ'; Mask = [uint32]0x0010; Expected = $false },

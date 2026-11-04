@@ -89,6 +89,8 @@ Cloning the private repository requires access and existing GitHub authenticatio
 
 See [contribution guidance](CONTRIBUTING.md) for current verification and CLI reports. The [development reference](docs/reference-main.en.md#development-and-verification) describes the historical revision and its older GUI-based boundary test. The current boundary test is headless. A local build does not replace a published artifact or an installed application.
 
+The one-command verification JSON (schema 2) separates the build SDK from the numeric CLR version and process architecture actually used by the security, self-test, and boundary product processes. Missing values are never inferred from installed runtimes; invalid output or disagreement between stages fails verification. See [verification guidance](CONTRIBUTING.md#verification--検証) for scope and regression commands.
+
 ## Feedback and documentation
 
 Contact for trials and general bugs: [ChloeFlora23047120947120@protonmail.com](mailto:ChloeFlora23047120947120@protonmail.com). In the first message, send only the application version, Windows version, symptoms, and reproduction steps. Do not attach inspected files, raw reports, credentials, or personal paths. Mailbox delivery has not been verified, and no response time is guaranteed.
