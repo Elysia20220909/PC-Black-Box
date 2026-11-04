@@ -51,11 +51,27 @@ pwsh -NoProfile -NonInteractive -File .\tests\Invoke-Verification.ps1
 
 If `dotnet` is not on PATH, the script also checks the current user's `.dotnet\dotnet.exe`; an explicit `-DotNetPath` can select a different existing SDK. It records the base commit, dirty state, source snapshot, DLL SHA-256, stage exit codes and pass/fail/not-run status in `bin/validation/runs/<run-id>/summary.json`. The boundary test rebuilds and checks that its DLL matches the earlier build. Raw command output is not saved by the wrapper. The four checks do not replace the other verification gates below.
 
-The snapshot covers repository files, including ignored files, except Git metadata and the two projects' known `bin`/`obj` outputs; it also hashes common ancestor build settings. It does not track arbitrary external imports or prevent changes that are reverted between checks. The wrapper does not record the actual runtime version; record it separately when required. Do not run another build or edit the same worktree concurrently.
+Verification JSON now uses `schemaVersion: 2`. `sdkVersion` is the SDK selected for the build. Each of `stages.security.runtime`, `stages.selfTest.runtime`, and `stages.boundary.runtime` records `{ "version": "10.0.13", "processArchitecture": "x64" }` (example values) from that stage's product process. `version` is the numeric CLR version from `Environment.Version`, without preview/build labels; `processArchitecture` comes from `RuntimeInformation.ProcessArchitecture`, not the OS architecture. These are actual in-process observations, not `dotnet --list-runtimes`, project target versions, or PowerShell's runtime. They do not identify Windows Desktop/WPF package versions, MSBuild, or the separate network-guard probe's runtime, and do not attest runtime binaries.
+
+The top-level `runtime` is the security stage's observed baseline, not an independent probe or proof of an overall pass. Later stages must match both values. Missing, duplicate, or malformed metadata parsed by the wrapper fails with `runtime-metadata-invalid`; a version or architecture mismatch fails with `runtime-metadata-mismatch`. Rejection inside the boundary child script (including invalid host metadata or a missing readiness line) instead produces `boundary-process-failed` in the wrapper's JSON, as do other boundary child failures. A valid but mismatching observation remains in its stage record. A stage that has not run, whose process fails, or whose metadata cannot be validated retains `runtime: null`; no guessed fallback is recorded. Later stages remain `not-run` after failure. Only allowlisted metadata is saved, without runtime paths, environment variables, or raw child output. Consumers must check `outcome` and stage status as well as the values. Version 1 records have no runtime observation and must not be interpreted as having one.
+
+The snapshot covers repository files, including ignored files, except Git metadata and the two projects' known `bin`/`obj` outputs; it also hashes common ancestor build settings. It does not track arbitrary external imports or prevent changes that are reverted between checks. Do not run another build or edit the same worktree concurrently.
 
 ビルド・セキュリティ状態・自己テスト・境界テストは上のコマンドで一括実行できます。結果は作業ツリーの `bin/validation/runs/` に保存します。途中で失敗した場合は後続を未実行として記録し、残りの検証ゲートは別途確認します。
 
-照合対象はGit管理外のファイルも含む作業ツリー内のファイル（Git管理情報と両プロジェクトの既知の `bin` / `obj` を除く）と、親階層の主なビルド設定です。任意の外部インポートや、確認の間に変更して戻した内容までは検出できません。実際に使ったランタイムの版は自動記録しないため、必要に応じて別に記録します。同じ作業ツリーで別のビルドや編集を並行しないでください。
+検証JSONは `schemaVersion: 2` です。`sdkVersion` はビルド用SDK、各工程の `runtime.version` は製品プロセス自身の `Environment.Version` が返すCLRの数値版、`runtime.processArchitecture` は `RuntimeInformation.ProcessArchitecture` が返すプロセスのアーキテクチャです。OSのアーキテクチャ、導入済みランタイム一覧、PowerShellの値から推定しません。プレビュー等のラベル、WPFパッケージ版、MSBuildや独立したネットワークプローブのランタイム、共有ランタイムのバイナリ同一性は対象外です。
+
+最上位の `runtime` はセキュリティ工程の観測値で、全体合格の証明ではありません。自己テスト・境界テストの製品ホストでも取得し、版とアーキテクチャが両方一致することを要求します。一括スクリプトが解析した値の欠落・重複・不正形式は `runtime-metadata-invalid`、工程間の不一致は `runtime-metadata-mismatch` で失敗します。境界テストの子スクリプト内で拒否した場合（ホストの不正メタデータやready行の欠落を含む）は、ほかの境界子プロセス失敗と同じく、検証JSONに `boundary-process-failed` を記録します。不一致時も取得した当該工程の値を保持します。未実行、プロセス失敗、値の検証失敗では `runtime: null` とし、推定値で埋めません。失敗後の工程は未実行のままです。ランタイムのパス・環境変数・生の出力は保存しません。値だけでなく `outcome` と工程の状態を確認し、旧schema 1の記録はランタイム未取得として扱ってください。
+
+照合対象はGit管理外のファイルも含む作業ツリー内のファイル（Git管理情報と両プロジェクトの既知の `bin` / `obj` を除く）と、親階層の主なビルド設定です。任意の外部インポートや、確認の間に変更して戻した内容までは検出できません。同じ作業ツリーで別のビルドや編集を並行しないでください。
+
+When changing this output contract or the verification scripts, also run the dependency-free synthetic parser regressions below. They cover malformed/missing/duplicate output, version and architecture mismatches, decoded JSON fields, and fixed error messages that do not echo rejected input. The product self-test checks its runtime output contract; the four-stage run exercises the live producers and consumers. These parser regressions are a separate command, not an additional stage automatically run by the wrapper.
+
+出力契約や検証スクリプトを変更したときは、次の合成入力による回帰テストも実行します。追加依存は不要です。欠落・重複・不正形式、版・アーキテクチャの不一致、JSONの項目と拒否時の情報漏れを確認します。本体の自己テストは出力契約、一括検証は実プロセスとの接続を確認します。以下は一括検証とは別に実行するコマンドです。
+
+```powershell
+pwsh -NoProfile -NonInteractive -File .\tests\Test-VerificationRuntime.ps1
+```
 
 ```powershell
 dotnet restore .\Destiny2BlackBox.csproj

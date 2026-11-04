@@ -148,6 +148,13 @@ would break the running product, and a control that cannot stay on is worse than
 - Dependency audit must report no advisory at any severity, direct or transitive.
 - Runtime `--security-status` result must be `enforced=true` with every required control present, and must
   print one `control=… tier=… state=…` line per control for independent review.
+- Headless security, self-test, and boundary product processes must each emit exactly one
+  `PC_BLACK_BOX_RUNTIME version=<numeric CLR version> processArchitecture=<architecture>` line.
+  Verification JSON schema 2 records these observations separately from the build SDK and fails if
+  metadata is absent, duplicated, malformed, or differs between stages. Values describe the product
+  process, not the OS, installed runtime inventory, WPF package, build host, or network-guard probe.
+  `tests/Test-VerificationRuntime.ps1` must preserve strict parsing, mismatch rejection, and the
+  exclusion of arbitrary output from recorded metadata and errors when this contract changes.
 - An elevated launch must be refused before inspection, with `PC_BLACK_BOX_ELEVATION elevated=true
   refusing=true` on the command line and a non-zero exit code, while the posture it prints still reports
   `enforced=true` — the refusal is a privilege decision, not a failed control.

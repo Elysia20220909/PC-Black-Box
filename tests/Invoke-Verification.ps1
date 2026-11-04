@@ -4,6 +4,7 @@ param([string] $DotNetPath)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'Verification.Runtime.ps1')
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $project = Join-Path $repositoryRoot 'Destiny2BlackBox.csproj'
 $assembly = Join-Path $repositoryRoot 'bin\Release\net10.0-windows10.0.17763.0\PC Black Box.dll'
@@ -209,12 +210,12 @@ function Assert-SecurityStatus {
 
 $stages = [ordered]@{
     build = [ordered]@{ status = 'not-run'; exitCode = $null; durationMs = $null; error = $null }
-    security = [ordered]@{ status = 'not-run'; exitCode = $null; durationMs = $null; error = $null; required = $null; reinforcements = $null; shadowStack = $null }
-    selfTest = [ordered]@{ status = 'not-run'; exitCode = $null; durationMs = $null; error = $null; checks = $null; failedCheck = $null; failedMethod = $null }
-    boundary = [ordered]@{ status = 'not-run'; exitCode = $null; durationMs = $null; error = $null; checks = $null }
+    security = [ordered]@{ status = 'not-run'; exitCode = $null; durationMs = $null; error = $null; runtime = $null; required = $null; reinforcements = $null; shadowStack = $null }
+    selfTest = [ordered]@{ status = 'not-run'; exitCode = $null; durationMs = $null; error = $null; runtime = $null; checks = $null; failedCheck = $null; failedMethod = $null }
+    boundary = [ordered]@{ status = 'not-run'; exitCode = $null; durationMs = $null; error = $null; runtime = $null; checks = $null }
 }
 $summary = [ordered]@{
-    schemaVersion = 1
+    schemaVersion = 2
     startedUtc = [DateTimeOffset]::UtcNow.ToString('o')
     completedUtc = $null
     outcome = 'failed'
@@ -223,6 +224,7 @@ $summary = [ordered]@{
     workingTreeDirty = $null
     sourceSnapshotSha256 = $null
     sdkVersion = $null
+    runtime = $null
     assemblySha256 = $null
     runtimeArtifactHashes = $null
     stages = $stages
@@ -315,6 +317,8 @@ try
     $stages.security.exitCode = $security.ExitCode
     $stages.security.durationMs = $security.DurationMs
     if ($security.ExitCode -ne 0 -or $security.Stderr.Length -ne 0) { throw $reason }
+    $stages.security.runtime = ConvertFrom-RuntimeStatus $security.Stdout
+    $summary.runtime = $stages.security.runtime
     $reason = 'security-result-invalid'
     Assert-SecurityStatus $security.Stdout
     $reinforcements = [regex]::Matches($security.Stdout, '(?m)^control=([a-z0-9-]+) tier=reinforcement state=(enforced|unavailable)(?: reason=([a-z-]+))?\r?$')
@@ -349,6 +353,8 @@ try
         $stages.selfTest.failedMethod = $failure.Groups[2].Value
     }
     if ($self.ExitCode -ne 0 -or $self.Stderr.Length -ne 0) { throw $reason }
+    $stages.selfTest.runtime = ConvertFrom-RuntimeStatus $self.Stdout
+    Assert-SameRuntime $stages.selfTest.runtime $summary.runtime
     $reason = 'self-test-result-invalid'
     $selfMatches = [regex]::Matches($self.Stdout, '(?m)^PC_BLACK_BOX_SELF_TEST passed=true checks=([1-9][0-9]*)\r?$')
     if ($selfMatches.Count -ne 1) { throw $reason }
@@ -365,6 +371,8 @@ try
     $stages.boundary.exitCode = $boundary.ExitCode
     $stages.boundary.durationMs = $boundary.DurationMs
     if ($boundary.ExitCode -ne 0 -or $boundary.Stderr.Length -ne 0) { throw $reason }
+    $stages.boundary.runtime = ConvertFrom-RuntimeStatus $boundary.Stdout
+    Assert-SameRuntime $stages.boundary.runtime $summary.runtime
     $reason = 'boundary-result-invalid'
     $artifactPattern = '(?m)^PC_BLACK_BOX_BOUNDARY_ARTIFACT sha256=' + $summary.assemblySha256 + '\r?$'
     $markers = [regex]::Matches($boundary.Stdout, '(?m)^PC_BLACK_BOX_RUNTIME_BOUNDARY_TEST passed=true checks=9\r?$')
@@ -383,7 +391,7 @@ catch
     $knownReasons = @('process-start-failed', 'process-timeout', 'process-output-timeout', 'process-cleanup-timeout',
         'source-changed', 'assembly-changed', 'runtime-artifacts-changed', 'windows-required', 'powershell-not-found', 'sdk-version-failed',
         'commit-query-failed', 'worktree-query-failed', 'source-reparse-point', 'output-reparse-point', 'output-path-not-directory',
-        'security-status-invalid', 'security-controls-invalid')
+        'security-status-invalid', 'security-controls-invalid', 'runtime-metadata-invalid', 'runtime-metadata-mismatch')
     if ($_.Exception.Message -cin $knownReasons) { $reason = $_.Exception.Message }
     if ($activeStage -ne 'preflight' -and $stages[$activeStage].status -eq 'running')
     {

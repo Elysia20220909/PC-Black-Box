@@ -71,6 +71,7 @@ public partial class App : Application
 
         if (commandLineSecurityStatus)
         {
+            WriteRuntimeStatus();
             WriteLines(Console.Out, posture);
             Environment.ExitCode = 0;
             Shutdown(0);
@@ -79,6 +80,7 @@ public partial class App : Application
 
         if (commandLineSelfTest)
         {
+            WriteRuntimeStatus();
             ProductSelfTestResult result = ProductSelfTest.Run();
             try { Console.Out.WriteLine(result.SafeStatusLine); } catch { }
             Environment.ExitCode = result.Passed ? 0 : 1;
@@ -189,6 +191,7 @@ public partial class App : Application
                 return 1;
             }
 
+            Console.Out.WriteLine(RuntimeExecutionInfo.SafeStatusLine);
             Console.Out.WriteLine("PC_BLACK_BOX_RUNTIME_BOUNDARY_HOST ready=true");
             Console.Out.Flush();
             // Console.In may wrap a synchronous reader, so its ReadLineAsync can block before
@@ -207,6 +210,12 @@ public partial class App : Application
         }
 
         return 1;
+    }
+
+    private static void WriteRuntimeStatus()
+    {
+        try { Console.Out.WriteLine(RuntimeExecutionInfo.SafeStatusLine); } catch { }
+        // The verification runner rejects a missing line; never substitute an SDK or guessed value.
     }
 
     /// <summary>The operator's own language choice, read the way the main window reads it.</summary>

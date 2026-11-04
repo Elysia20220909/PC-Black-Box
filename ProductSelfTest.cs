@@ -75,6 +75,7 @@ internal static partial class ProductSelfTest
                     .SafeLine.EndsWith("state=unavailable", StringComparison.Ordinal),
                 ref checks);
             Require(TestNetworkIsolationNames(), ref checks);
+            Require(TestRuntimeStatusContract(), ref checks);
             CheckHardwareShadowStackDiagnostics(ref checks);
 
             var result = new ScanResult
@@ -205,6 +206,18 @@ internal static partial class ProductSelfTest
             Require(status.SafeLine.Equals($"control=user-shadow-stack tier=reinforcement {test.Expected}",
                 StringComparison.Ordinal), ref checks);
         }
+    }
+
+    private static bool TestRuntimeStatusContract()
+    {
+        string line = RuntimeExecutionInfo.SafeStatusLine;
+        var match = System.Text.RegularExpressions.Regex.Match(
+            line,
+            @"\APC_BLACK_BOX_RUNTIME version=([0-9]+\.[0-9]+\.[0-9]+(?:\.[0-9]+)?) processArchitecture=(x86|x64|arm|arm64)\z",
+            System.Text.RegularExpressions.RegexOptions.CultureInvariant | System.Text.RegularExpressions.RegexOptions.NonBacktracking,
+            TimeSpan.FromSeconds(1));
+        return match.Success && match.Groups[1].Value == Environment.Version.ToString() &&
+            match.Groups[2].Value == System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant();
     }
 
     /// <summary>
