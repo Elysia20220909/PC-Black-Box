@@ -105,6 +105,8 @@ internal static partial class ProductSelfTest
             Require(TestBatchSummaryDoesNotHideFailures(), ref checks);
             Require(TestBatchExitCodeReportsIncompleteTargets(), ref checks);
             Require(TestBatchFileListBoundaries(), ref checks);
+            Require(TestBatchTargetMatchesSingleReport(), ref checks);
+            Require(TestBatchArgumentsRefuseRepeats(), ref checks);
             Require(TestRiskFilterFollowsDisplayedRiskCode(), ref checks);
             Require(TestRiskBandsMatchEveryCount(), ref checks);
             Require(TestReportFormattingIgnoresRegionalFormat(), ref checks);
