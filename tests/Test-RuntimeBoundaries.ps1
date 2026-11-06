@@ -3,7 +3,9 @@
 [CmdletBinding()]
 param(
     [ValidatePattern('^[0-9A-Fa-f]{64}$')][string] $ExpectedApplicationSha256,
-    [string] $DotNetPath
+    [string] $DotNetPath,
+    # The hosted standard-user session cannot write build output, so CI builds the probe beforehand.
+    [switch] $NoBuild
 )
 
 Set-StrictMode -Version Latest
@@ -203,7 +205,7 @@ function Stop-TestProcess {
 }
 
 Invoke-DotNetBuild -Project $applicationProject
-Invoke-DotNetBuild -Project $probeProject
+if (-not $NoBuild) { Invoke-DotNetBuild -Project $probeProject }
 
 foreach ($requiredPath in @($applicationAssembly, $probeAssembly))
 {
