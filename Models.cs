@@ -1,6 +1,17 @@
+using System.Globalization;
 using System.IO;
 
 namespace DestinyBlackBox;
+
+/// <summary>The score bands behind every risk code, filter, count, and color.</summary>
+public static class RiskBands
+{
+    public const int High = 60;
+    public const int Review = 25;
+
+    public static string Code(int score, bool hasIndicators) =>
+        score >= High ? "HIGH" : score >= Review ? "REVIEW" : hasIndicators ? "LOW" : "CLEAR";
+}
 
 public sealed record Indicator(string Severity, string Code, string Japanese, string English, int Score);
 
@@ -60,10 +71,8 @@ public sealed class FileAnalysis
     public string Sha256Short => Sha256.Length >= 16 ? Sha256[..16] + "…" : Sha256;
     public string FileType { get; set; } = "Unknown";
     public string Architecture { get; set; } = "—";
-    public string ProductName { get; set; } = "—";
-    public string CompanyName { get; set; } = "—";
     public double? Entropy { get; set; }
-    public string EntropyText => Entropy.HasValue ? Entropy.Value.ToString("F2") : "—";
+    public string EntropyText => Entropy.HasValue ? Entropy.Value.ToString("F2", CultureInfo.InvariantCulture) : "—";
     public string SignatureStatus { get; set; } = "Not checked";
     public string Signer { get; set; } = "—";
     public int? InternetZone { get; set; }
@@ -97,7 +106,7 @@ public sealed class FileAnalysis
     internal SecureFileIdentity ObservedIdentity { get; set; }
     public List<Indicator> Indicators { get; } = [];
     public int RiskScore => Math.Clamp(Indicators.Sum(x => x.Score), 0, 100);
-    public string RiskCode => RiskScore >= 60 ? "HIGH" : RiskScore >= 25 ? "REVIEW" : Indicators.Count > 0 ? "LOW" : "CLEAR";
+    public string RiskCode => RiskBands.Code(RiskScore, Indicators.Count > 0);
     public string RiskDisplay => $"{RiskCode} {RiskScore}";
 
     public static string FormatSize(long bytes)
@@ -110,7 +119,7 @@ public sealed class FileAnalysis
             value /= 1024;
             unit++;
         }
-        return $"{value:0.##} {units[unit]}";
+        return $"{value.ToString("0.##", CultureInfo.InvariantCulture)} {units[unit]}";
     }
 }
 
@@ -133,10 +142,10 @@ public sealed class ScanResult
     public string PartialReason { get; set; } = String.Empty;
     public List<FileAnalysis> Files { get; } = [];
     public long TotalBytes => Files.Sum(x => x.Size);
-    public int HighCount => Files.Count(x => x.RiskScore >= 60);
-    public int ReviewCount => Files.Count(x => x.RiskScore is >= 25 and < 60);
+    public int HighCount => Files.Count(x => x.RiskScore >= RiskBands.High);
+    public int ReviewCount => Files.Count(x => x.RiskScore is >= RiskBands.Review and < RiskBands.High);
     public int SignedCount => Files.Count(x => x.SignatureStatus.Equals("Valid", StringComparison.OrdinalIgnoreCase));
-    public int ActiveContentCount => Files.Count(x => x.FileType == "Windows PE" || FileInspector.IsActiveContentExtension(FileInspector.GetInspectionExtension(x)));
+    public int ActiveContentCount => Files.Count(x => x.FileType == FileInspector.WindowsPeType || FileInspector.IsActiveContentExtension(FileInspector.GetInspectionExtension(x)));
     public long CapabilityEligibleBytes => Files.Where(x => x.CapabilityScanApplicable).Sum(x => x.Size);
     public long CapabilityScannedBytes => Files.Sum(x => x.CapabilityScannedBytes);
     public bool ArchiveContentScanApplicable => Files.Any(x => x.ArchiveContentScanApplicable);
@@ -152,7 +161,7 @@ public sealed class ScanResult
     public int ArchiveMaxDepthInspected => Files.Count == 0 ? 0 : Files.Max(x => x.ArchiveMaxDepthInspected);
     public long NestedArchiveBytesInspected => SaturatingSum(Files.Select(x => x.NestedArchiveBytesInspected));
     public int RiskScore => Files.Count == 0 ? 0 : Files.Max(x => x.RiskScore);
-    public string RiskCode => RiskScore >= 60 ? "HIGH" : RiskScore >= 25 ? "REVIEW" : Files.Any(x => x.Indicators.Count > 0) ? "LOW" : "CLEAR";
+    public string RiskCode => RiskBands.Code(RiskScore, Files.Any(x => x.Indicators.Count > 0));
     public InspectionLimit Limits => Files.Aggregate(InspectionLimit.None, (all, file) => all | file.Limits);
     public int LimitedFileCount(InspectionLimit aspect) => Files.Count(file => (file.Limits & aspect) != 0);
     public string CompletenessCode => IsPartial ? "INCOMPLETE" : "COMPLETE";
