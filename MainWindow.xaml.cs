@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Win32;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -181,7 +182,7 @@ public partial class MainWindow : Window
 
     private void ShowResult(ScanResult result)
     {
-        Brush assessmentBrush = result.RiskScore >= 60
+        Brush assessmentBrush = result.RiskScore >= RiskBands.High
             ? RiskBrush(result.RiskScore)
             : result.IsPartial ? (Brush)FindResource("WarnBrush") : RiskBrush(result.RiskScore);
         RiskValue.Text = $"{result.AssessmentCode} {result.RiskScore}";
@@ -246,13 +247,13 @@ public partial class MainWindow : Window
     {
         if (result.IsPartial)
         {
-            if (result.RiskScore >= 60)
+            if (result.RiskScore >= RiskBands.High)
             {
                 return IsJapanese
                     ? "強い危険指標があり、さらに未確認の範囲も残っています。対象を実行せず、既知の所見と未確認範囲の両方を扱ってください。"
                     : "Strong risk indicators were found, and some content also remains unchecked. Do not run the target; address both the known findings and the unchecked scope.";
             }
-            if (result.RiskScore >= 25)
+            if (result.RiskScore >= RiskBands.Review)
             {
                 return IsJapanese
                     ? "追加確認が必要な指標があり、さらに未確認の範囲も残っています。安全とは判断できません。"
@@ -262,13 +263,13 @@ public partial class MainWindow : Window
                 ? "調査範囲が不完全なため、安全性を評価できません。未確認の範囲を残したまま実行しないでください。"
                 : "The inspection is incomplete, so safety cannot be assessed. Do not run the target while any content remains unchecked.";
         }
-        if (result.RiskScore >= 60)
+        if (result.RiskScore >= RiskBands.High)
         {
             return IsJapanese
                 ? "優先して確認すべき強い指標があります。隔離・削除は自動では行っていません。実行せず、所見を確認してください。"
                 : "Strong indicators require priority review. Nothing was quarantined or deleted; keep the target closed and review the evidence.";
         }
-        if (result.RiskScore >= 25)
+        if (result.RiskScore >= RiskBands.Review)
         {
             return IsJapanese
                 ? "追加確認が必要な指標があります。署名、入手元、処理能力を確認してから実行を判断してください。"
@@ -571,7 +572,7 @@ public partial class MainWindow : Window
         {
             Title = IsJapanese ? "Markdownレポートを保存" : "Save Markdown report",
             Filter = "Markdown (*.md)|*.md",
-            FileName = $"pc-black-box-{DateTime.Now:yyyyMMdd-HHmmss}.md",
+            FileName = $"pc-black-box-{DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture)}.md",
             AddExtension = true
         };
         if (dialog.ShowDialog(this) == true)
@@ -595,7 +596,7 @@ public partial class MainWindow : Window
         {
             Title = IsJapanese ? "JSONレポートを保存" : "Save JSON report",
             Filter = "JSON (*.json)|*.json",
-            FileName = $"pc-black-box-{DateTime.Now:yyyyMMdd-HHmmss}.json",
+            FileName = $"pc-black-box-{DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture)}.json",
             AddExtension = true
         };
         if (dialog.ShowDialog(this) == true)
@@ -786,7 +787,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private Brush RiskBrush(int score) => score >= 60 ? (Brush)FindResource("DangerBrush") : score >= 25 ? (Brush)FindResource("WarnBrush") : (Brush)FindResource("GoodBrush");
+    private Brush RiskBrush(int score) => score >= RiskBands.High ? (Brush)FindResource("DangerBrush") : score >= RiskBands.Review ? (Brush)FindResource("WarnBrush") : (Brush)FindResource("GoodBrush");
 
     private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
