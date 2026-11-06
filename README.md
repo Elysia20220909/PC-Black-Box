@@ -61,7 +61,7 @@ EXEと本体DLLは自己署名の開発者証明書で署名されています�
 
 バッチの保存先は全入力対象の外にしてください。検査に失敗した対象も含め、対象そのものや配下への保存は、出力・一時ファイルを作る前に拒否します。存在しない対象でも親から保存境界を検証できれば外への保存は可能ですが、曖昧なパスや境界を検証できない対象がある場合は保存全体を停止します。
 
-現在のバッチJSONは `pc-black-box-batch-report-v3` です。`summary.overallRisk` を廃止し、完了状況を含む `overallAssessment`、`overallCompleteness`、`incompleteTargets` に置き換えました。終了コードは、0が全対象の完了、1がレポート未保存、2がレポートを保存したものの未完了の対象ありです。`--file-list` はローカルドライブ上の1MiB・1,000件までで、UNCパスとreparse pointは拒否します。v2までに対象の絶対パスを出力していた `targets[].path` は削除済みです。`targets[].target` は表示名、`targets[].result.files[].path` は対象内の相対パスです。同名対象は入力順で対応付け、空の名前やドライブルートは `target` と表示します。v1の `path` を読む外部ツールは更新が必要です。対象内の証拠文字列に含まれるパスや個人情報は残るため、レポート全体を匿名化する機能ではありません。
+現在のバッチJSONは `pc-black-box-batch-report-v4` です。各ファイルの項目と対象ごとの調査範囲の集計は、単一対象のJSONと同じ内容です。`summary.overallRisk` を廃止し、完了状況を含む `overallAssessment`、`overallCompleteness`、`incompleteTargets` に置き換えました。終了コードは、0が全対象の完了、1がレポート未保存、2がレポートを保存したものの未完了の対象ありです。`--file-list` と `--output` は各1回だけ指定できます。`--file-list` はローカルドライブ上の1MiB・1,000件までで、UNCパスとreparse pointは拒否します。v2までに対象の絶対パスを出力していた `targets[].path` は削除済みです。`targets[].target` は表示名、`targets[].result.files[].path` は対象内の相対パスです。同名対象は入力順で対応付け、空の名前やドライブルートは `target` と表示します。v1の `path` を読む外部ツールは更新が必要です。対象内の証拠文字列に含まれるパスや個人情報は残るため、レポート全体を匿名化する機能ではありません。
 
 この作業版では、現行mainのバッチCLI・シャドウスタック診断とGUIなし検証を維持し、プレビューのOLE内部解析を選択して移植しています。OpenMcdfは修正版3.4.0に固定しています。VBA本体やMSIテーブルの意味は解読せず、該当する構造は未完了と表示します。以下は過去の版の対応表です。現在の制限は[脅威モデル](THREAT_MODEL.md)、依存の出所は[第三者コンポーネント](THIRD-PARTY-NOTICES.md)を参照してください。
 

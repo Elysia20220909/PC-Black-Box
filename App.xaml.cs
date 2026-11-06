@@ -144,22 +144,7 @@ public partial class App : Application
     {
         try
         {
-            string? fileListPath = null;
-            string? outputPath = null;
-            for (int i = 1; i < args.Length; i++)
-            {
-                if (args[i].Equals("--file-list", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
-                    fileListPath = args[++i];
-                else if (args[i].Equals("--output", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
-                    outputPath = args[++i];
-                else
-                    throw new ArgumentException("--batch accepts only --file-list and --output.");
-            }
-
-            if (fileListPath is null || outputPath is null)
-            {
-                throw new ArgumentException("--batch requires --file-list and --output.");
-            }
+            (string fileListPath, string outputPath) = ParseBatchArguments(args);
 
             List<string> targets = BatchFileList.Read(fileListPath);
             if (targets.Count == 0)
@@ -198,6 +183,33 @@ public partial class App : Application
             try { Console.Error.WriteLine("Batch inspection failed safely. No report was written."); } catch { }
             return 1;
         }
+    }
+
+    /// <summary>
+    /// Refuses a repeated option. Last-one-wins would let a command that names two lists or two outputs
+    /// inspect and write something other than what its reader sees first.
+    /// </summary>
+    internal static (string FileListPath, string OutputPath) ParseBatchArguments(IReadOnlyList<string> args)
+    {
+        string? fileListPath = null;
+        string? outputPath = null;
+        for (int i = 1; i < args.Count; i++)
+        {
+            bool hasValue = i + 1 < args.Count;
+            if (args[i].Equals("--file-list", StringComparison.OrdinalIgnoreCase) && hasValue && fileListPath is null)
+                fileListPath = args[++i];
+            else if (args[i].Equals("--output", StringComparison.OrdinalIgnoreCase) && hasValue && outputPath is null)
+                outputPath = args[++i];
+            else
+                throw new ArgumentException("--batch accepts --file-list and --output, once each.");
+        }
+
+        if (fileListPath is null || outputPath is null)
+        {
+            throw new ArgumentException("--batch requires --file-list and --output.");
+        }
+
+        return (fileListPath, outputPath);
     }
 
     /// <summary>Exit code for a batch whose report was written but which did not finish every target.</summary>

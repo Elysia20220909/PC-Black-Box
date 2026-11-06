@@ -75,6 +75,28 @@ internal static partial class ProductSelfTest
         App.ParseCommandLineMode(["--self-tset"]) == App.CommandLineMode.Invalid &&
         App.ParseCommandLineMode(["target.exe"]) == App.CommandLineMode.Invalid;
 
+    private static bool BatchArgumentsAreRefused(string[] args)
+    {
+        try
+        {
+            _ = App.ParseBatchArguments(args);
+            return false;
+        }
+        catch (ArgumentException)
+        {
+            return true;
+        }
+    }
+
+    private static bool TestBatchArgumentsRefuseRepeats() =>
+        App.ParseBatchArguments(["--batch", "--OUTPUT", "report.json", "--file-list", "list.txt"]) == ("list.txt", "report.json") &&
+        BatchArgumentsAreRefused(["--batch", "--file-list", "a.txt", "--file-list", "b.txt", "--output", "report.json"]) &&
+        BatchArgumentsAreRefused(["--batch", "--file-list", "list.txt", "--output", "a.json", "--output", "b.json"]) &&
+        BatchArgumentsAreRefused(["--batch", "--file-list", "list.txt", "--FILE-LIST", "list.txt", "--output", "report.json"]) &&
+        BatchArgumentsAreRefused(["--batch", "--file-list", "list.txt", "--output"]) &&
+        BatchArgumentsAreRefused(["--batch", "--file-list", "list.txt"]) &&
+        BatchArgumentsAreRefused(["--batch", "--file-list", "list.txt", "--output", "report.json", "--extra"]);
+
     private static bool TestRiskBandsMatchEveryCount()
     {
         var result = new ScanResult { TargetName = "bands" };

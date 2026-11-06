@@ -217,59 +217,65 @@ public static class ReportBuilder
                 nestedArchiveBytesInspected = result.NestedArchiveBytesInspected,
                 durationSeconds = Math.Round(result.Duration.TotalSeconds, 3)
             },
-            files = result.Files.Select(file => new
-            {
-                path = Clean(file.RelativePath),
-                file.Size,
-                fileType = Clean(file.FileType),
-                architecture = Clean(file.Architecture),
-                file.Sha256,
-                file.Entropy,
-                signatureStatus = Clean(file.SignatureStatus),
-                signer = Clean(file.Signer),
-                file.InternetZone,
-                sourceHost = file.SourceHost == "—" ? null : Clean(file.SourceHost),
-                archiveEntries = file.ArchiveEntries,
-                embeddedZipPayload = file.EmbeddedZipPayload,
-                archiveHasPrefix = file.ArchiveHasPrefix,
-                archivePrefixBytes = file.ArchivePrefixBytes,
-                archiveContentScanApplicable = file.ArchiveContentScanApplicable,
-                archiveContentTotalKnown = file.ArchiveContentTotalKnown,
-                archiveContentEligibleBytes = file.ArchiveContentTotalKnown ? file.ArchiveContentEligibleBytes : (long?)null,
-                archiveContentScannedBytes = file.ArchiveContentScannedBytes,
-                archiveBudgetTailEntryBodies = file.ArchiveBudgetTailEntryBodies,
-                archiveBudgetTailActiveEntries = file.ArchiveBudgetTailActiveEntries,
-                archiveBudgetTailContainerEntries = file.ArchiveBudgetTailContainerEntries,
-                nestedArchivesInspected = file.NestedArchivesInspected,
-                nestedArchiveEntriesInspected = file.NestedArchiveEntriesInspected,
-                archiveMaxDepthInspected = file.ArchiveMaxDepthInspected,
-                nestedArchiveBytesInspected = file.NestedArchiveBytesInspected,
-                shortcutTarget = file.ShortcutTarget == "—" ? null : Clean(file.ShortcutTarget),
-                shortcutArguments = file.ShortcutArguments == "—" ? null : Clean(file.ShortcutArguments),
-                file.InspectionLimited,
-                unexamined = InspectionAspects.All.Where(aspect => (file.Limits & aspect) != 0).Select(InspectionAspects.Code).ToArray(),
-                file.CapabilityScanApplicable,
-                file.CapabilityScannedBytes,
-                riskScore = file.RiskScore,
-                risk = file.RiskCode,
-                indicators = file.Indicators.Select(indicator => new
-                {
-                    severity = Clean(indicator.Severity),
-                    code = Clean(indicator.Code),
-                    score = indicator.Score,
-                    message = Clean(ja ? indicator.Japanese : indicator.English)
-                })
-            })
+            files = result.Files.Select(file => BuildFileEntry(file, ja))
         };
         return JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
     }
+
+    /// <summary>
+    /// One file's JSON entry, shared by the single and batch reports. Coverage evidence added here reaches
+    /// both, so a batch can never claim less about a file than a single report of the same file.
+    /// </summary>
+    private static object BuildFileEntry(FileAnalysis file, bool ja) => new
+    {
+        path = Clean(file.RelativePath),
+        file.Size,
+        fileType = Clean(file.FileType),
+        architecture = Clean(file.Architecture),
+        file.Sha256,
+        file.Entropy,
+        signatureStatus = Clean(file.SignatureStatus),
+        signer = Clean(file.Signer),
+        file.InternetZone,
+        sourceHost = file.SourceHost == "—" ? null : Clean(file.SourceHost),
+        archiveEntries = file.ArchiveEntries,
+        embeddedZipPayload = file.EmbeddedZipPayload,
+        archiveHasPrefix = file.ArchiveHasPrefix,
+        archivePrefixBytes = file.ArchivePrefixBytes,
+        archiveContentScanApplicable = file.ArchiveContentScanApplicable,
+        archiveContentTotalKnown = file.ArchiveContentTotalKnown,
+        archiveContentEligibleBytes = file.ArchiveContentTotalKnown ? file.ArchiveContentEligibleBytes : (long?)null,
+        archiveContentScannedBytes = file.ArchiveContentScannedBytes,
+        archiveBudgetTailEntryBodies = file.ArchiveBudgetTailEntryBodies,
+        archiveBudgetTailActiveEntries = file.ArchiveBudgetTailActiveEntries,
+        archiveBudgetTailContainerEntries = file.ArchiveBudgetTailContainerEntries,
+        nestedArchivesInspected = file.NestedArchivesInspected,
+        nestedArchiveEntriesInspected = file.NestedArchiveEntriesInspected,
+        archiveMaxDepthInspected = file.ArchiveMaxDepthInspected,
+        nestedArchiveBytesInspected = file.NestedArchiveBytesInspected,
+        shortcutTarget = file.ShortcutTarget == "—" ? null : Clean(file.ShortcutTarget),
+        shortcutArguments = file.ShortcutArguments == "—" ? null : Clean(file.ShortcutArguments),
+        file.InspectionLimited,
+        unexamined = InspectionAspects.All.Where(aspect => (file.Limits & aspect) != 0).Select(InspectionAspects.Code).ToArray(),
+        file.CapabilityScanApplicable,
+        file.CapabilityScannedBytes,
+        riskScore = file.RiskScore,
+        risk = file.RiskCode,
+        indicators = file.Indicators.Select(indicator => new
+        {
+            severity = Clean(indicator.Severity),
+            code = Clean(indicator.Code),
+            score = indicator.Score,
+            message = Clean(ja ? indicator.Japanese : indicator.English)
+        })
+    };
 
     public static string BuildBatchJson(IReadOnlyList<ScanResult> results, string language)
     {
         bool ja = !language.Equals("en", StringComparison.OrdinalIgnoreCase);
         var payload = new
         {
-            schema = "pc-black-box-batch-report-v3",
+            schema = "pc-black-box-batch-report-v4",
             generatedAt = DateTimeOffset.UtcNow,
             targetCount = results.Count,
             targets = results.Select(r => new
@@ -298,40 +304,24 @@ public static class ReportBuilder
                     activeContentCount = r.ActiveContentCount,
                     isPartial = r.IsPartial,
                     partialReason = Clean(r.PartialReason),
+                    sha256BytesRead = r.TotalBytes,
                     traversalComplete = r.TraversalComplete,
+                    unexamined = InspectionAspects.All.ToDictionary(InspectionAspects.Code, r.LimitedFileCount),
+                    capabilityEligibleBytes = r.CapabilityEligibleBytes,
+                    capabilityScannedBytes = r.CapabilityScannedBytes,
+                    archiveContentScanApplicable = r.ArchiveContentScanApplicable,
+                    archiveContentTotalKnown = r.ArchiveContentTotalKnown,
+                    archiveContentEligibleBytes = r.ArchiveContentTotalKnown ? r.ArchiveContentEligibleBytes : (long?)null,
+                    archiveContentScannedBytes = r.ArchiveContentScannedBytes,
+                    archiveBudgetTailEntryBodies = r.ArchiveBudgetTailEntryBodies,
+                    archiveBudgetTailActiveEntries = r.ArchiveBudgetTailActiveEntries,
+                    archiveBudgetTailContainerEntries = r.ArchiveBudgetTailContainerEntries,
+                    nestedArchivesInspected = r.NestedArchivesInspected,
+                    nestedArchiveEntriesInspected = r.NestedArchiveEntriesInspected,
+                    archiveMaxDepthInspected = r.ArchiveMaxDepthInspected,
+                    nestedArchiveBytesInspected = r.NestedArchiveBytesInspected,
                     durationSeconds = Math.Round(r.Duration.TotalSeconds, 3),
-                    files = r.Files.Select(file => new
-                    {
-                        path = Clean(file.RelativePath),
-                        file.Size,
-                        fileType = Clean(file.FileType),
-                        architecture = Clean(file.Architecture),
-                        file.Sha256,
-                        file.Entropy,
-                        signatureStatus = Clean(file.SignatureStatus),
-                        signer = Clean(file.Signer),
-                        file.InternetZone,
-                        sourceHost = file.SourceHost == "—" ? null : Clean(file.SourceHost),
-                        archiveEntries = file.ArchiveEntries,
-                        embeddedZipPayload = file.EmbeddedZipPayload,
-                        archiveContentScanApplicable = file.ArchiveContentScanApplicable,
-                        archiveContentScannedBytes = file.ArchiveContentScannedBytes,
-                        shortcutTarget = file.ShortcutTarget == "—" ? null : Clean(file.ShortcutTarget),
-                        shortcutArguments = file.ShortcutArguments == "—" ? null : Clean(file.ShortcutArguments),
-                        file.InspectionLimited,
-                        unexamined = InspectionAspects.All.Where(aspect => (file.Limits & aspect) != 0).Select(InspectionAspects.Code).ToArray(),
-                        file.CapabilityScanApplicable,
-                        file.CapabilityScannedBytes,
-                        riskScore = file.RiskScore,
-                        risk = file.RiskCode,
-                        indicators = file.Indicators.Select(indicator => new
-                        {
-                            severity = Clean(indicator.Severity),
-                            code = Clean(indicator.Code),
-                            score = indicator.Score,
-                            message = Clean(ja ? indicator.Japanese : indicator.English)
-                        })
-                    })
+                    files = r.Files.Select(file => BuildFileEntry(file, ja))
                 }
             }).ToList(),
             summary = new

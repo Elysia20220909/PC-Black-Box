@@ -13,6 +13,8 @@
 - `--batch` now exits with 2 when the report was written but any target is incomplete. Exit code 0 means every target finished, and 1 still means no report was written.
 - Brought `--file-list` inside the input boundary: UNC, device and alternate-stream paths and reparse points are refused, and a list is limited to 1 MiB and 1,000 targets.
 - Made the file-list risk filter follow the displayed risk code. A file whose only indicator scores 0, such as the Internet Zone mark, shows as `LOW` and is now found under LOW rather than under CLEAR.
+- Stopped the batch JSON from reporting less than a single report. Each file now comes from the same code in both reports, so a batch gains the archive prefix, ZIP-content denominator, budget-tail, and nested-archive fields, and each `targets[].result` gains the coverage totals of a single report's `result`. New fields only; the batch JSON schema is now v4, and the single-report schema stays v7.
+- `--batch` now refuses a repeated `--file-list` or `--output` instead of letting the last one win.
 
 ## 0.12.0 — 2026-08-24
 
