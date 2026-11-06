@@ -204,8 +204,11 @@ function Stop-TestProcess {
     }
 }
 
-Invoke-DotNetBuild -Project $applicationProject
-if (-not $NoBuild) { Invoke-DotNetBuild -Project $probeProject }
+if (-not $NoBuild)
+{
+    Invoke-DotNetBuild -Project $applicationProject
+    Invoke-DotNetBuild -Project $probeProject
+}
 
 foreach ($requiredPath in @($applicationAssembly, $probeAssembly))
 {
