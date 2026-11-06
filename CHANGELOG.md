@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Recorded work already on `main`: `--batch --file-list <list> --output <report.json>` for inspecting several targets, and bounded traversal of OLE storage trees through OpenMcdf 3.4.0.
+- A command line that is not recognized now exits with 1 and prints `PC_BLACK_BOX_USAGE invalid-arguments` instead of opening a window. `--report` takes exactly a target and an output, and `--batch` rejects unknown options.
+- Reported an unreadable or oversized `Zone.Identifier` as an incomplete inspection (`zone-metadata-unread`) instead of treating the file as having no mark.
+- Stopped passing inspected PE files to `FileVersionInfo`. Its product and company fields were never displayed or reported, so the parser exposure served nothing.
+- Made report sizes, entropy, durations, timestamps, and suggested report names independent of the regional format.
+- Moved the 60 and 25 risk thresholds to `RiskBands` so that codes, counts, verdicts, and colors cannot disagree.
+
 - Stopped the batch summary from reporting `LOW` when targets failed or nothing was found. `summary.overallRisk` is replaced by `overallAssessment` (the vocabulary of a single report, for example `CLEAR`, `INCOMPLETE` or `HIGH+INCOMPLETE`), `overallCompleteness` and `incompleteTargets`. The batch JSON schema is now v3.
 - `--batch` now exits with 2 when the report was written but any target is incomplete. Exit code 0 means every target finished, and 1 still means no report was written.
 - Brought `--file-list` inside the input boundary: UNC, device and alternate-stream paths and reparse points are refused, and a list is limited to 1 MiB and 1,000 targets.

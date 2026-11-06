@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
@@ -32,6 +33,9 @@ public sealed class FileInspector
     private const uint EndOfCentralDirectorySignature = 0x06054B50;
     private const int MaxSignatureChecks = 300;
     private const int ShowMinimizedNoActivate = 7;
+    private const int ErrorFileNotFound = 2;
+    private const int ErrorPathNotFound = 3;
+    private const int ErrorInvalidName = 123;
     private const int MaxOrdinaryShortcutArguments = 260;
     private const int SampleBytes = 8 * 1024 * 1024;
     private const int CapabilityChunkBytes = 1024 * 1024;
@@ -405,7 +409,7 @@ public sealed class FileInspector
         analysis.FileType = DetectFileType(sample, Path.GetExtension(path));
         DetectAdditionalZipPayload(secureStream, analysis, cancellationToken);
         analysis.Entropy = CalculateEntropy(sample);
-        ReadVersionAndPeMetadata(path, secureStream, analysis);
+        ReadPeArchitecture(secureStream, analysis);
         ReadInternetZone(path, analysis);
         DetectNameAndTypeMismatch(analysis, sample, rawRelativePath);
         if (analysis.FileType == ShortcutType) InspectShortcut(secureStream, analysis);
@@ -460,7 +464,7 @@ public sealed class FileInspector
 
     private static string DetectFileType(byte[] bytes, string extension)
     {
-        if (StartsWith(bytes, [0x4D, 0x5A])) return "Windows PE";
+        if (StartsWith(bytes, [0x4D, 0x5A])) return WindowsPeType;
         if (StartsWith(bytes, [0x50, 0x4B, 0x03, 0x04]) || StartsWith(bytes, [0x50, 0x4B, 0x05, 0x06])) return ZipPackageType;
         if (StartsWith(bytes, Encoding.ASCII.GetBytes("%PDF"))) return "PDF";
         if (StartsWith(bytes, [0x7F, 0x45, 0x4C, 0x46])) return "ELF binary";
@@ -564,6 +568,7 @@ public sealed class FileInspector
         return false;
     }
 
+    internal const string WindowsPeType = "Windows PE";
     internal const string ShortcutType = "Windows shortcut";
     internal const string ZipPackageType = "ZIP / package";
     internal const string OleCompoundType = "OLE compound";
@@ -612,17 +617,9 @@ public sealed class FileInspector
         return entropy;
     }
 
-    private static void ReadVersionAndPeMetadata(string path, FileStream stream, FileAnalysis analysis)
+    private static void ReadPeArchitecture(FileStream stream, FileAnalysis analysis)
     {
-        if (analysis.FileType != "Windows PE") return;
-        try
-        {
-            FileVersionInfo version = FileVersionInfo.GetVersionInfo(path);
-            analysis.ProductName = String.IsNullOrWhiteSpace(version.ProductName) ? "—" : version.ProductName;
-            analysis.CompanyName = String.IsNullOrWhiteSpace(version.CompanyName) ? "—" : version.CompanyName;
-        }
-        catch { }
-
+        if (analysis.FileType != WindowsPeType) return;
         try
         {
             stream.Position = 0;
@@ -634,9 +631,23 @@ public sealed class FileInspector
 
     private static void ReadInternetZone(string path, FileAnalysis analysis)
     {
+        string zoneText;
         try
         {
-            string zoneText = ReadBoundedText(path + ":Zone.Identifier", SecurityPolicy.MaxZoneIdentifierBytes);
+            zoneText = ReadBoundedText(path + ":Zone.Identifier", SecurityPolicy.MaxZoneIdentifierBytes);
+        }
+        catch (IOException exception) when (IsMissingAlternateStream(exception))
+        {
+            return;
+        }
+        catch (Exception exception) when (IsExpectedFileFailure(exception))
+        {
+            ReportZoneMetadataUnread(analysis);
+            return;
+        }
+
+        try
+        {
             Match zone = ZoneIdPattern.Match(zoneText);
             if (zone.Success && Int32.TryParse(zone.Groups["value"].Value, out int zoneId))
             {
@@ -654,8 +665,23 @@ public sealed class FileInspector
                 analysis.SourceHost = SecurityPolicy.SanitizeText(uri.IdnHost, 253);
             }
         }
-        catch { }
+        catch (RegexMatchTimeoutException)
+        {
+            ReportZoneMetadataUnread(analysis);
+        }
     }
+
+    // No stream, and a file system without streams, both mean "no mark". Anything else means "unknown".
+    private static bool IsMissingAlternateStream(IOException exception) =>
+        exception.InnerException is Win32Exception { NativeErrorCode: ErrorFileNotFound or ErrorPathNotFound or ErrorInvalidName };
+
+    private static void ReportZoneMetadataUnread(FileAnalysis analysis) =>
+        LimitInspection(analysis, InspectionLimit.Structure, new(
+            "info",
+            "zone-metadata-unread",
+            "Internet Zoneの情報を読み取れないため、入手元を確認できません",
+            "The Internet Zone metadata could not be read, so the file's origin is unknown",
+            0));
 
     private static string ReadBoundedText(string path, int maxBytes)
     {
@@ -681,7 +707,7 @@ public sealed class FileInspector
             AddIndicator(analysis, new("danger", "double-extension", "文書や画像に見せる二重拡張子です", "A double extension makes active content look like a document or image", 40));
         }
 
-        if (analysis.FileType == "Windows PE" && !new[] { ".exe", ".dll", ".sys", ".scr", ".com", ".cpl", ".ocx" }.Contains(extension, StringComparer.OrdinalIgnoreCase))
+        if (analysis.FileType == WindowsPeType && !new[] { ".exe", ".dll", ".sys", ".scr", ".com", ".cpl", ".ocx" }.Contains(extension, StringComparer.OrdinalIgnoreCase))
         {
             AddIndicator(analysis, new("danger", "pe-extension-mismatch", "拡張子とWindows実行形式が一致しません", "The extension does not match the Windows executable format", 38));
         }
@@ -704,7 +730,7 @@ public sealed class FileInspector
     {
         string extension = GetInspectionExtension(analysis);
         bool script = ScriptExtensions.Contains(extension);
-        bool pe = analysis.FileType == "Windows PE";
+        bool pe = analysis.FileType == WindowsPeType;
         // A shortcut carries a command line and an OLE package carries its strings in the open, so both are
         // read as content. Only formats whose bytes are compressed or unrecognized stay outside this pass.
         bool structured = analysis.FileType is "PDF" or ShortcutType or OleCompoundType;
@@ -2413,7 +2439,7 @@ public sealed class FileInspector
     {
         bool active = IsActiveContentExtension(GetInspectionExtension(analysis));
         bool external = analysis.InternetZone >= 3;
-        if (analysis.FileType == "Windows PE" && analysis.SignatureStatus.Equals("Valid", StringComparison.OrdinalIgnoreCase))
+        if (analysis.FileType == WindowsPeType && analysis.SignatureStatus.Equals("Valid", StringComparison.OrdinalIgnoreCase))
         {
             analysis.Indicators.RemoveAll(indicator => indicator.Score <= 5 && indicator.Code is "shell-launch" or "destructive-file" or "force-stop");
         }
@@ -2427,7 +2453,7 @@ public sealed class FileInspector
             AddIndicator(analysis, new("danger", "signature-invalid", $"署名状態を信頼できません: {analysis.SignatureStatus}", $"The signature is not trusted: {analysis.SignatureStatus}", 42));
         }
 
-        if (analysis.FileType == "Windows PE" && analysis.Entropy >= 7.55 && !analysis.SignatureStatus.Equals("Valid", StringComparison.OrdinalIgnoreCase))
+        if (analysis.FileType == WindowsPeType && analysis.Entropy >= 7.55 && !analysis.SignatureStatus.Equals("Valid", StringComparison.OrdinalIgnoreCase))
         {
             AddIndicator(analysis, new("watch", "high-entropy-pe", "未署名PEのエントロピーが高く、圧縮・暗号化の可能性があります", "The unsigned PE has high entropy and may be packed or encrypted", 18));
         }
@@ -2445,7 +2471,7 @@ public sealed class FileInspector
     {
         if (!analysis.EmbeddedZipPayload) return;
 
-        bool trustedPe = analysis.FileType == "Windows PE" &&
+        bool trustedPe = analysis.FileType == WindowsPeType &&
             analysis.SignatureStatus.Equals("Valid", StringComparison.OrdinalIgnoreCase);
         // Internet Zone 3 is normal for a legitimately downloaded installer; it cannot, by itself,
         // turn a validly signed self-extractor back into the false positive this rule is correcting.
@@ -2461,7 +2487,7 @@ public sealed class FileInspector
     }
 
     private static bool ShouldCheckSignature(FileAnalysis analysis) =>
-        analysis.FileType == "Windows PE" || SignatureExtensions.Contains(GetInspectionExtension(analysis));
+        analysis.FileType == WindowsPeType || SignatureExtensions.Contains(GetInspectionExtension(analysis));
 
     /// <summary>
     /// Records that one aspect of a file was not examined, together with the reason the operator will read.

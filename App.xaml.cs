@@ -7,12 +7,8 @@ public partial class App : Application
 {
     protected override void OnStartup(StartupEventArgs e)
     {
-        bool commandLineReport = e.Args.Length >= 3 && e.Args[0].Equals("--report", StringComparison.OrdinalIgnoreCase);
-        bool commandLineSecurityStatus = e.Args.Length == 1 && e.Args[0].Equals("--security-status", StringComparison.OrdinalIgnoreCase);
-        bool commandLineSelfTest = e.Args.Length == 1 && e.Args[0].Equals("--self-test", StringComparison.OrdinalIgnoreCase);
-        bool commandLineBatch = e.Args.Length >= 2 && e.Args[0].Equals("--batch", StringComparison.OrdinalIgnoreCase);
-        bool commandLineBoundaryHost = e.Args.Length >= 1 && e.Args[0].Equals("--runtime-boundary-test-host", StringComparison.OrdinalIgnoreCase);
-        bool commandLineMode = commandLineReport || commandLineSecurityStatus || commandLineSelfTest || commandLineBatch || commandLineBoundaryHost;
+        CommandLineMode mode = ParseCommandLineMode(e.Args);
+        bool commandLineMode = mode != CommandLineMode.Window;
 
         // Refused before the baseline is consulted, so an elevated operator reads why this was
         // declined instead of a generic verification failure. The posture still follows on the
@@ -33,8 +29,7 @@ public partial class App : Application
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
             }
-            Environment.ExitCode = 1;
-            Shutdown(1);
+            ExitWith(1);
             return;
         }
 
@@ -54,122 +49,155 @@ public partial class App : Application
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
             }
-            Environment.ExitCode = 1;
-            Shutdown(1);
+            ExitWith(1);
             return;
         }
 
         base.OnStartup(e);
 
-        if (commandLineBoundaryHost)
+        switch (mode)
         {
-            int exitCode = RunBoundaryTestHost(e.Args);
-            Environment.ExitCode = exitCode;
-            Shutdown(exitCode);
-            return;
+            case CommandLineMode.Window:
+                new MainWindow().Show();
+                break;
+            case CommandLineMode.BoundaryHost:
+                ExitWith(RunBoundaryTestHost(e.Args));
+                break;
+            case CommandLineMode.SecurityStatus:
+                WriteRuntimeStatus();
+                WriteLines(Console.Out, posture);
+                ExitWith(0);
+                break;
+            case CommandLineMode.SelfTest:
+                ExitWith(RunSelfTest());
+                break;
+            case CommandLineMode.Report:
+                ExitWith(RunReport(e.Args[1], e.Args[2]));
+                break;
+            case CommandLineMode.Batch:
+                ExitWith(RunBatch(e.Args));
+                break;
+            default:
+                // A mistyped command must not open a window that an unattended script then waits on.
+                try { Console.Error.WriteLine("PC_BLACK_BOX_USAGE invalid-arguments"); } catch { }
+                ExitWith(1);
+                break;
         }
+    }
 
-        if (commandLineSecurityStatus)
+    private void ExitWith(int exitCode)
+    {
+        Environment.ExitCode = exitCode;
+        Shutdown(exitCode);
+    }
+
+    internal enum CommandLineMode
+    {
+        Window,
+        Report,
+        SecurityStatus,
+        SelfTest,
+        Batch,
+        BoundaryHost,
+        Invalid
+    }
+
+    internal static CommandLineMode ParseCommandLineMode(IReadOnlyList<string> args)
+    {
+        if (args.Count == 0) return CommandLineMode.Window;
+        return args[0].ToLowerInvariant() switch
         {
-            WriteRuntimeStatus();
-            WriteLines(Console.Out, posture);
-            Environment.ExitCode = 0;
-            Shutdown(0);
-            return;
+            "--report" when args.Count == 3 => CommandLineMode.Report,
+            "--security-status" when args.Count == 1 => CommandLineMode.SecurityStatus,
+            "--self-test" when args.Count == 1 => CommandLineMode.SelfTest,
+            "--batch" => CommandLineMode.Batch,
+            "--runtime-boundary-test-host" => CommandLineMode.BoundaryHost,
+            _ => CommandLineMode.Invalid
+        };
+    }
+
+    private static int RunSelfTest()
+    {
+        WriteRuntimeStatus();
+        ProductSelfTestResult result = ProductSelfTest.Run();
+        try { Console.Out.WriteLine(result.SafeStatusLine); } catch { }
+        return result.Passed ? 0 : 1;
+    }
+
+    private static int RunReport(string target, string outputPath)
+    {
+        try
+        {
+            var inspector = new FileInspector();
+            ScanResult result = inspector.ScanAsync(target, null, CancellationToken.None).GetAwaiter().GetResult();
+            SafeReportWriter.Write(outputPath, ReportBuilder.Build(result, "en"), result, ".md", allowOverwrite: false);
+            return 0;
         }
-
-        if (commandLineSelfTest)
+        catch
         {
-            WriteRuntimeStatus();
-            ProductSelfTestResult result = ProductSelfTest.Run();
-            try { Console.Out.WriteLine(result.SafeStatusLine); } catch { }
-            Environment.ExitCode = result.Passed ? 0 : 1;
-            Shutdown(Environment.ExitCode);
-            return;
+            try { Console.Error.WriteLine("Inspection failed safely. No report was written."); } catch { }
+            return 1;
         }
+    }
 
-        if (commandLineReport)
+    private static int RunBatch(string[] args)
+    {
+        try
         {
-            try
+            string? fileListPath = null;
+            string? outputPath = null;
+            for (int i = 1; i < args.Length; i++)
             {
-                var inspector = new FileInspector();
-                ScanResult result = inspector.ScanAsync(e.Args[1], null, CancellationToken.None).GetAwaiter().GetResult();
-                SafeReportWriter.Write(e.Args[2], ReportBuilder.Build(result, "en"), result, ".md", allowOverwrite: false);
-                Environment.ExitCode = 0;
+                if (args[i].Equals("--file-list", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+                    fileListPath = args[++i];
+                else if (args[i].Equals("--output", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+                    outputPath = args[++i];
+                else
+                    throw new ArgumentException("--batch accepts only --file-list and --output.");
             }
-            catch
+
+            if (fileListPath is null || outputPath is null)
             {
-                try { Console.Error.WriteLine("Inspection failed safely. No report was written."); } catch { }
-                Environment.ExitCode = 1;
+                throw new ArgumentException("--batch requires --file-list and --output.");
             }
 
-            Shutdown(Environment.ExitCode);
-            return;
-        }
-
-        if (commandLineBatch)
-        {
-            try
+            List<string> targets = BatchFileList.Read(fileListPath);
+            if (targets.Count == 0)
             {
-                string? fileListPath = null;
-                string? outputPath = null;
-                for (int i = 1; i < e.Args.Length; i++)
-                {
-                    if (e.Args[i].Equals("--file-list", StringComparison.OrdinalIgnoreCase) && i + 1 < e.Args.Length)
-                        fileListPath = e.Args[++i];
-                    else if (e.Args[i].Equals("--output", StringComparison.OrdinalIgnoreCase) && i + 1 < e.Args.Length)
-                        outputPath = e.Args[++i];
-                }
+                throw new ArgumentException("The file list contains no inspection targets.");
+            }
 
-                if (fileListPath is null || outputPath is null)
+            var inspector = new FileInspector();
+            var results = new List<ScanResult>();
+            foreach (string target in targets)
+            {
+                try
                 {
-                    throw new ArgumentException("--batch requires --file-list and --output.");
+                    results.Add(inspector.ScanAsync(target, null, CancellationToken.None).GetAwaiter().GetResult());
                 }
-
-                List<string> targets = BatchFileList.Read(fileListPath);
-                if (targets.Count == 0)
+                catch
                 {
-                    throw new ArgumentException("The file list contains no inspection targets.");
-                }
-
-                var inspector = new FileInspector();
-                var results = new List<ScanResult>();
-                foreach (string target in targets)
-                {
-                    try
+                    // 個別ターゲットの失敗はバッチ全体を止めず、次のターゲットへ進む。
+                    results.Add(new ScanResult
                     {
-                        ScanResult result = inspector.ScanAsync(target, null, CancellationToken.None).GetAwaiter().GetResult();
-                        results.Add(result);
-                    }
-                    catch
-                    {
-                        // 個別ターゲットの失敗はバッチ全体を止めず、次のターゲットへ進む。
-                        results.Add(new ScanResult
-                        {
-                            TargetPath = target,
-                            TargetName = Path.GetFileName(target),
-                            StartedAt = DateTime.Now,
-                            IsPartial = true,
-                            PartialReason = "Inspection failed safely; target was skipped."
-                        });
-                    }
+                        TargetPath = target,
+                        TargetName = Path.GetFileName(target),
+                        StartedAt = DateTime.Now,
+                        IsPartial = true,
+                        PartialReason = "Inspection failed safely; target was skipped."
+                    });
                 }
-
-                string json = ReportBuilder.BuildBatchJson(results, "en");
-                SafeReportWriter.WriteBatch(outputPath, json, targets, ".json", allowOverwrite: false);
-                Environment.ExitCode = BatchExitCode(results);
-            }
-            catch
-            {
-                try { Console.Error.WriteLine("Batch inspection failed safely. No report was written."); } catch { }
-                Environment.ExitCode = 1;
             }
 
-            Shutdown(Environment.ExitCode);
-            return;
+            string json = ReportBuilder.BuildBatchJson(results, "en");
+            SafeReportWriter.WriteBatch(outputPath, json, targets, ".json", allowOverwrite: false);
+            return BatchExitCode(results);
         }
-
-        new MainWindow().Show();
+        catch
+        {
+            try { Console.Error.WriteLine("Batch inspection failed safely. No report was written."); } catch { }
+            return 1;
+        }
     }
 
     /// <summary>Exit code for a batch whose report was written but which did not finish every target.</summary>
