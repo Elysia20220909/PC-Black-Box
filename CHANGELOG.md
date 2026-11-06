@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Stopped the batch summary from reporting `LOW` when targets failed or nothing was found. `summary.overallRisk` is replaced by `overallAssessment` (the vocabulary of a single report, for example `CLEAR`, `INCOMPLETE` or `HIGH+INCOMPLETE`), `overallCompleteness` and `incompleteTargets`. The batch JSON schema is now v3.
+- `--batch` now exits with 2 when the report was written but any target is incomplete. Exit code 0 means every target finished, and 1 still means no report was written.
+- Brought `--file-list` inside the input boundary: UNC, device and alternate-stream paths and reparse points are refused, and a list is limited to 1 MiB and 1,000 targets.
+- Made the file-list risk filter follow the displayed risk code. A file whose only indicator scores 0, such as the Internet Zone mark, shows as `LOW` and is now found under LOW rather than under CLEAR.
+
 ## 0.12.0 — 2026-08-24
 
 - Promoted an exhausted ZIP-body budget from a prose-only warning to structured tail inventory. The window, Markdown, and JSON now retain the entry bodies left after that budget and the subsets whose names declare active content or another container.

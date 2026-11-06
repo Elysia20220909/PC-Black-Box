@@ -11,14 +11,11 @@ internal static class FileViewQuery
             query = query.Where(file => MatchesSearch(file, search));
         }
 
-        query = riskFilter switch
+        // Filter on the code the list displays, so a file shown as LOW can never be found only under CLEAR.
+        if (riskFilter is "HIGH" or "REVIEW" or "LOW" or "CLEAR")
         {
-            "HIGH" => query.Where(file => file.RiskScore >= 60),
-            "REVIEW" => query.Where(file => file.RiskScore is >= 25 and < 60),
-            "LOW" => query.Where(file => file.RiskScore is > 0 and < 25),
-            "CLEAR" => query.Where(file => file.RiskScore == 0),
-            _ => query
-        };
+            query = query.Where(file => file.RiskCode == riskFilter);
+        }
         return query.ToList();
     }
 

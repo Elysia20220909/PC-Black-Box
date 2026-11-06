@@ -126,14 +126,7 @@ public partial class App : Application
                     throw new ArgumentException("--batch requires --file-list and --output.");
                 }
 
-                var targets = new List<string>();
-                foreach (string line in File.ReadAllLines(fileListPath))
-                {
-                    string trimmed = line.Trim();
-                    if (trimmed.Length == 0 || trimmed.StartsWith("#")) continue;
-                    targets.Add(trimmed);
-                }
-
+                List<string> targets = BatchFileList.Read(fileListPath);
                 if (targets.Count == 0)
                 {
                     throw new ArgumentException("The file list contains no inspection targets.");
@@ -164,7 +157,7 @@ public partial class App : Application
 
                 string json = ReportBuilder.BuildBatchJson(results, "en");
                 SafeReportWriter.WriteBatch(outputPath, json, targets, ".json", allowOverwrite: false);
-                Environment.ExitCode = 0;
+                Environment.ExitCode = BatchExitCode(results);
             }
             catch
             {
@@ -178,6 +171,16 @@ public partial class App : Application
 
         new MainWindow().Show();
     }
+
+    /// <summary>Exit code for a batch whose report was written but which did not finish every target.</summary>
+    internal const int BatchIncompleteExitCode = 2;
+
+    /// <summary>
+    /// A script that reads only the exit code must not mistake an unfinished batch for a finished one.
+    /// Risk stays out of this code on purpose: it reports whether the inspection finished, not its verdict.
+    /// </summary>
+    internal static int BatchExitCode(IEnumerable<ScanResult> results) =>
+        results.Any(result => result.IsPartial) ? BatchIncompleteExitCode : 0;
 
     // Only the test runner uses this bounded, redirected session. Reaching readiness requires the
     // same elevation and required-posture checks as normal startup, before any window is created.

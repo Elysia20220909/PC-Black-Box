@@ -33,6 +33,44 @@ internal static partial class ProductSelfTest
         return refused && before == ReportWriteFixtureSnapshot(directory);
     }
 
+    private static bool RefusesBatchFileList(string path)
+    {
+        try
+        {
+            BatchFileList.Read(path);
+            return false;
+        }
+        catch (Exception exception) when (exception is IOException or SecurityException)
+        {
+            return true;
+        }
+    }
+
+    private static bool TestBatchFileListBoundaries() =>
+        WithFixtureDirectory(directory =>
+        {
+            string list = Path.Combine(directory, "list.txt");
+            File.WriteAllText(list, "# comment\r\n\r\n  C:\\first.txt  \nC:\\second.txt\n");
+            if (!BatchFileList.Read(list).SequenceEqual([@"C:\first.txt", @"C:\second.txt"])) return false;
+
+            string full = Path.Combine(directory, "full.txt");
+            File.WriteAllText(full, String.Join('\n', Enumerable.Repeat(@"C:\x.txt", BatchFileList.MaxTargets)));
+            if (BatchFileList.Read(full).Count != BatchFileList.MaxTargets) return false;
+
+            string tooMany = Path.Combine(directory, "too-many.txt");
+            File.WriteAllText(tooMany, String.Join('\n', Enumerable.Repeat(@"C:\x.txt", BatchFileList.MaxTargets + 1)));
+
+            string oversized = Path.Combine(directory, "oversized.txt");
+            File.WriteAllBytes(oversized, new byte[BatchFileList.MaxBytes + 1]);
+
+            return RefusesBatchFileList(tooMany) &&
+                   RefusesBatchFileList(oversized) &&
+                   RefusesBatchFileList(directory) &&
+                   RefusesBatchFileList(Path.Combine(directory, "missing.txt")) &&
+                   RefusesBatchFileList(list + ":stream") &&
+                   RefusesBatchFileList(@"\\example.invalid\share\list.txt");
+        });
+
     private static bool TestBatchWriterRejectsFileTargets() =>
         WithFixtureDirectory(directory =>
         {
