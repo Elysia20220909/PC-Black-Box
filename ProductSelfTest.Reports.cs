@@ -53,7 +53,7 @@ internal static partial class ProductSelfTest
         {
             using JsonDocument document = JsonDocument.Parse(ReportBuilder.BuildBatchJson(results, language));
             JsonElement root = document.RootElement;
-            if (root.GetProperty("schema").GetString() != "pc-black-box-batch-report-v2" ||
+            if (root.GetProperty("schema").GetString() != "pc-black-box-batch-report-v3" ||
                 root.GetProperty("targetCount").GetInt32() != paths.Length) return false;
             foreach (JsonElement target in root.GetProperty("targets").EnumerateArray())
             {
@@ -67,6 +67,54 @@ internal static partial class ProductSelfTest
                 value.Contains("private-server", StringComparison.OrdinalIgnoreCase))) return false;
         }
         return true;
+    }
+
+    private static bool BatchSummaryIs(
+        IReadOnlyList<ScanResult> results, string assessment, string completeness, int incomplete, int skipped)
+    {
+        using JsonDocument document = JsonDocument.Parse(ReportBuilder.BuildBatchJson(results, "en"));
+        JsonElement summary = document.RootElement.GetProperty("summary");
+        return !summary.TryGetProperty("overallRisk", out _) &&
+               summary.GetProperty("overallAssessment").GetString() == assessment &&
+               summary.GetProperty("overallCompleteness").GetString() == completeness &&
+               summary.GetProperty("incompleteTargets").GetInt32() == incomplete &&
+               summary.GetProperty("skippedTargets").GetInt32() == skipped;
+    }
+
+    private static bool TestBatchSummaryDoesNotHideFailures()
+    {
+        var failed = new ScanResult { IsPartial = true, PartialReason = "Inspection failed safely; target was skipped." };
+        var clear = new ScanResult { TargetName = "clear" };
+        var low = new ScanResult { TargetName = "low" };
+        low.Files.Add(CreateFile("download.txt", "Text", "Not checked", "—", "example.invalid",
+            new("info", "internet-origin", "由来", "Origin", 0)));
+        var high = new ScanResult { TargetName = "high" };
+        high.Files.Add(CreateFile("danger.ps1", "Script / active text", "NotSigned", "—", "—",
+            new("danger", "process-injection", "注入", "Injection", 60)));
+
+        return BatchSummaryIs([failed], "INCOMPLETE", "INCOMPLETE", 1, 1) &&
+               BatchSummaryIs([clear], "CLEAR", "COMPLETE", 0, 0) &&
+               BatchSummaryIs([clear, low], "LOW", "COMPLETE", 0, 0) &&
+               BatchSummaryIs([clear, failed], "INCOMPLETE", "INCOMPLETE", 1, 1) &&
+               BatchSummaryIs([low, failed], "LOW+INCOMPLETE", "INCOMPLETE", 1, 1) &&
+               BatchSummaryIs([high, failed], "HIGH+INCOMPLETE", "INCOMPLETE", 1, 1);
+    }
+
+    private static bool TestBatchExitCodeReportsIncompleteTargets() =>
+        App.BatchExitCode([new ScanResult { TargetName = "complete" }]) == 0 &&
+        App.BatchExitCode([new ScanResult { TargetName = "complete" }, new ScanResult { IsPartial = true }]) ==
+            App.BatchIncompleteExitCode;
+
+    private static bool TestRiskFilterFollowsDisplayedRiskCode()
+    {
+        FileAnalysis informational = CreateFile("download.txt", "Text", "Not checked", "—", "example.invalid",
+            new("info", "internet-origin", "由来", "Origin", 0));
+        FileAnalysis clear = CreateFile("plain.txt", "Text", "Not checked", "—", "—");
+        FileAnalysis[] files = [informational, clear];
+
+        return informational.RiskCode == "LOW" && clear.RiskCode == "CLEAR" &&
+               FileViewQuery.Apply(files, "LOW", null).SequenceEqual([informational]) &&
+               FileViewQuery.Apply(files, "CLEAR", null).SequenceEqual([clear]);
     }
 
     private static bool TestBatchReportPreservesOrderAndFailures()

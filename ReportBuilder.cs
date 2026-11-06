@@ -268,7 +268,7 @@ public static class ReportBuilder
         bool ja = !language.Equals("en", StringComparison.OrdinalIgnoreCase);
         var payload = new
         {
-            schema = "pc-black-box-batch-report-v2",
+            schema = "pc-black-box-batch-report-v3",
             generatedAt = DateTimeOffset.UtcNow,
             targetCount = results.Count,
             targets = results.Select(r => new
@@ -339,13 +339,28 @@ public static class ReportBuilder
                 totalBytes = results.Sum(r => r.TotalBytes),
                 totalHigh = results.Sum(r => r.HighCount),
                 totalReview = results.Sum(r => r.ReviewCount),
-                overallRisk = results.Count == 0
-                    ? "CLEAR"
-                    : (results.Max(r => r.RiskScore) >= 60 ? "HIGH" : results.Max(r => r.RiskScore) >= 25 ? "REVIEW" : "LOW"),
+                overallCompleteness = BatchIsIncomplete(results) ? "INCOMPLETE" : "COMPLETE",
+                overallAssessment = BuildBatchAssessment(results),
+                incompleteTargets = results.Count(r => r.IsPartial),
                 skippedTargets = results.Count(r => r.IsPartial && r.Files.Count == 0)
             }
         };
         return JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    private static bool BatchIsIncomplete(IReadOnlyList<ScanResult> results) =>
+        results.Count == 0 || results.Any(r => r.IsPartial);
+
+    /// <summary>
+    /// Uses the vocabulary of <see cref="ScanResult.AssessmentCode"/>. A target that was not inspected has
+    /// no risk to report, so a batch with nothing worse than that says INCOMPLETE rather than a risk level.
+    /// </summary>
+    private static string BuildBatchAssessment(IReadOnlyList<ScanResult> results)
+    {
+        string risk = new[] { "HIGH", "REVIEW", "LOW" }
+            .FirstOrDefault(code => results.Any(r => r.RiskCode == code)) ?? "CLEAR";
+        if (!BatchIsIncomplete(results)) return risk;
+        return risk == "CLEAR" ? "INCOMPLETE" : $"{risk}+INCOMPLETE";
     }
 
     // DirectoryInfo.Name returns an absolute path for a drive root. A report label must stay
