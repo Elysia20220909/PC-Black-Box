@@ -1,6 +1,6 @@
 ## Purpose and scope / 目的と範囲
 
-<!-- Before submitting code or patches, confirm permission and rights with the owner under CONTRIBUTING.md. This template does not grant redistribution rights or create a contributor agreement. コードやパッチの提出前に、所有者と提出許可・権利を確認してください。この様式は再配布の許可や貢献者契約ではありません。 -->
+<!-- Contributions are accepted under the MIT License; see CONTRIBUTING.md. 変更はMITライセンスで受け付けます。CONTRIBUTING.mdを確認してください。 -->
 
 - Intended change / 変更の目的:
 - Base commit and affected files / ベースコミットと対象ファイル:

@@ -13,6 +13,6 @@ Version 3.3.0 from the earlier application preview is not imported. The upstream
 [GHSA-gf88-675q-4hh9](https://github.com/openmcdf/openmcdf/security/advisories/GHSA-gf88-675q-4hh9)
 identify 3.4.0 as patched. Check upstream advisories alongside NuGet audit results, which may lag new reports.
 
-The application's [custom terms](LICENSE) do not replace this component's license. This source-only
+The application's [MIT License](LICENSE) does not replace this component's license. This source-only
 work does not create a distribution. Any separately authorized distribution must retain applicable
 third-party notices, the MPL text, and a way for recipients to obtain the corresponding source.
