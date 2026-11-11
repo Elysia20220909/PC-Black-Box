@@ -22,9 +22,13 @@ Checked on 2026-09-10. This is a status record, not a license agreement, legal a
 
 The published ZIP was packaged as a PC Black Box owner-review preview before the repository became public. Making the repository public did not update its bundled text or settle its distribution terms. The existing ZIP has not been renamed, rebuilt, or repackaged for StillLens.
 
-この文書作業では、公開中のリリース本文やZIPを変更していません。リリース本文が参照する文書リンクは、削除済みブランチのコミット `94a44d8` を指しており、その版にはDiscussionsを無効とする訂正前の記述が残っています。これを直すには、別途承認された公開操作が必要です。
+2026-09-12、所有者の承認を得て[公開リリース本文](https://github.com/Elysia20220909/PC-Black-Box/releases/tag/v0.13.0-preview.1)の文書リンクを訂正しました。利用・配布条件の確認状況とセキュリティ方針は、訂正済みのmainを参照します。利用条件は、旧リンク先と内容が同一であることを確認した公開済みコミット `adee10d92a481516d271cb06261eec20582aa448` に固定しました。本文のリンク先説明も更新していますが、利用条件そのものや既存ZIPへの適用判断は変更していません。
 
-This documentation pass does not change the live release notes or ZIP. The document links in those notes point at commit `94a44d8` on a deleted branch, whose revision still states that Discussions is disabled. Correcting that requires a separately approved publication step.
+On 2026-09-12, the owner authorized corrections to the document links in the [published release notes](https://github.com/Elysia20220909/PC-Black-Box/releases/tag/v0.13.0-preview.1). The usage/distribution status and security policy now link to the corrected main branch. The application terms are pinned to published commit `adee10d92a481516d271cb06261eec20582aa448`, after confirming that their content matches the previous target. The description of the linked status document was also updated; neither the terms themselves nor the decision about their application to the existing ZIP changed.
+
+ZIPとSHA-256ファイルは変更していません。GitHub APIで更新前後の添付ファイルID、名前、サイズ、記録されたSHA-256の一致を確認しました。ZIPの再ダウンロード、再梱包、アプリの再テストは行っていません。この更新記録はリリース本文のリンク訂正に限り、ほかの項目の確認日は上記のままです。
+
+The ZIP and SHA-256 file are unchanged. Before/after GitHub API results matched for asset IDs, names, sizes, and recorded SHA-256 digests. The ZIP was not downloaded again or repackaged, and the application was not retested. This update records only the release-note link correction; the other items retain the check date above.
 
 ## 本体の条件 / Application terms
 
