@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.14.0-preview.1 — 2026-11-15
+
+- Relicensed the application source under the MIT License. Third-party components keep their own terms.
+- Added a manual release workflow that builds `main`, runs the same gates as the source checks, and attaches an unsigned framework-dependent ZIP and its SHA-256 to a draft prerelease. The build carries no Authenticode signature.
+- The version skips 0.13.0, which was used by a preview built from an unmerged branch.
 - Recorded work already on `main`: `--batch --file-list <list> --output <report.json>` for inspecting several targets, and bounded traversal of OLE storage trees through OpenMcdf 3.4.0.
 - A command line that is not recognized now exits with 1 and prints `PC_BLACK_BOX_USAGE invalid-arguments` instead of opening a window. `--report` takes exactly a target and an output, and `--batch` rejects unknown options.
 - Reported an unreadable or oversized `Zone.Identifier` as an incomplete inspection (`zone-metadata-unread`) instead of treating the file as having no mark.
