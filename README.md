@@ -4,7 +4,7 @@
 
 Inspect files without running or uploading them.
 
-[English](README.en.md) / [公開済みプレビュー](https://github.com/Elysia20220909/PC-Black-Box/releases/tag/v0.13.0-preview.1) / [利用・配布条件](docs/distribution-status.md) / [セキュリティ方針](SECURITY.md)
+[English](README.en.md) / [公開済みプレビュー](https://github.com/Elysia20220909/PC-Black-Box/releases/tag/v0.14.0-preview.1) / [利用・配布条件](docs/distribution-status.md) / [セキュリティ方針](SECURITY.md)
 
 StillLensは、PC Black Boxからの名称移行を準備しているWindows向けファイル検査ツールです。ダウンロードしたファイルを実行・アップロードせず、署名、入手元、実際の形式、注意すべき特徴をローカルで整理します。安全を断定するのではなく、判断の根拠と調べ切れなかった範囲を示します。
 
@@ -20,12 +20,12 @@ StillLensは、PC Black Boxからの名称移行を準備しているWindows向�
 
 ## 公開済み版を確認する
 
-[PC Black Box v0.13.0-preview.1](https://github.com/Elysia20220909/PC-Black-Box/releases/tag/v0.13.0-preview.1)に、次のファイルがあります。
+[PC Black Box v0.14.0-preview.1](https://github.com/Elysia20220909/PC-Black-Box/releases/tag/v0.14.0-preview.1)に、次のファイルがあります。
 
-- `PC-Black-Box-v0.13.0-preview.1-win-x64.zip`
-- `PC-Black-Box-v0.13.0-preview.1-win-x64.zip.sha256`
+- `PC-Black-Box-v0.14.0-preview.1-win-x64.zip`
+- `PC-Black-Box-v0.14.0-preview.1-win-x64.zip.sha256`
 
-利用許諾を確認済みの試用者向けの手順です。この説明によって新しい利用許諾を設定するものではありません。
+公開済みプレビューを実行する手順です。ZIPには[MITライセンス](LICENSE)と第三者コンポーネントの通知を同梱しています。
 
 ### 必要な環境
 
@@ -38,14 +38,14 @@ StillLensは、PC Black Boxからの名称移行を準備しているWindows向�
 - ZIPとSHA-256ファイルを取得し、ZIPのハッシュを照合します。ファイル名を付け替えていない場合は、保存先で次のコマンドを使えます。
 
   ~~~powershell
-  Get-FileHash -LiteralPath '.\PC-Black-Box-v0.13.0-preview.1-win-x64.zip' -Algorithm SHA256
-  Get-Content -LiteralPath '.\PC-Black-Box-v0.13.0-preview.1-win-x64.zip.sha256'
+  Get-FileHash -LiteralPath '.\PC-Black-Box-v0.14.0-preview.1-win-x64.zip' -Algorithm SHA256
+  Get-Content -LiteralPath '.\PC-Black-Box-v0.14.0-preview.1-win-x64.zip.sha256'
   ~~~
 
 - ZIP全体を展開し、EXEとDLL、説明書、ライセンス文書を一緒に保ちます。EXEだけを取り出さないでください。
 - 同梱READMEと第三者ライセンス文書を確認し、`PC Black Box.exe`を通常権限で起動します。
 
-EXEと本体DLLは自己署名の開発者証明書で署名されています。ハッシュ一致は検証対象と同じファイルであることを確認するもので、安全性や発行者の信頼を保証しません。別PCでの信頼やSmartScreen警告の解消も保証しません。警告を消すためだけに証明書を信頼ストアへ登録したり、Windowsの保護機能を無効にしたりしないでください。
+この版のEXEとDLLにはAuthenticode署名がありません。SmartScreenの警告が表示されます。ハッシュ一致は検証対象と同じファイルであることを確認するもので、安全性や発行者の信頼を保証しません。警告を消すためだけにWindowsの保護機能を無効にしないでください。
 
 ## 基本操作
 
@@ -65,14 +65,15 @@ EXEと本体DLLは自己署名の開発者証明書で署名されています�
 
 この作業版では、現行mainのバッチCLI・シャドウスタック診断とGUIなし検証を維持し、プレビューのOLE内部解析を選択して移植しています。OpenMcdfは修正版3.4.0に固定しています。VBA本体やMSIテーブルの意味は解読せず、該当する構造は未完了と表示します。以下は過去の版の対応表です。現在の制限は[脅威モデル](THREAT_MODEL.md)、依存の出所は[第三者コンポーネント](THIRD-PARTY-NOTICES.md)を参照してください。
 
-2026-09-10に確認した対応です。今後の更新時には、タグとコミットを確認してください。
+2026-09-10に確認した対応です。0.14.0-preview.1の行は2026-11-15に追加しました。今後の更新時には、タグとコミットを確認してください。
 
 | 対象 | 基になるコミット | 注意点 |
 |---|---|---|
 | この文書変更のベースとなるmain 0.12.0 | `2278b0f` | OLE内部のストレージ木は解析しません。[技術リファレンス](docs/reference-main.md)はこの版の説明です |
 | PC Black Box 0.13.0-preview.1 | `831eb7f` | PR #19のコミットから作成。mainへは未マージです。[この版のソース](https://github.com/Elysia20220909/PC-Black-Box/tree/831eb7fba4e2c7eb0a434d5e3a2240a0ee3a0c97)を参照してください |
+| PC Black Box 0.14.0-preview.1 | `d20a384` | mainから作成した現在の公開プレビュー。MITライセンス、署名なし。GitHub Actionsでビルドしています |
 
-プレビュー作成時には、展開後DLLの自己テスト111件、必須保護16/16、実行時境界9件を確認しました。これは指定したプレビューの当該端末での結果であり、mainや別PCの合格を示すものではありません。GUI操作と別PCでの起動は未確認です。
+0.13.0-preview.1の作成時には、展開後DLLの自己テスト111件、必須保護16/16、実行時境界9件を確認しました。0.14.0-preview.1は、ビルドしたGitHub Actionsの実行環境で自己テスト144件、必須保護16/16、実行時境界9件を確認しました。いずれも当該の版と環境での結果であり、別PCの合格を示すものではありません。GUI操作と別PCでの起動は未確認です。
 
 ## 開発する人へ
 
