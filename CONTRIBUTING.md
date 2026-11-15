@@ -2,9 +2,11 @@
 
 StillLens is the planned new name for PC Black Box. The current executable, project file, settings location, and repository URL still use their existing names. Do not rename them as part of an unrelated contribution.
 
-The repository is private and a PC Black Box preview is available to authorized users through GitHub Releases. The source tree excludes release artifacts. The application in this revision is governed by [custom terms](LICENSE): noncommercial personal use and private modification are permitted, while commercial use and redistribution are prohibited. Third-party components retain their own licenses. This guide does not create a contributor license agreement or grant redistribution rights. See [usage and distribution status](docs/distribution-status.md) for the published preview and unresolved SDK requirements.
+The repository is public and a PC Black Box preview is available through GitHub Releases. The source tree excludes release artifacts. The application source is released under the [MIT License](LICENSE). Third-party components retain their own licenses. See [usage and distribution status](docs/distribution-status.md) for the published preview and unresolved SDK requirements.
 
-本体は非商用の個人利用と手元での改変に限って許可し、商用利用と再配布は禁止します。変更やパッチを提出する前に、所有者と提出方法、許可、権利の扱いを確認してください。公開PRによるコードの再公開を、この案内だけで許可するものではありません。第三者ライセンスとGitHub規約が別途認める権利は妨げません。
+本体のソースは[MITライセンス](LICENSE)で公開しています。提出された変更は、別途の合意がない限り同じMITライセンスで提供されたものとして扱います。他者のコードを含める場合は、MITと両立する条件であることと出典を明記してください。第三者コンポーネントは各自のライセンスに従います。
+
+By submitting a change, you agree that it is provided under the same MIT License unless a separate agreement says otherwise. Identify the source and license of any third-party code you include, and include only code whose terms are compatible with MIT.
 
 参加時は[行動規範](CODE_OF_CONDUCT.md)を守り、相談の種類に応じて[SUPPORT.md](SUPPORT.md)の窓口を使ってください。Issueテンプレートは将来の受付に備えたもので、Issuesの有効化やコード提出の許可ではありません。
 
@@ -14,7 +16,7 @@ Follow the [code of conduct](CODE_OF_CONDUCT.md) and use the appropriate contact
 
 - Read [README.md](README.md), [README.en.md](README.en.md), [SECURITY.md](SECURITY.md), and [THREAT_MODEL.md](THREAT_MODEL.md). Follow [AGENTS.md](AGENTS.md) for work in this repository.
 - Confirm the intended scope with the owner through an available, appropriate channel. Do not assume an intake channel is enabled; check its current status before directing anyone to it.
-- Rechecked on 2026-09-10: [Discussions](https://github.com/Elysia20220909/PC-Black-Box/discussions) is enabled for general questions; Issues and GitHub private vulnerability reporting remain disabled. Do not direct testers to an inactive issue form or publish sensitive details in Discussions or other public channels. Use the general contact in [README.md](README.md) to discuss contribution scope without sending code or sensitive attachments first. Confirm permission and an appropriate submission method before sharing changes; private modification permission alone does not authorize patch redistribution.
+- Rechecked on 2026-09-10: [Discussions](https://github.com/Elysia20220909/PC-Black-Box/discussions) is enabled for general questions; Issues and GitHub private vulnerability reporting remain disabled. Do not direct testers to an inactive issue form or publish sensitive details in Discussions or other public channels. Use the general contact in [README.md](README.md) to discuss contribution scope without sending code or sensitive attachments first. Agree on the scope and submission method before opening a large change.
 - Never place vulnerability details in a public issue or pull request. Use the process in [SECURITY.md](SECURITY.md).
 - Use a dedicated branch and working directory. Preserve unrelated changes and identify the exact base commit.
 - Keep implementation claims tied to that commit. A feature or passing check on another branch is not evidence for the default branch.

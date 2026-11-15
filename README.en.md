@@ -8,7 +8,7 @@ Inspect files without running or uploading them.
 
 StillLens is the planned new name for PC Black Box, a Windows file inspection tool. It organizes signatures, origin metadata, actual file formats, and attention-worthy features locally without executing or uploading the target. It shows evidence and unexamined scope rather than certifying safety.
 
-> The published application is still named PC Black Box. The repository URL, executable names, and settings location have not changed. The application in this documentation revision has [custom terms](LICENSE): noncommercial personal use and private modification are permitted; commercial use and paid or free redistribution are prohibited. Third-party components retain their own terms. Application of these terms to the published ZIP and recipient agreement for Microsoft SDK components remain unresolved. Availability for download does not establish that all general-distribution conditions have been met. Read the [current status](docs/distribution-status.md) first.
+> The published application is still named PC Black Box. The repository URL, executable names, and settings location have not changed. The application source is released under the [MIT License](LICENSE). Third-party components retain their own terms. The published ZIP still bundles the terms it was packaged with, and recipient agreement for Microsoft SDK components remains unresolved. Availability for download does not establish that all general-distribution conditions have been met. Read the [current status](docs/distribution-status.md) first.
 
 ## When it helps
 
@@ -25,7 +25,7 @@ It does not replace antivirus software, a dynamic sandbox, or a cloud reputation
 - `PC-Black-Box-v0.13.0-preview.1-win-x64.zip`
 - `PC-Black-Box-v0.13.0-preview.1-win-x64.zip.sha256`
 
-These instructions are for testers whose permission to use the build has been confirmed. They do not establish a new license.
+These instructions describe how to run the published preview. They do not change the terms bundled in that ZIP.
 
 ### Requirements
 

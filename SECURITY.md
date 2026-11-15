@@ -2,7 +2,7 @@
 
 StillLens is the planned new name for PC Black Box. The application and executable names have not changed. This policy describes the existing PC Black Box security boundaries; a name transition does not add protection or certification.
 
-The repository is private, and a PC Black Box preview is available to authorized users through GitHub Releases. This documentation revision includes [custom application terms](LICENSE) permitting noncommercial personal use and private modification, but prohibiting commercial use and redistribution. Third-party terms remain separate. Application of these terms to the published ZIP and SDK recipient agreement remain unresolved; availability is not distribution clearance. See [usage and distribution status](docs/distribution-status.md). The source tree must not contain release binaries or private artifacts.
+The repository is public, and a PC Black Box preview is available through GitHub Releases. The application source is released under the [MIT License](LICENSE). Third-party terms remain separate. The published ZIP still bundles the terms it was packaged with, and SDK recipient agreement remains unresolved; availability is not distribution clearance. See [usage and distribution status](docs/distribution-status.md). The source tree must not contain release binaries or private artifacts.
 
 The detailed boundary below describes this working revision, including batch JSON v2. The 0.12.0 reference documentation describes the historical commit `2278b0f`; the published 0.13.0-preview.1 comes from `831eb7f` in PR #19. Consult the source and verification evidence for the revision actually used. Passing tests on that preview do not validate this revision or another computer.
 

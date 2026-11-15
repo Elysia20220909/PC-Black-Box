@@ -35,9 +35,9 @@ Do not initially attach inspected files, suspicious executables, raw reports, lo
 
 ## 利用と受付の境界 / Usage and intake boundaries
 
-本体は非商用の個人利用・手元での改変に限定した[独自利用条件](LICENSE)で、商用利用と再配布は禁止します。第三者のライセンスは別扱いです。[配布条件の確認状況](docs/distribution-status.md)にある既存プレビュー・SDKの未解決事項も残っています。相談やフォームへの記入だけで、対象版の利用許諾やコード提出の許可が成立するものではありません。
+本体のソースは[MITライセンス](LICENSE)で公開しています。第三者のライセンスは別扱いです。[配布条件の確認状況](docs/distribution-status.md)にある既存プレビュー・SDKの未解決事項は残っています。変更の提出方法は[CONTRIBUTING.md](CONTRIBUTING.md)に従ってください。
 
-The [custom application terms](LICENSE) allow noncommercial personal use and private modification, not commercial use or redistribution. Third-party licenses remain separate, and the existing-preview and SDK questions in the [distribution status](docs/distribution-status.md) remain unresolved. Contacting the project or filling in a template does not establish version-specific usage or code-submission permission.
+The application source is released under the [MIT License](LICENSE). Third-party licenses remain separate, and the existing-preview and SDK questions in the [distribution status](docs/distribution-status.md) remain unresolved. Follow [CONTRIBUTING.md](CONTRIBUTING.md) to submit changes.
 
 不具合報告と改善提案のIssueフォームは将来の受付に備えたものです。フォームの定義を追加しただけではIssuesを有効にせず、mainへの反映と機能の有効化が済むまでは利用できません。フォームの必須チェックは自己確認であり、機密情報の自動検出や削除を行うものではありません。フォームを使える場合も、脆弱性や機密情報は公開しないでください。
 

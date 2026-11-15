@@ -52,6 +52,6 @@ Reports are handled on a need-to-know basis, avoiding unnecessary publication. R
 
 ## 関連する条件 / Related policies
 
-脆弱性は[SECURITY.md](SECURITY.md)、一般の相談は[SUPPORT.md](SUPPORT.md)、変更提案は[CONTRIBUTING.md](CONTRIBUTING.md)に従ってください。この規範は、本体の[利用条件](LICENSE)を変更せず、商用利用・再配布・コード提出の新たな許可を与えません。
+脆弱性は[SECURITY.md](SECURITY.md)、一般の相談は[SUPPORT.md](SUPPORT.md)、変更提案は[CONTRIBUTING.md](CONTRIBUTING.md)に従ってください。この規範は、本体の[ライセンス](LICENSE)を変更しません。
 
-Use [SECURITY.md](SECURITY.md) for vulnerabilities, [SUPPORT.md](SUPPORT.md) for general support, and [CONTRIBUTING.md](CONTRIBUTING.md) for proposed changes. This code does not change the [application license](LICENSE) or grant additional permission for commercial use, redistribution, or code submission.
+Use [SECURITY.md](SECURITY.md) for vulnerabilities, [SUPPORT.md](SUPPORT.md) for general support, and [CONTRIBUTING.md](CONTRIBUTING.md) for proposed changes. This code does not change the [application license](LICENSE).

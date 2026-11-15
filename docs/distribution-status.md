@@ -15,7 +15,7 @@ Checked on 2026-09-10. This is a status record, not a license agreement, legal a
 | Release source | `831eb7fba4e2c7eb0a434d5e3a2240a0ee3a0c97` from PR #19; not merged into main |
 | Documentation base | main 0.12.0, `6e37910e15d646b9590832da3a2ba37fc9008a4c`; application code unchanged since `2278b0feeed7aad47a80624b9f7813c4a61c439f` |
 | Planned name | StillLens; the repository URL, EXE/DLL names, and settings location are unchanged |
-| Application license | Custom noncommercial personal-use / no-redistribution terms, published to main in PR #20; not applied to the existing ZIP |
+| Application license | MIT License on main. It replaced the custom noncommercial terms from PR #20. The existing ZIP still bundles the terms it was packaged with |
 | Reporting channels | Rechecked on 2026-09-10: Discussions is enabled for non-sensitive general questions. Issues and GitHub private vulnerability reporting remain disabled; the general contact below has unverified delivery. Public channels are not for vulnerabilities or sensitive information |
 
 公開済みZIPはPC Black Box名義の所有者確認用プレビューとして梱包されたものです。その後リポジトリがPublicになりましたが、ZIP内の説明や利用条件を更新したわけではありません。ダウンロード可能という事実と、一般配布の条件が確定したかどうかは区別します。
@@ -28,15 +28,13 @@ This documentation pass does not change the live release notes or ZIP. The docum
 
 ## 本体の条件 / Application terms
 
-本体の条件は[LICENSE](../LICENSE)にまとめています。非商用の個人利用・試用と手元での改変を許可し、業務を含む商用利用、有償・無償の再配布を禁止します。対象は、この条件を添付した改訂の本体ソース、バイナリ、関連文書です。MITやオープンソースライセンスではありません。
+本体のソースは[MITライセンス](../LICENSE)で公開しています。商用利用、改変、再配布を含めて、著作権表示と許諾表示を保持する限り許可します。第三者コンポーネントには各自のライセンスが適用され、MITに置き換わるものではありません。
 
-The [LICENSE](../LICENSE) permits noncommercial personal use, evaluation, and private modification of the application revision accompanied by those terms. Commercial use, including business use, and paid or free redistribution of application source, binaries, documentation, or modified versions are prohibited. This is a custom license, not MIT or an open-source license.
+The application source is released under the [MIT License](../LICENSE), which permits use, modification, and redistribution, including commercial use, provided the copyright and permission notices are retained. Third-party components keep their own licenses; MIT does not replace them.
 
-第三者コンポーネントの権利、適用法が制限を認めない権利、GitHub規約が別途認める権利は制限しません。公開リポジトリの閲覧・フォークなど、GitHubサービス内の権利をこの条件で取り消すものではありません。それをサービス外の再配布や商用利用の許可とは扱いません。[GitHub利用規約](https://docs.github.com/en/site-policy/github-terms/github-terms-of-service#5-license-grant-to-other-users)
+公開中の `v0.13.0-preview.1` のZIPとリリース本文には、梱包時の独自条件が残っています。それらの差し替えは、別途承認された公開操作で行います。外部からの貢献は[CONTRIBUTING.md](../CONTRIBUTING.md)のとおり、MITライセンスで受け付けます。
 
-Third-party rights, rights that applicable law does not allow to be restricted, and rights separately granted under GitHub's terms remain unaffected. Public-repository viewing and forking rights within GitHub are not revoked; they are not a general grant of off-platform redistribution or commercial-use rights.
-
-この条件はPR #20でmainへ公開済みで、公開中のリリース本文にも記載しています。既存ZIPへは適用しておらず、過去に別途与えられた権利を遡って取り消すものではありません。既存プレビューへの適用と外部貢献の受け入れ条件は別途確認します。
+The published `v0.13.0-preview.1` ZIP and release notes still carry the custom terms they were packaged with. Replacing them requires a separately approved publication step. External contributions are accepted under the MIT License as described in [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 These terms are published on main through PR #20 and are described in the live release notes. They have not been applied to the existing ZIP, and do not retroactively revoke separately granted rights. Application to the existing preview and contribution acceptance terms require separate confirmation.
 
@@ -75,16 +73,16 @@ MicrosoftのREDIST一覧は、WinRT APIの呼び出しを可能にするWindows�
 
 Microsoft's REDIST list names the two SDK DLLs for unmodified inclusion in a Windows application to enable WinRT API calls. Listing is not proof that every SDK license condition is satisfied. Applicable distributor and external-end-user agreement requirements must be checked against the actual distribution arrangement; including the license text is not evidence of agreement.
 
-- [x] 本体の条件を所有者が選び、mainへ公開する。 / Owner selects custom application terms; published to main.
+- [x] 本体のライセンスを所有者が選び、mainへ公開する。 / Owner selects the application license (MIT); published to main.
 - [ ] SDKの適用条件と受領者同意の方法を確認する。 / Confirm applicable SDK requirements and the recipient-agreement mechanism.
 - [ ] 選択した本体の条件と第三者ライセンスが両立するか確認する。 / Check compatibility with the chosen application terms.
 - [ ] 既存プレビューの扱いと、必要な文書・配布手順の更新を所有者が承認する。 / Owner decides how to handle the existing preview and approves any required document or distribution changes.
 - [x] 試用・一般の不具合の連絡先をmainへ掲載する。 / Publish the owner-provided general contact on main.
 - [ ] 外部試用の前に、対象版の使用許諾、メールの到達性、安全な報告手順を確認する。 / Confirm version-specific tester permission, contact delivery, and secure reporting before organized external testing.
 
-これらが未確定のまま「誰でも自由に利用・改変・再配布できる」「一般配布の確認はすべて完了した」とは案内しません。既存リリースの非公開化・削除・差し替えも、この文書では実行しません。
+これらが未確定のまま「既存ZIPを含めて一般配布の確認はすべて完了した」とは案内しません。既存リリースの非公開化・削除・差し替えも、この文書では実行しません。
 
-Until resolved, do not advertise unrestricted use, modification, or redistribution, or claim complete distribution clearance. This document does not unpublish, delete, or replace the existing release.
+Until resolved, do not claim complete distribution clearance for the existing ZIP or other binary distributions. This document does not unpublish, delete, or replace the existing release.
 
 ## 名称移行と検証の境界 / Rename and verification boundaries
 
