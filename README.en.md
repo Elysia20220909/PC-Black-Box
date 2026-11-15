@@ -4,7 +4,7 @@ Inspect files without running or uploading them.
 
 ファイルを動かさず、手掛かりを見る。
 
-[日本語](README.md) / [Published preview](https://github.com/Elysia20220909/PC-Black-Box/releases/tag/v0.13.0-preview.1) / [Usage and distribution status](docs/distribution-status.md) / [Security policy](SECURITY.md)
+[日本語](README.md) / [Published preview](https://github.com/Elysia20220909/PC-Black-Box/releases/tag/v0.14.0-preview.1) / [Usage and distribution status](docs/distribution-status.md) / [Security policy](SECURITY.md)
 
 StillLens is the planned new name for PC Black Box, a Windows file inspection tool. It organizes signatures, origin metadata, actual file formats, and attention-worthy features locally without executing or uploading the target. It shows evidence and unexamined scope rather than certifying safety.
 
@@ -20,12 +20,12 @@ It does not replace antivirus software, a dynamic sandbox, or a cloud reputation
 
 ## Find the published build
 
-[PC Black Box v0.13.0-preview.1](https://github.com/Elysia20220909/PC-Black-Box/releases/tag/v0.13.0-preview.1) contains:
+[PC Black Box v0.14.0-preview.1](https://github.com/Elysia20220909/PC-Black-Box/releases/tag/v0.14.0-preview.1) contains:
 
-- `PC-Black-Box-v0.13.0-preview.1-win-x64.zip`
-- `PC-Black-Box-v0.13.0-preview.1-win-x64.zip.sha256`
+- `PC-Black-Box-v0.14.0-preview.1-win-x64.zip`
+- `PC-Black-Box-v0.14.0-preview.1-win-x64.zip.sha256`
 
-These instructions describe how to run the published preview. They do not change the terms bundled in that ZIP.
+These instructions describe how to run the published preview. The ZIP bundles the [MIT License](LICENSE) and third-party notices.
 
 ### Requirements
 
@@ -38,14 +38,14 @@ These instructions describe how to run the published preview. They do not change
 - Download the ZIP and SHA-256 file, then compare the ZIP's hash. If the downloaded names are unchanged, run these commands in their directory:
 
   ~~~powershell
-  Get-FileHash -LiteralPath '.\PC-Black-Box-v0.13.0-preview.1-win-x64.zip' -Algorithm SHA256
-  Get-Content -LiteralPath '.\PC-Black-Box-v0.13.0-preview.1-win-x64.zip.sha256'
+  Get-FileHash -LiteralPath '.\PC-Black-Box-v0.14.0-preview.1-win-x64.zip' -Algorithm SHA256
+  Get-Content -LiteralPath '.\PC-Black-Box-v0.14.0-preview.1-win-x64.zip.sha256'
   ~~~
 
 - Extract the entire ZIP and keep the EXE, DLLs, readme, and license documents together. Do not copy the EXE on its own.
 - Review the included README and third-party notices, then start `PC Black Box.exe` as a standard user.
 
-The EXE and application DLL use a self-signed developer certificate. A matching hash establishes correspondence with the checked file, not software safety or a trusted publisher. Trust on another PC and the absence of SmartScreen warnings are not guaranteed. Do not add a certificate to a trust store or disable Windows protection simply to suppress a warning.
+The EXE and DLLs in this build carry no Authenticode signature, so SmartScreen shows a warning. A matching hash establishes correspondence with the checked file, not software safety or a trusted publisher. Do not disable Windows protection simply to suppress a warning.
 
 ## Basic use
 
@@ -65,14 +65,15 @@ Current batch JSON uses `pc-black-box-batch-report-v4`. Each file's fields and e
 
 This working revision selectively ports OLE traversal while preserving the current main's batch CLI, shadow-stack diagnostics, and headless verification. It pins the corrected OpenMcdf 3.4.0. VBA bodies and Installer table semantics are not decoded and retain incomplete structure. The table below records historical versions; consult the [threat model](THREAT_MODEL.md) for current limits and [third-party notices](THIRD-PARTY-NOTICES.md) for dependency provenance.
 
-This mapping was checked on 2026-09-10. Recheck tags and commits for later updates.
+This mapping was checked on 2026-09-10; the 0.14.0-preview.1 row was added on 2026-11-15. Recheck tags and commits for later updates.
 
 | Scope | Source commit | Important distinction |
 |---|---|---|
 | main 0.12.0, the base for this documentation change | `2278b0f` | Does not parse OLE storage trees. The [technical reference](docs/reference-main.en.md) describes this version |
 | PC Black Box 0.13.0-preview.1 | `831eb7f` | Built from PR #19, not merged into main. Refer to [that version's source](https://github.com/Elysia20220909/PC-Black-Box/tree/831eb7fba4e2c7eb0a434d5e3a2240a0ee3a0c97) |
+| PC Black Box 0.14.0-preview.1 | `d20a384` | The current published preview, built from main by GitHub Actions. MIT License, unsigned |
 
-During preview preparation, the extracted DLL passed 111 self-tests, 16/16 required controls, and nine runtime-boundary checks. These results belong to that preview on the tested host, not to main or another computer. Interactive GUI use and startup on another PC remain unverified.
+During preparation of 0.13.0-preview.1, the extracted DLL passed 111 self-tests, 16/16 required controls, and nine runtime-boundary checks. 0.14.0-preview.1 passed 144 self-tests, 16/16 required controls, and nine runtime-boundary checks on the GitHub Actions runner that built it. Each result belongs to that version and host, not to another computer. Interactive GUI use and startup on another PC remain unverified.
 
 ## For developers
 
