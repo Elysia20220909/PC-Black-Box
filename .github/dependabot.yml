@@ -1,0 +1,18 @@
+# Weekly update proposals. Every proposal arrives as a pull request and passes the same gates as any
+# other change; nothing here merges on its own.
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directories:
+      - /
+      - /tests/RuntimeBoundaryProbe
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: dotnet-sdk
+    directory: /
+    schedule:
+      interval: weekly
