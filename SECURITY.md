@@ -8,15 +8,15 @@ The detailed boundary below describes this working revision, including batch JSO
 
 ## Reporting
 
-Rechecked on 2026-09-10: Discussions is enabled, while Issues and GitHub private vulnerability reporting remain disabled. Discussions is public and must not be used to disclose vulnerabilities or sensitive information. This is a dated status, not a promise about future availability. The contact below can be used to request a secure reporting method; it is not a verified vulnerability-intake channel.
+Rechecked on 2026-11-22: GitHub private vulnerability reporting and Discussions are enabled, while Issues remains disabled. Report a suspected vulnerability privately through [Report a vulnerability](https://github.com/Elysia20220909/PC-Black-Box/security/advisories/new). Discussions is public and must not be used to disclose vulnerabilities or sensitive information. This is a dated status, not a promise about future availability.
 
-Do not disclose suspected vulnerabilities in public issues, pull requests, discussions, or social media. Use GitHub's private vulnerability reporting only when a "Report a vulnerability" option is available on this repository's Security page. The presence of this document does not mean that the reporting feature is enabled.
+Do not disclose suspected vulnerabilities in public issues, pull requests, discussions, or social media. Use GitHub's private vulnerability reporting through the "Report a vulnerability" option on this repository's Security page.
 
 For trials and general bugs, contact [ChloeFlora23047120947120@protonmail.com](mailto:ChloeFlora23047120947120@protonmail.com). If private vulnerability reporting is unavailable, use this address only to request a secure reporting method, without sending vulnerability details or attachments first. Delivery and a secure intake process have not been verified. Wait for confirmation before sharing sensitive evidence; do not use a public issue or pull request as a fallback. No response time is guaranteed.
 
 Include only the minimum evidence needed to reproduce the issue. Never attach credentials, raw packet captures, private download URLs, personal paths, or unredacted reports.
 
-一般の不具合は上記アドレスへ連絡できます。初回はバージョン、Windowsの版、症状と再現手順だけを送り、実際の調査対象や未編集のレポートは添付しないでください。脆弱性の可能性がある場合は詳細を送らず、安全な受け渡し方法を先に確認してください。メールの到達性と安全な受付手順は未確認で、返信時期は保証しません。
+一般の不具合は上記アドレスへ連絡できます。初回はバージョン、Windowsの版、症状と再現手順だけを送り、実際の調査対象や未編集のレポートは添付しないでください。脆弱性の可能性がある場合は、メールへ詳細を送らず、このリポジトリのSecurityページにある[Report a vulnerability](https://github.com/Elysia20220909/PC-Black-Box/security/advisories/new)から非公開で報告してください。メールの到達性と安全な受付手順は未確認で、返信時期は保証しません。
 
 ## Repository boundary
 

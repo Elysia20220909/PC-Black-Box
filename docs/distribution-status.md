@@ -11,12 +11,12 @@ Checked on 2026-09-10. This is a status record, not a license agreement, legal a
 | 項目 / Item | 確認した状態 / Verified status |
 |---|---|
 | Repository | `Elysia20220909/PC-Black-Box` is public |
-| Published release | `v0.13.0-preview.1` is a published prerelease, not a Draft |
-| Release source | `831eb7fba4e2c7eb0a434d5e3a2240a0ee3a0c97` from PR #19; not merged into main |
+| Published release | `v0.14.0-preview.1` is the current published prerelease. `v0.13.0-preview.1` remains published as an earlier prerelease |
+| Release source | `v0.14.0-preview.1`: `d20a384ededc2703e6c3d9620c5408ddb43317c9` on main, built by the release workflow, unsigned. `v0.13.0-preview.1`: `831eb7fba4e2c7eb0a434d5e3a2240a0ee3a0c97` from PR #19; not merged into main |
 | Documentation base | main 0.12.0, `6e37910e15d646b9590832da3a2ba37fc9008a4c`; application code unchanged since `2278b0feeed7aad47a80624b9f7813c4a61c439f` |
 | Planned name | StillLens; the repository URL, EXE/DLL names, and settings location are unchanged |
 | Application license | MIT License on main. It replaced the custom noncommercial terms from PR #20. The existing ZIP still bundles the terms it was packaged with |
-| Reporting channels | Rechecked on 2026-09-10: Discussions is enabled for non-sensitive general questions. Issues and GitHub private vulnerability reporting remain disabled; the general contact below has unverified delivery. Public channels are not for vulnerabilities or sensitive information |
+| Reporting channels | Rechecked on 2026-11-22: Discussions is enabled for non-sensitive general questions and GitHub private vulnerability reporting is enabled. Issues remains disabled; the general contact below has unverified delivery. Public channels are not for vulnerabilities or sensitive information |
 
 公開済みZIPはPC Black Box名義の所有者確認用プレビューとして梱包されたものです。その後リポジトリがPublicになりましたが、ZIP内の説明や利用条件を更新したわけではありません。ダウンロード可能という事実と、一般配布の条件が確定したかどうかは区別します。
 
