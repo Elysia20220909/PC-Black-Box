@@ -93,7 +93,9 @@ and reported as `unavailable` where it does not. Reinforcements are displayed, n
 - ZIP decompression relies on the supported .NET runtime's native `System.IO.Compression.Native.dll`.
   The application verifies where native images may be loaded from and bounds every call around the
   inflater, but it cannot independently prove the memory safety of that runtime component. Applying .NET
-  servicing updates is part of the deployment boundary.
+  servicing updates is part of the deployment boundary. Startup refuses a runtime outside the .NET 10 line
+  or below the patch floor in `RuntimePatchFloor` (10.0.15) before any inspection mode runs; the floor is
+  raised by hand when a servicing release carries security fixes.
 - A process DACL affects later access checks. Windows does not revoke a full-access handle already
   returned to a launcher or held before lockdown, so a hostile launcher is outside this boundary.
 - The inspection path refuses to run unless the required tier is enforced, and a standard test host

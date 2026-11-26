@@ -33,6 +33,29 @@ public partial class App : Application
             return;
         }
 
+        // Refused before any inspection mode can reach the parser. The runtime's native inflater is a
+        // trusted dependency only once servicing updates are applied, so an unserviced runtime is a
+        // reason to stop, not a warning to click through.
+        if (RuntimePatchFloor.IsCurrentRefused)
+        {
+            base.OnStartup(e);
+            Version runtime = Environment.Version;
+            if (commandLineMode)
+            {
+                try { Console.Error.WriteLine(RuntimePatchFloor.SafeRefusalLine(runtime)); } catch { }
+            }
+            else
+            {
+                MessageBox.Show(
+                    RuntimePatchFloor.BuildRefusalMessage(runtime, IsJapanese()),
+                    "PC Black Box",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+            ExitWith(1);
+            return;
+        }
+
         SecurityPosture posture = WindowsProcessHardening.Current;
         if (!posture.IsEnforced)
         {
