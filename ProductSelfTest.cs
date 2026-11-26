@@ -66,6 +66,8 @@ internal static partial class ProductSelfTest
             Require(ProcessObjectLockdown.VerifyDistinctTokenOwnerModel(), ref checks);
             Require(TestBaselineFailureMessage(), ref checks);
             Require(TestElevationRefusalMessage(), ref checks);
+            Require(TestRuntimePatchFloor(), ref checks);
+            Require(TestRuntimePatchFloorRefusal(), ref checks);
             Require(WindowsProcessHardening.VerifyReportedSideChannelPolicy(), ref checks);
             Require(NetworkIsolationGuard.IsArmedAndManagedTransportFree(), ref checks);
             Require(
@@ -274,6 +276,36 @@ internal static partial class ProductSelfTest
         App.BuildElevationRefusalMessage(japanese: false).Contains("administrator rights", StringComparison.Ordinal) &&
         App.BuildElevationRefusalMessage(japanese: true).Contains("通常の権限で起動", StringComparison.Ordinal) &&
         ProcessElevation.SafeRefusalLine.Equals("PC_BLACK_BOX_ELEVATION elevated=true refusing=true", StringComparison.Ordinal);
+
+    /// <summary>
+    /// Locks the boundary in both directions: every 10.0 patch below the floor and every other major
+    /// version is refused, and the floor itself and later 10.x patches are accepted. The live runtime is
+    /// checked at startup instead: a refused process exits before the self-test can run.
+    /// </summary>
+    private static bool TestRuntimePatchFloor() =>
+        RuntimePatchFloor.Minimum == new System.Version(10, 0, 15) &&
+        RuntimePatchFloor.IsRefused(new System.Version(10, 0, 0)) &&
+        RuntimePatchFloor.IsRefused(new System.Version(10, 0, 14)) &&
+        RuntimePatchFloor.IsRefused(new System.Version(9, 0, 99)) &&
+        RuntimePatchFloor.IsRefused(new System.Version(11, 0, 0)) &&
+        RuntimePatchFloor.IsRefused(new System.Version(11, 0, 15)) &&
+        !RuntimePatchFloor.IsRefused(new System.Version(10, 0, 15)) &&
+        !RuntimePatchFloor.IsRefused(new System.Version(10, 0, 15, 0)) &&
+        !RuntimePatchFloor.IsRefused(new System.Version(10, 0, 16)) &&
+        !RuntimePatchFloor.IsRefused(new System.Version(10, 1, 0));
+
+    /// <summary>The refusal names both versions in either language, and its machine-readable line stays fixed.</summary>
+    private static bool TestRuntimePatchFloorRefusal()
+    {
+        var old = new System.Version(10, 0, 3);
+        string english = RuntimePatchFloor.BuildRefusalMessage(old, japanese: false);
+        string japanese = RuntimePatchFloor.BuildRefusalMessage(old, japanese: true);
+        return english.Contains("10.0.3", StringComparison.Ordinal) && english.Contains("10.0.15", StringComparison.Ordinal) &&
+            japanese.Contains("10.0.3", StringComparison.Ordinal) && japanese.Contains("10.0.15", StringComparison.Ordinal) &&
+            japanese.Contains("更新", StringComparison.Ordinal) &&
+            RuntimePatchFloor.SafeRefusalLine(old).Equals(
+                "PC_BLACK_BOX_RUNTIME_FLOOR version=10.0.3 minimum=10.0.15 refusing=true", StringComparison.Ordinal);
+    }
 
     /// <summary>Locks the documented score bands and the clamp that keeps a score inside 0–100.</summary>
     private static bool TestRiskBands()

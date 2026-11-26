@@ -58,6 +58,9 @@ pwsh tests/Test-RuntimeBoundaries.ps1
 - **昇格して起動しない。** 0.7.2 以降、管理者権限での起動は専用メッセージで拒否される
   （コマンドラインでは `PC_BLACK_BOX_ELEVATION elevated=true refusing=true`、終了コード 1）。
   ゲートを回すときに管理者ターミナルを使わないこと。
+- **古いランタイムで起動しない。** .NET 10.0.15 未満、または .NET 10 以外のメジャー版が選ばれると、
+  起動時に拒否される（コマンドラインでは `PC_BLACK_BOX_RUNTIME_FLOOR version=<検出版> minimum=10.0.15 refusing=true`、
+  終了コード 1）。`DOTNET_ROLL_FORWARD` で別のメジャー版へ繰り上げた場合も同じ。
 - exe を **CreateProcess で直接**起動すると、環境によっては拒否される。実測例:
   bash の `./PC Black Box.exe` → `Permission denied`、PowerShell の
   `Start-Process -NoNewWindow -RedirectStandardOutput` → `ERROR_ELEVATION_REQUIRED`。

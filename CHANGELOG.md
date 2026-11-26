@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Refused to start on a .NET runtime below 10.0.15 or outside the .NET 10 line. The runtimeconfig still names 10.0.0, so an unserviced runtime could otherwise run the parser without its published security fixes. The window shows the found and required versions, and the command-line modes print `PC_BLACK_BOX_RUNTIME_FLOOR version=<found> minimum=10.0.15 refusing=true` and exit with 1.
+- Corrected the README and CONTRIBUTING to the .NET 11 SDK that `global.json` requires.
+
 ## 0.14.0-preview.1 — 2026-11-15
 
 - Relicensed the application source under the MIT License. Third-party components keep their own terms.

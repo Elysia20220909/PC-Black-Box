@@ -30,7 +30,7 @@ StillLensは、PC Black Boxからの名称移行を準備しているWindows向�
 ### 必要な環境
 
 - [.NET 10がサポートするWindows](https://learn.microsoft.com/ja-jp/dotnet/core/install/windows#supported-versions)のx64環境。Windows 10は対象のLTSC / Enterprise版に限られます。
-- 更新済みの[x64版 .NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0)。ZIPにはランタイムを含みません。実行だけならSDKは不要です。
+- [x64版 .NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) の10.0.15以降。これより古い10.0.xや別のメジャー版では、ファイルを調べずに終了します。ZIPにはランタイムを含みません。実行だけならSDKは不要です。
 - アプリは通常権限で使用します。管理者としての起動は拒否されます。
 
 ### 確認してから起動する
@@ -77,7 +77,7 @@ StillLensは、PC Black Boxからの名称移行を準備しているWindows向�
 
 ## 開発する人へ
 
-本体の利用・変更条件を確認したうえで、ソースと依存関係をレビューしてからビルドしてください。必要なのは[Git](https://git-scm.com/downloads)と[.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)です。次はmainを取得する手順で、公開済みプレビューを再現する手順ではありません。
+本体の利用・変更条件を確認したうえで、ソースと依存関係をレビューしてからビルドしてください。必要なのは[Git](https://git-scm.com/downloads)と[.NET 11 SDK](https://dotnet.microsoft.com/download/dotnet/11.0)です（`global.json` で11.0.100以降のパッチを指定）。次はmainを取得する手順で、公開済みプレビューを再現する手順ではありません。
 
 ~~~powershell
 git clone --branch main https://github.com/Elysia20220909/PC-Black-Box.git

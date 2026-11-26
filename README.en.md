@@ -30,7 +30,7 @@ These instructions describe how to run the published preview. The ZIP bundles th
 ### Requirements
 
 - An x64 edition of [Windows supported by .NET 10](https://learn.microsoft.com/en-us/dotnet/core/install/windows#supported-versions). Windows 10 support is limited to the listed LTSC / Enterprise releases.
-- A serviced [x64 .NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0). The ZIP does not include the runtime. Running the application does not require the SDK.
+- The [x64 .NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0), 10.0.15 or later. On an older 10.0.x or another major version, the application closes without inspecting files. The ZIP does not include the runtime. Running the application does not require the SDK.
 - Run the application as a standard user. Elevated startup is refused.
 
 ### Verify before starting
@@ -77,7 +77,7 @@ During preparation of 0.13.0-preview.1, the extracted DLL passed 111 self-tests,
 
 ## For developers
 
-Confirm the applicable usage and modification terms, then review the source and dependencies before building. Development requires [Git](https://git-scm.com/downloads) and the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0). These commands obtain main; they are not instructions for reproducing the published preview.
+Confirm the applicable usage and modification terms, then review the source and dependencies before building. Development requires [Git](https://git-scm.com/downloads) and the [.NET 11 SDK](https://dotnet.microsoft.com/download/dotnet/11.0) (`global.json` selects 11.0.100 or a later patch). These commands obtain main; they are not instructions for reproducing the published preview.
 
 ~~~powershell
 git clone --branch main https://github.com/Elysia20220909/PC-Black-Box.git
